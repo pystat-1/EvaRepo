@@ -151,6 +151,17 @@ are clear.
 
 _Newest entry on top. One entry per work session — what was done, what's next._
 
+> **⚠ Needs human attention: Netlify auto-deploy did not trigger for commit
+> `8cb600a` (pushed to `main`).** Production is **not** broken — the site is
+> still serving the previous deploy (`6aa886b7a192600008ef1a77`, commit
+> `1be92b9`) fine — but the Phase 4a work below is committed and pushed
+> without being live yet. See the entry immediately below for details and
+> what was checked. Likely worth checking the Netlify site's
+> "Build & deploy" → repository/webhook link in the dashboard, especially
+> since a GitHub App was just (re)installed for this repo per the
+> push-capability-test entry further down — that may have changed which
+> integration Netlify listens to for deploy triggers.
+
 ### 2026-09-14 — Goal 4 Phase 4a (PWA shell) shipped
 - Autonomous run. Goal 2 (Google OAuth) still blocked — no
   `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` documented anywhere in this file —
@@ -177,9 +188,24 @@ _Newest entry on top. One entry per work session — what was done, what's next.
   `/sw.js`, `/offline.html`, `/icon-192.png` all serve 200, and `/login`'s
   HTML includes the `<link rel="manifest">` and `<meta name="theme-color">`
   tags. Pushed to `main` after rebasing onto a concurrent push-capability
-  test commit (see the entry below this one) — deploy status confirmed
-  separately below.
-- **Next step:** Goal 4 Phase 4b ("Import once": IndexedDB store for the
+  test commit that landed on origin mid-session (see the entry below this
+  one) — final pushed commit is `8cb600a`.
+- **Deploy check (per the hard safety rules): did not confirm ready.**
+  Polled Netlify (`get-project` on site `400fb70b-5646-424a-baf2-ae5cfd9e5e9b`)
+  for ~10 minutes after the push. `currentDeploy` never changed from
+  `6aa886b7a192600008ef1a77` (commit `1be92b9`, the *previous* push, which
+  itself deployed fine in ~64s) — no new deploy for `8cb600a` ever appeared,
+  successful or failed. This doesn't look like a build failure (nothing to
+  revert — the previous deploy is still `ready` and serving, so production
+  isn't broken); it looks like the auto-deploy trigger itself didn't fire
+  for this push. Per the rules ("never touch Netlify settings beyond
+  read-only status checks"), did not attempt to investigate further or
+  force a deploy — flagged at the top of this log for a human to check the
+  site's repository/webhook link in the Netlify dashboard.
+- **Next step:** a human should confirm Netlify is picking up pushes to
+  `main` again (check Build & deploy settings / trigger a manual deploy if
+  needed) and verify Phase 4a actually goes live. Once that's confirmed,
+  continue with Goal 4 Phase 4b ("Import once": IndexedDB store for the
   evaluator's schedule/roster/rubric via a small wrapper like `idb`, plus an
   explicit "استيراد الجدول للعمل دون اتصال" import action on `/schedule`).
   Goal 2 stays skipped until the user hands over the Google OAuth

@@ -144,6 +144,9 @@ are clear.
 
 _Newest entry on top. One entry per work session — what was done, what's next._
 
+### 2026-09-14 — Push-capability re-test
+- Cloud routine push-capability re-test succeeded after GitHub App install.
+
 ### 2026-09-15 — Goals 1 & 3 shipped, Goal 2/4 scoped
 - User answered the open questions: Google Sign-In added alongside existing auth
   (user provisions OAuth credentials and will hand them over); offline goal is a

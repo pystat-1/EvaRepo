@@ -26,6 +26,9 @@ export interface StudentWithRelations extends Student {
   studyTypeName: string | null;
   groupName: string | null;
   courseLabel: string | null;
+  // "YYYY-N" — the stable, parseable form of the course (courseLabel may be
+  // a free-text label instead); used for CSV export round-tripping.
+  courseCode: string | null;
 }
 
 function serialize(row: {
@@ -75,6 +78,7 @@ export async function listStudents(includeInactive = false): Promise<StudentWith
     studyTypeName: r.studyType?.name ?? null,
     groupName: r.group?.name ?? null,
     courseLabel: r.course ? r.course.label ?? `${r.course.year}-${r.course.number}` : null,
+    courseCode: r.course ? `${r.course.year}-${r.course.number}` : null,
   }));
 }
 
@@ -209,6 +213,27 @@ export interface ImportResult {
   errors: { row: number; message: string }[];
 }
 
+function parseShiftCell(value: string | undefined): Shift | undefined {
+  const s = value?.trim().toUpperCase();
+  if (!s) return undefined;
+  if (s === "MORNING" || s === "صباحي" || s === "AM") return "MORNING";
+  if (s === "EVENING" || s === "مسائي" || s === "PM") return "EVENING";
+  throw new Error(`Unknown shift "${value}" (expected MORNING/EVENING)`);
+}
+
+// Course cell is "year-number", e.g. "2026-1" — matches how it's exported.
+async function resolveCourseId(value: string | undefined): Promise<string | null> {
+  const v = value?.trim();
+  if (!v) return null;
+  const match = v.match(/^(\d{4})-(\d)$/);
+  if (!match) throw new Error(`Unknown course format "${v}" (expected "YYYY-N", e.g. "2026-1")`);
+  const course = await prisma.course.findUnique({
+    where: { year_number: { year: Number(match[1]), number: Number(match[2]) } },
+  });
+  if (!course) throw new Error(`Unknown course "${v}"`);
+  return course.id;
+}
+
 export async function importStudents(
   actorId: string,
   rows: Array<{
@@ -218,6 +243,8 @@ export async function importStudents(
     email?: string;
     studyType?: string;
     group?: string;
+    course?: string;
+    shift?: string;
   }>
 ): Promise<ImportResult> {
   const result: ImportResult = { created: 0, updated: 0, errors: [] };
@@ -247,6 +274,8 @@ export async function importStudents(
         if (!g) throw new Error(`Unknown group "${row.group}"`);
         groupId = g.id;
       }
+      const courseId = await resolveCourseId(row.course);
+      const shift = parseShiftCell(row.shift) ?? null;
 
       const existing = await getStudentByUniversityNumber(row.universityNumber.trim());
       if (existing) {
@@ -256,6 +285,8 @@ export async function importStudents(
           email: row.email,
           studyTypeId,
           groupId,
+          courseId,
+          shift,
         });
         result.updated++;
       } else {
@@ -266,6 +297,8 @@ export async function importStudents(
           email: row.email,
           studyTypeId,
           groupId,
+          courseId,
+          shift,
         });
         result.created++;
       }

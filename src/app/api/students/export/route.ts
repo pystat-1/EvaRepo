@@ -16,12 +16,15 @@ export async function GET() {
   const students = await listStudents(true);
   const csv = Papa.unparse(
     students.map((s) => ({
+      code: s.code ?? "",
       universityNumber: s.universityNumber,
       nameAr: s.nameAr,
       nameEn: s.nameEn ?? "",
       email: s.email ?? "",
       studyType: s.studyTypeName ?? "",
       group: s.groupName ?? "",
+      course: s.courseCode ?? "",
+      shift: s.shift ?? "",
       active: s.active ? "yes" : "no",
     }))
   );

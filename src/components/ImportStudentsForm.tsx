@@ -12,8 +12,10 @@ export default function ImportStudentsForm() {
     <div className="card">
       <h2 className="font-semibold mb-1">استيراد من ملف CSV</h2>
       <p className="text-xs text-slate-500 mb-3">
-        الأعمدة المتوقعة: universityNumber, nameAr, nameEn, email, studyType, group — يتم
-        الدمج حسب الرقم الجامعي (لا يتم إنشاء طالب مكرر عند إعادة الاستيراد).
+        الأعمدة المتوقعة: universityNumber, nameAr, nameEn, email, studyType, group, course,
+        shift — يتم الدمج حسب الرقم الجامعي (لا يتم إنشاء طالب مكرر عند إعادة الاستيراد).
+        عمود course بصيغة "السنة-رقم الدورة" مثل 2026-1، وshift بقيمة MORNING أو EVENING. رمز
+        الطالب (code) يُولَّد تلقائيًا عند توفر course وstudyType ولا يُقرأ من الملف.
       </p>
       <form action={formAction} className="flex flex-wrap items-end gap-3">
         <input type="file" name="file" accept=".csv,text/csv" required className="input" />

@@ -55,7 +55,8 @@ export interface ImportActionState {
 }
 
 // Bulk import: CSV columns expected are
-// universityNumber,nameAr,nameEn,email,studyType,group
+// universityNumber,nameAr,nameEn,email,studyType,group,course,shift
+// (course is "YYYY-N", e.g. "2026-1"; shift is MORNING/EVENING)
 export async function importStudentsAction(
   _prev: ImportActionState,
   formData: FormData
@@ -81,6 +82,8 @@ export async function importStudentsAction(
     email: r.email,
     studyType: r.studyType,
     group: r.group,
+    course: r.course ?? r["الدورة"],
+    shift: r.shift ?? r["الوردية"],
   }));
   const result = await importStudents(session.sub, rows);
   revalidatePath("/students");

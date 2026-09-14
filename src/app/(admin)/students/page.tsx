@@ -131,7 +131,10 @@ export default async function StudentsPage() {
                     {s.active ? "فعّال" : "معطّل"}
                   </span>
                 </td>
-                <td>
+                <td className="flex gap-2">
+                  <a href={`/grading-center/student/${s.id}`} className="btn btn-secondary text-xs px-2 py-1">
+                    التقييمات
+                  </a>
                   <form action={toggleStudentActiveAction}>
                     <input type="hidden" name="id" value={s.id} />
                     <input type="hidden" name="active" value={s.active ? "0" : "1"} />

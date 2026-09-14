@@ -165,7 +165,9 @@ export default async function GradingCenterPage({
               <tr key={r.id}>
                 <td>{r.dateISO}</td>
                 <td>
-                  {r.studentName}
+                  <a href={`/grading-center/student/${r.studentId}`} className="hover:underline">
+                    {r.studentName}
+                  </a>
                   <div className="text-xs text-slate-400">{r.universityNumber}</div>
                 </td>
                 <td className="font-mono text-xs">{r.studentCode ?? "—"}</td>

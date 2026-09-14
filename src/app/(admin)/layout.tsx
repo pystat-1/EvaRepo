@@ -13,6 +13,7 @@ const NAV = [
   { href: "/hospitals", label: "المستشفيات" },
   { href: "/study-types", label: "أنواع الدراسة" },
   { href: "/evaluators", label: "المقيّمون" },
+  { href: "/grading-center", label: "مركز التقييم" },
   { href: "/rubric", label: "معيار التقييم" },
   { href: "/statistics", label: "الإحصائيات" },
   { href: "/flags", label: "التنبيهات" },

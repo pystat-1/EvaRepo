@@ -50,4 +50,5 @@ export async function gradeStudentAction(formData: FormData) {
 
   revalidatePath(`/grade/${studentId}`);
   revalidatePath("/my");
+  revalidatePath("/grading-center");
 }

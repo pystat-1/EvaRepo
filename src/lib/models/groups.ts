@@ -4,26 +4,34 @@
 import { prisma } from "../db";
 import { recordAudit } from "../audit";
 
+export type Shift = "MORNING" | "EVENING";
+
 export interface Group {
   id: string;
   name: string;
   cycleLabel: string | null;
-  hospitalId: string | null;
+  courseId: string | null;
+  shift: Shift | null;
+  studyTypeId: string | null;
   active: boolean;
   createdAt: string;
   updatedAt: string;
 }
 
-export interface GroupWithHospital extends Group {
-  hospitalName: string | null;
+export interface GroupWithRelations extends Group {
+  courseLabel: string | null;
+  studyTypeName: string | null;
   studentCount: number;
+  currentHospitalName: string | null;
 }
 
 function serialize(row: {
   id: string;
   name: string;
   cycleLabel: string | null;
-  hospitalId: string | null;
+  courseId: string | null;
+  shift: string | null;
+  studyTypeId: string | null;
   active: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -32,26 +40,42 @@ function serialize(row: {
     id: row.id,
     name: row.name,
     cycleLabel: row.cycleLabel,
-    hospitalId: row.hospitalId,
+    courseId: row.courseId,
+    shift: row.shift as Shift | null,
+    studyTypeId: row.studyTypeId,
     active: row.active,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
 }
 
-export async function listGroups(includeInactive = false): Promise<GroupWithHospital[]> {
+function courseLabel(course: { year: number; number: number; label: string | null } | null): string | null {
+  if (!course) return null;
+  return course.label ?? `${course.year}-${course.number}`;
+}
+
+export async function listGroups(includeInactive = false): Promise<GroupWithRelations[]> {
+  const today = new Date().toISOString().slice(0, 10);
   const rows = await prisma.group.findMany({
     where: includeInactive ? undefined : { active: true },
     orderBy: { name: "asc" },
     include: {
-      hospital: { select: { name: true } },
+      course: { select: { year: true, number: true, label: true } },
+      studyType: { select: { name: true } },
       _count: { select: { students: { where: { active: true } } } },
+      rotationBlocks: {
+        where: { active: true, startDate: { lte: today }, endDate: { gte: today } },
+        include: { hospital: { select: { name: true } } },
+        take: 1,
+      },
     },
   });
   return rows.map((r: any) => ({
     ...serialize(r),
-    hospitalName: r.hospital?.name ?? null,
+    courseLabel: courseLabel(r.course),
+    studyTypeName: r.studyType?.name ?? null,
     studentCount: r._count.students,
+    currentHospitalName: r.rotationBlocks[0]?.hospital.name ?? null,
   }));
 }
 
@@ -62,13 +86,15 @@ export async function getGroup(id: string): Promise<Group | undefined> {
 
 export async function createGroup(
   actorId: string,
-  data: { name: string; cycleLabel?: string; hospitalId?: string | null }
+  data: { name: string; cycleLabel?: string; courseId?: string | null; shift?: Shift | null; studyTypeId?: string | null }
 ): Promise<Group> {
   const row = await prisma.group.create({
     data: {
       name: data.name,
       cycleLabel: data.cycleLabel ?? null,
-      hospitalId: data.hospitalId ?? null,
+      courseId: data.courseId ?? null,
+      shift: data.shift ?? null,
+      studyTypeId: data.studyTypeId ?? null,
     },
   });
   const created = serialize(row);
@@ -79,7 +105,14 @@ export async function createGroup(
 export async function updateGroup(
   actorId: string,
   id: string,
-  data: { name?: string; cycleLabel?: string; hospitalId?: string | null; active?: boolean }
+  data: {
+    name?: string;
+    cycleLabel?: string;
+    courseId?: string | null;
+    shift?: Shift | null;
+    studyTypeId?: string | null;
+    active?: boolean;
+  }
 ): Promise<Group> {
   const beforeRow = await prisma.group.findUnique({ where: { id } });
   if (!beforeRow) throw new Error("Group not found");
@@ -89,7 +122,9 @@ export async function updateGroup(
     data: {
       name: data.name ?? before.name,
       cycleLabel: data.cycleLabel ?? before.cycleLabel,
-      hospitalId: data.hospitalId === undefined ? before.hospitalId : data.hospitalId,
+      courseId: data.courseId === undefined ? before.courseId : data.courseId,
+      shift: data.shift === undefined ? before.shift : data.shift,
+      studyTypeId: data.studyTypeId === undefined ? before.studyTypeId : data.studyTypeId,
       active: data.active === undefined ? before.active : data.active,
     },
   });

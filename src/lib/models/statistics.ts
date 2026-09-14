@@ -27,11 +27,16 @@ export async function getGroupStats(): Promise<GroupStat[]> {
   const maxTotal = await getMaxTotal();
   const passThreshold = maxTotal * PASS_RATIO;
 
+  const today = new Date().toISOString().slice(0, 10);
   const groups = await prisma.group.findMany({
     where: { active: true },
     orderBy: { name: "asc" },
     include: {
-      hospital: { select: { name: true } },
+      rotationBlocks: {
+        where: { active: true, startDate: { lte: today }, endDate: { gte: today } },
+        include: { hospital: { select: { name: true } } },
+        take: 1,
+      },
       _count: { select: { students: { where: { active: true } } } },
     },
   });
@@ -62,7 +67,7 @@ export async function getGroupStats(): Promise<GroupStat[]> {
     return {
       groupId: g.id,
       groupName: g.name,
-      hospitalName: g.hospital?.name ?? null,
+      hospitalName: g.rotationBlocks[0]?.hospital.name ?? null,
       evaluationCount,
       studentCount: g._count.students,
       averageTotal: agg?._avg.total ?? 0,

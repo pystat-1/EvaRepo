@@ -61,15 +61,24 @@ function serialize(row: {
   };
 }
 
+// Resolves the student's group's hospital for a given date off the
+// rotation schedule (see RotationBlock) rather than a static field — a
+// group's hospital changes as it rotates, so this is looked up per date.
 async function getStudentGroupHospital(
-  studentId: string
+  studentId: string,
+  dateISO: string
 ): Promise<{ groupId: string | null; hospitalId: string | null }> {
   const student = await prisma.student.findUnique({
     where: { id: studentId },
-    include: { group: { select: { hospitalId: true } } },
+    select: { groupId: true },
   });
   if (!student) throw new Error("Student not found");
-  return { groupId: student.groupId, hospitalId: student.group?.hospitalId ?? null };
+  if (!student.groupId) return { groupId: null, hospitalId: null };
+  const block = await prisma.rotationBlock.findFirst({
+    where: { groupId: student.groupId, active: true, startDate: { lte: dateISO }, endDate: { gte: dateISO } },
+    select: { hospitalId: true },
+  });
+  return { groupId: student.groupId, hospitalId: block?.hospitalId ?? null };
 }
 
 function attachScoresFromRelation(scores: { rubricSectionId: string; score: number }[]): Record<string, number> {
@@ -150,7 +159,7 @@ export async function upsertEvaluation(
     total += score;
   }
 
-  const { groupId, hospitalId } = await getStudentGroupHospital(input.studentId);
+  const { groupId, hospitalId } = await getStudentGroupHospital(input.studentId, input.dateISO);
   const existing = await getEvaluationForStudentDate(input.studentId, input.dateISO);
 
   if (existing?.locked) throw new Error("هذا التقييم مقفل ولا يمكن تعديله");

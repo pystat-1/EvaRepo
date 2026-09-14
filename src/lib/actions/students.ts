@@ -5,6 +5,11 @@ import Papa from "papaparse";
 import { requireRole } from "../auth";
 import { createStudent, updateStudent, importStudents, ImportResult } from "../models/students";
 
+function parseShift(value: FormDataEntryValue | null): "MORNING" | "EVENING" | null {
+  const s = String(value ?? "").trim();
+  return s === "MORNING" || s === "EVENING" ? s : null;
+}
+
 export async function createStudentAction(formData: FormData) {
   const session = await requireRole("ADMIN");
   await createStudent(session.sub, {
@@ -14,6 +19,8 @@ export async function createStudentAction(formData: FormData) {
     email: String(formData.get("email") ?? "").trim() || undefined,
     studyTypeId: String(formData.get("studyTypeId") ?? "") || null,
     groupId: String(formData.get("groupId") ?? "") || null,
+    courseId: String(formData.get("courseId") ?? "") || null,
+    shift: parseShift(formData.get("shift")),
   });
   revalidatePath("/students");
 }
@@ -28,6 +35,8 @@ export async function updateStudentAction(formData: FormData) {
     email: String(formData.get("email") ?? "").trim(),
     studyTypeId: String(formData.get("studyTypeId") ?? "") || null,
     groupId: String(formData.get("groupId") ?? "") || null,
+    courseId: String(formData.get("courseId") ?? "") || null,
+    shift: parseShift(formData.get("shift")),
   });
   revalidatePath("/students");
 }

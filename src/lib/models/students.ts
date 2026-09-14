@@ -4,6 +4,8 @@
 import { prisma } from "../db";
 import { recordAudit } from "../audit";
 
+export type Shift = "MORNING" | "EVENING";
+
 export interface Student {
   id: string;
   universityNumber: string;
@@ -12,6 +14,9 @@ export interface Student {
   email: string | null;
   studyTypeId: string | null;
   groupId: string | null;
+  courseId: string | null;
+  shift: Shift | null;
+  code: string | null;
   active: boolean;
   createdAt: string;
   updatedAt: string;
@@ -20,6 +25,7 @@ export interface Student {
 export interface StudentWithRelations extends Student {
   studyTypeName: string | null;
   groupName: string | null;
+  courseLabel: string | null;
 }
 
 function serialize(row: {
@@ -30,6 +36,9 @@ function serialize(row: {
   email: string | null;
   studyTypeId: string | null;
   groupId: string | null;
+  courseId: string | null;
+  shift: string | null;
+  code: string | null;
   active: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -42,6 +51,9 @@ function serialize(row: {
     email: row.email,
     studyTypeId: row.studyTypeId,
     groupId: row.groupId,
+    courseId: row.courseId,
+    shift: row.shift as Shift | null,
+    code: row.code,
     active: row.active,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -55,12 +67,14 @@ export async function listStudents(includeInactive = false): Promise<StudentWith
     include: {
       studyType: { select: { name: true } },
       group: { select: { name: true } },
+      course: { select: { year: true, number: true, label: true } },
     },
   });
   return rows.map((r: any) => ({
     ...serialize(r),
     studyTypeName: r.studyType?.name ?? null,
     groupName: r.group?.name ?? null,
+    courseLabel: r.course ? r.course.label ?? `${r.course.year}-${r.course.number}` : null,
   }));
 }
 
@@ -83,6 +97,34 @@ export interface StudentInput {
   email?: string;
   studyTypeId?: string | null;
   groupId?: string | null;
+  courseId?: string | null;
+  shift?: Shift | null;
+}
+
+// Builds the "Year-Course-StudyType-Sequence" code (e.g. "26-1-N-0001") and
+// picks the next free sequence number for this (course, studyType) pair.
+// Only possible once both a course and a study type (with a code) are set —
+// a student can otherwise exist without a code and get one assigned later.
+async function generateStudentCode(courseId: string, studyTypeId: string): Promise<string> {
+  const [course, studyType] = await Promise.all([
+    prisma.course.findUnique({ where: { id: courseId } }),
+    prisma.studyType.findUnique({ where: { id: studyTypeId } }),
+  ]);
+  if (!course) throw new Error("الدورة غير موجودة");
+  if (!studyType) throw new Error("نوع الدراسة غير موجود");
+  if (!studyType.code) {
+    throw new Error(`نوع الدراسة "${studyType.name}" ليس له رمز مختصر بعد — أضِف رمزًا من صفحة أنواع الدراسة أولاً`);
+  }
+  const prefix = `${String(course.year).slice(-2)}-${course.number}-${studyType.code}-`;
+
+  const existingCount = await prisma.student.count({ where: { courseId, studyTypeId } });
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const seq = existingCount + 1 + attempt;
+    const candidate = `${prefix}${String(seq).padStart(4, "0")}`;
+    const clash = await prisma.student.findUnique({ where: { code: candidate } });
+    if (!clash) return candidate;
+  }
+  throw new Error("تعذر توليد رمز فريد للطالب — حاول مرة أخرى");
 }
 
 export async function createStudent(actorId: string, data: StudentInput): Promise<Student> {
@@ -91,6 +133,8 @@ export async function createStudent(actorId: string, data: StudentInput): Promis
   if (await getStudentByUniversityNumber(data.universityNumber.trim())) {
     throw new Error(`A student with university number "${data.universityNumber}" already exists`);
   }
+  const code =
+    data.courseId && data.studyTypeId ? await generateStudentCode(data.courseId, data.studyTypeId) : null;
   const row = await prisma.student.create({
     data: {
       universityNumber: data.universityNumber.trim(),
@@ -99,6 +143,9 @@ export async function createStudent(actorId: string, data: StudentInput): Promis
       email: data.email?.trim() ?? null,
       studyTypeId: data.studyTypeId ?? null,
       groupId: data.groupId ?? null,
+      courseId: data.courseId ?? null,
+      shift: data.shift ?? null,
+      code,
     },
   });
   const created = serialize(row);
@@ -120,6 +167,10 @@ export async function updateStudent(
       throw new Error(`University number "${data.universityNumber}" is already used by another student`);
     }
   }
+  const studyTypeId = data.studyTypeId === undefined ? before.studyTypeId : data.studyTypeId;
+  const courseId = data.courseId === undefined ? before.courseId : data.courseId;
+  const code = !before.code && courseId && studyTypeId ? await generateStudentCode(courseId, studyTypeId) : before.code;
+
   const row = await prisma.student.update({
     where: { id },
     data: {
@@ -127,8 +178,11 @@ export async function updateStudent(
       nameAr: data.nameAr?.trim() ?? before.nameAr,
       nameEn: data.nameEn?.trim() ?? before.nameEn,
       email: data.email?.trim() ?? before.email,
-      studyTypeId: data.studyTypeId === undefined ? before.studyTypeId : data.studyTypeId,
+      studyTypeId,
       groupId: data.groupId === undefined ? before.groupId : data.groupId,
+      courseId,
+      shift: data.shift === undefined ? before.shift : data.shift,
+      code,
       active: data.active === undefined ? before.active : data.active,
     },
   });

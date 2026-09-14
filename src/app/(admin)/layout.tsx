@@ -7,6 +7,7 @@ import { countUnseenFlags } from "@/lib/models/flags";
 const NAV = [
   { href: "/dashboard", label: "الرئيسية" },
   { href: "/students", label: "الطلاب" },
+  { href: "/courses", label: "الدورات" },
   { href: "/groups", label: "المجموعات" },
   { href: "/hospitals", label: "المستشفيات" },
   { href: "/study-types", label: "أنواع الدراسة" },

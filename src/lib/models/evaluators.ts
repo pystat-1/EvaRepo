@@ -225,16 +225,21 @@ export async function getScopedGroupIds(accountId: string): Promise<string[]> {
     select: { hospitalId: true, groupId: true },
   });
 
+  const today = new Date().toISOString().slice(0, 10);
   const groupIds = new Set<string>();
   for (const a of assignments) {
     if (a.groupId) {
       groupIds.add(a.groupId);
     } else {
-      const groups = await prisma.group.findMany({
-        where: { hospitalId: a.hospitalId, active: true },
-        select: { id: true },
+      // No specific group on the assignment: "every group currently at
+      // this hospital," resolved from today's rotation blocks rather than
+      // a static hospital link, since a group's hospital changes as it
+      // rotates.
+      const blocks = await prisma.rotationBlock.findMany({
+        where: { hospitalId: a.hospitalId, active: true, startDate: { lte: today }, endDate: { gte: today } },
+        select: { groupId: true },
       });
-      groups.forEach((g: any) => groupIds.add(g.id));
+      blocks.forEach((b) => groupIds.add(b.groupId));
     }
   }
   return Array.from(groupIds);
@@ -252,11 +257,20 @@ export interface ScopedStudent {
 export async function getScopedStudents(accountId: string): Promise<ScopedStudent[]> {
   const groupIds = await getScopedGroupIds(accountId);
   if (groupIds.length === 0) return [];
+  const today = new Date().toISOString().slice(0, 10);
   const rows = await prisma.student.findMany({
     where: { groupId: { in: groupIds }, active: true },
     orderBy: { nameAr: "asc" },
     include: {
-      group: { include: { hospital: { select: { name: true } } } },
+      group: {
+        include: {
+          rotationBlocks: {
+            where: { active: true, startDate: { lte: today }, endDate: { gte: today } },
+            include: { hospital: { select: { name: true } } },
+            take: 1,
+          },
+        },
+      },
     },
   });
   return rows
@@ -267,6 +281,6 @@ export async function getScopedStudents(accountId: string): Promise<ScopedStuden
       nameAr: r.nameAr,
       nameEn: r.nameEn,
       groupName: r.group!.name,
-      hospitalName: r.group!.hospital?.name ?? "",
+      hospitalName: r.group!.rotationBlocks[0]?.hospital.name ?? "",
     }));
 }

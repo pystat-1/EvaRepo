@@ -24,6 +24,10 @@ export default async function StudyTypesPage() {
             <label className="block text-sm font-medium mb-1">الاسم (عربي)</label>
             <input name="nameAr" className="input" placeholder="تمريض" />
           </div>
+          <div className="flex-1 min-w-[100px]">
+            <label className="block text-sm font-medium mb-1">الرمز</label>
+            <input name="code" required maxLength={4} className="input uppercase" placeholder="N" />
+          </div>
           <button type="submit" className="btn btn-primary">
             إضافة
           </button>
@@ -36,6 +40,7 @@ export default async function StudyTypesPage() {
             <tr>
               <th>الاسم</th>
               <th>بالعربية</th>
+              <th>الرمز</th>
               <th>الحالة</th>
               <th></th>
             </tr>
@@ -45,6 +50,7 @@ export default async function StudyTypesPage() {
               <tr key={st.id}>
                 <td>{st.name}</td>
                 <td>{st.nameAr ?? "—"}</td>
+                <td>{st.code ?? "—"}</td>
                 <td>
                   <span className={`badge ${st.active ? "badge-green" : "badge-gray"}`}>
                     {st.active ? "فعّال" : "معطّل"}
@@ -63,7 +69,7 @@ export default async function StudyTypesPage() {
             ))}
             {studyTypes.length === 0 && (
               <tr>
-                <td colSpan={4} className="text-center text-slate-400 py-6">
+                <td colSpan={5} className="text-center text-slate-400 py-6">
                   لا توجد أنواع دراسة بعد
                 </td>
               </tr>

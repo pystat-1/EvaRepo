@@ -12,7 +12,9 @@ export type EntityType =
   | "EvaluatorAssignment"
   | "Evaluation"
   | "RubricSection"
-  | "StudentAccount";
+  | "StudentAccount"
+  | "Course"
+  | "RotationBlock";
 export type AuditAction = "create" | "update" | "deactivate" | "reactivate" | "delete";
 
 export async function recordAudit(params: {

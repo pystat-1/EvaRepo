@@ -31,6 +31,30 @@ enum Role {
   STUDENT
 }
 
+enum Shift {
+  MORNING
+  EVENING
+}
+
+// A concrete year/course intake — e.g. year=2026, number=1 is "the first
+// course of 2026". Students and groups are scoped to one of these; the
+// student code (see Student.code) is derived from it.
+model Course {
+  id        String   @id @default(cuid())
+  year      Int
+  number    Int // 1 or 2 — first/second course of the year
+  label     String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  students Student[]
+  groups   Group[]
+
+  @@unique([year, number])
+  @@map("courses")
+}
+
 model Account {
   id           String   @id @default(cuid())
   email        String   @unique
@@ -82,10 +106,15 @@ model StudyType {
   id        String    @id @default(cuid())
   name      String    @unique
   nameAr    String?
+  // Short code used in the student code (e.g. "N" for Nursing). Nullable at
+  // the DB level for existing/legacy rows; enforced required in the app for
+  // new study types.
+  code      String?   @unique
   active    Boolean   @default(true)
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   students  Student[]
+  groups    Group[]
 
   @@map("study_types")
 }
@@ -99,25 +128,56 @@ model Hospital {
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  groups    Group[]
-  assignments EvaluatorAssignment[]
+  assignments    EvaluatorAssignment[]
+  rotationBlocks RotationBlock[]
 
   @@map("hospitals")
 }
 
 model Group {
-  id           String    @id @default(cuid())
-  name         String
-  cycleLabel   String?
-  hospitalId   String?
-  hospital     Hospital? @relation(fields: [hospitalId], references: [id])
-  active       Boolean   @default(true)
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  id          String     @id @default(cuid())
+  name        String
+  cycleLabel  String?
+  courseId    String?
+  course      Course?    @relation(fields: [courseId], references: [id])
+  shift       Shift?
+  studyTypeId String?
+  studyType   StudyType? @relation(fields: [studyTypeId], references: [id])
+  active      Boolean    @default(true)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
   students     Student[]
   assignments  EvaluatorAssignment[]
+  // The hospital rotation schedule for this group — each row is one
+  // "group @ hospital from date X to date Y" block; a group rotates
+  // through several of these over a course (plan: explicit date ranges,
+  // not an inferred sequence, so holidays/exceptions are representable).
+  rotationBlocks RotationBlock[]
 
   @@map("groups")
+}
+
+// One "this group is at this hospital from startDate to endDate" block.
+// A group's current/past/future hospital is read off this table, never
+// stored as a single static field on Group — see Group's rotationBlocks.
+model RotationBlock {
+  id         String   @id @default(cuid())
+  groupId    String
+  group      Group    @relation(fields: [groupId], references: [id])
+  hospitalId String
+  hospital   Hospital @relation(fields: [hospitalId], references: [id])
+  startDate  String // "YYYY-MM-DD"
+  endDate    String // "YYYY-MM-DD"
+  // Which of the two weekly attendance days this block covers, e.g. "SUN,TUE".
+  daysOfWeek String?
+  notes      String?
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([groupId])
+  @@index([hospitalId])
+  @@map("rotation_blocks")
 }
 
 model Student {
@@ -130,6 +190,13 @@ model Student {
   studyType        StudyType? @relation(fields: [studyTypeId], references: [id])
   groupId          String?
   group            Group?    @relation(fields: [groupId], references: [id])
+  courseId         String?
+  course           Course?   @relation(fields: [courseId], references: [id])
+  shift            Shift?
+  // Auto-generated "Year-Course-StudyType-Sequence" code (e.g. "26-1-N-0001")
+  // for at-a-glance identification — distinct from universityNumber, which
+  // stays the registrar's official identity/import key.
+  code             String?   @unique
   active           Boolean   @default(true)
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
@@ -140,6 +207,7 @@ model Student {
 
   @@index([groupId])
   @@index([studyTypeId])
+  @@index([courseId])
   @@map("students")
 }
 

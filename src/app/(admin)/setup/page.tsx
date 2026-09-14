@@ -10,6 +10,7 @@ import { createHospitalAction } from "@/lib/actions/hospitals";
 import { createGroupAction } from "@/lib/actions/groups";
 import { createStudentAction } from "@/lib/actions/students";
 import { createRotationBlockAction } from "@/lib/actions/rotationBlocks";
+import { WEEKDAYS } from "@/lib/weekdays";
 
 const SHIFT_LABEL: Record<string, string> = { MORNING: "صباحي", EVENING: "مسائي" };
 
@@ -204,7 +205,14 @@ export default async function SetupPage() {
               </select>
               <input name="startDate" type="date" required className="input" />
               <input name="endDate" type="date" required className="input" />
-              <input name="daysOfWeek" placeholder="أيام (SUN,TUE)" className="input" />
+              <div className="flex flex-wrap gap-1.5">
+                {WEEKDAYS.map((d) => (
+                  <label key={d.code} className="flex items-center gap-1 text-xs bg-slate-50 border border-slate-200 rounded-md px-1.5 py-1">
+                    <input type="checkbox" name="daysOfWeek" value={d.code} />
+                    {d.labelAr}
+                  </label>
+                ))}
+              </div>
               <button type="submit" className="btn btn-secondary">
                 إضافة
               </button>

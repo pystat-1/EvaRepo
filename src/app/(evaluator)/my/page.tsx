@@ -46,11 +46,17 @@ export default async function MyStudentsPage() {
                 </div>
                 <div className="text-xs text-slate-500">
                   {s.universityNumber} — {s.groupName}
+                  {s.hospitalName ? ` — ${s.hospitalName}` : ""}
                 </div>
               </div>
-              <span className={`badge ${graded ? "badge-green" : "badge-gray"}`}>
-                {graded ? `تم اليوم (${graded.total})` : "لم يُقيَّم اليوم"}
-              </span>
+              <div className="flex flex-col items-end gap-1">
+                {!s.scheduledToday && (
+                  <span className="badge badge-gray">ليس يوم حضور اليوم</span>
+                )}
+                <span className={`badge ${graded ? "badge-green" : "badge-gray"}`}>
+                  {graded ? `تم اليوم (${graded.total})` : "لم يُقيَّم اليوم"}
+                </span>
+              </div>
             </Link>
           );
         })}

@@ -5,6 +5,7 @@ import { prisma } from "../db";
 import { recordAudit } from "../audit";
 import { listRubricSections } from "./rubric";
 import { recomputeFlagsForStudent } from "./flags";
+import { getScheduledRotationForDate } from "./rotationBlocks";
 
 export type Attendance = "present" | "absent" | "late";
 
@@ -74,10 +75,7 @@ async function getStudentGroupHospital(
   });
   if (!student) throw new Error("Student not found");
   if (!student.groupId) return { groupId: null, hospitalId: null };
-  const block = await prisma.rotationBlock.findFirst({
-    where: { groupId: student.groupId, active: true, startDate: { lte: dateISO }, endDate: { gte: dateISO } },
-    select: { hospitalId: true },
-  });
+  const block = await getScheduledRotationForDate(student.groupId, dateISO);
   return { groupId: student.groupId, hospitalId: block?.hospitalId ?? null };
 }
 

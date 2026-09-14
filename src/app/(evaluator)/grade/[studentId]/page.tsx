@@ -1,9 +1,10 @@
 import { notFound, redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { getStudent } from "@/lib/models/students";
-import { getScopedGroupIds } from "@/lib/models/evaluators";
+import { getScopedGroupIds, canEvaluatorGradeGroupAtHospital } from "@/lib/models/evaluators";
 import { listRubricSections, getMaxTotal } from "@/lib/models/rubric";
 import { getEvaluationForStudentDate } from "@/lib/models/evaluations";
+import { getScheduledRotationForDate } from "@/lib/models/rotationBlocks";
 import { gradeStudentAction } from "@/lib/actions/grading";
 
 function todayISO(): string {
@@ -34,9 +35,34 @@ export default async function GradeStudentPage({
     );
   }
 
+  const dateISO = todayISO();
+
+  // Same enforcement as the save action, checked here too so the evaluator
+  // sees a clear reason instead of a form that would just fail on submit.
+  const scheduled = await getScheduledRotationForDate(student.groupId, dateISO);
+  if (!scheduled) {
+    return (
+      <div className="card border-amber-200 bg-amber-50">
+        <p className="text-sm text-amber-800">
+          اليوم ({dateISO}) ليس يوم حضور مجدول لمجموعة هذا الطالب حسب جدول الدوران.
+        </p>
+      </div>
+    );
+  }
+  const covered = await canEvaluatorGradeGroupAtHospital(session!.sub, student.groupId, scheduled.hospitalId);
+  if (!covered) {
+    return (
+      <div className="card border-red-200 bg-red-50">
+        <p className="text-sm text-red-700">
+          مجموعة هذا الطالب اليوم في &quot;{scheduled.hospitalName}&quot; وأنت غير مخصص لهذا
+          المستشفى/هذه المجموعة هناك.
+        </p>
+      </div>
+    );
+  }
+
   const sections = await listRubricSections();
   const maxTotal = await getMaxTotal();
-  const dateISO = todayISO();
   const existing = await getEvaluationForStudentDate(studentId, dateISO);
 
   return (
@@ -47,7 +73,7 @@ export default async function GradeStudentPage({
           {student.nameEn ? ` (${student.nameEn})` : ""}
         </h1>
         <p className="text-xs text-slate-500">
-          {student.universityNumber} — تقييم يوم {dateISO}
+          {student.universityNumber} — تقييم يوم {dateISO} في {scheduled.hospitalName}
           {existing ? " (تعديل تقييم محفوظ مسبقًا)" : ""}
         </p>
       </div>

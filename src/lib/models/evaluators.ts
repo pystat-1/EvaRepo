@@ -4,6 +4,7 @@
 import { prisma } from "../db";
 import { recordAudit } from "../audit";
 import { hashPassword, findAccountByEmail } from "../auth";
+import { isDateInScheduledDays } from "../weekdays";
 
 export interface EvaluatorAccount {
   id: string;
@@ -245,6 +246,24 @@ export async function getScopedGroupIds(accountId: string): Promise<string[]> {
   return Array.from(groupIds);
 }
 
+// Whether this evaluator's assignments actually cover grading this group
+// *at this specific hospital* — i.e. the hospital the group's rotation
+// schedule says it's at on the date being graded, not just "is this group
+// in my scope at all." An assignment with a null groupId covers every
+// group at its hospital; one with a groupId only covers that group, and
+// only while that group is actually at the assignment's hospital.
+export async function canEvaluatorGradeGroupAtHospital(
+  accountId: string,
+  groupId: string,
+  hospitalId: string
+): Promise<boolean> {
+  const assignments = await prisma.evaluatorAssignment.findMany({
+    where: { accountId, active: true, hospitalId },
+    select: { groupId: true },
+  });
+  return assignments.some((a) => a.groupId === null || a.groupId === groupId);
+}
+
 export interface ScopedStudent {
   id: string;
   universityNumber: string;
@@ -252,6 +271,10 @@ export interface ScopedStudent {
   nameEn: string | null;
   groupName: string;
   hospitalName: string;
+  // Whether today is an actual scheduled attendance day (date range AND
+  // weekday pattern both match) — distinct from just being within a
+  // rotation block's date range, e.g. a weekend inside a 2-week stint.
+  scheduledToday: boolean;
 }
 
 export async function getScopedStudents(accountId: string): Promise<ScopedStudent[]> {
@@ -267,7 +290,6 @@ export async function getScopedStudents(accountId: string): Promise<ScopedStuden
           rotationBlocks: {
             where: { active: true, startDate: { lte: today }, endDate: { gte: today } },
             include: { hospital: { select: { name: true } } },
-            take: 1,
           },
         },
       },
@@ -275,12 +297,20 @@ export async function getScopedStudents(accountId: string): Promise<ScopedStuden
   });
   return rows
     .filter((r: any) => r.group !== null)
-    .map((r: any) => ({
-      id: r.id,
-      universityNumber: r.universityNumber,
-      nameAr: r.nameAr,
-      nameEn: r.nameEn,
-      groupName: r.group!.name,
-      hospitalName: r.group!.rotationBlocks[0]?.hospital.name ?? "",
-    }));
+    .map((r: any) => {
+      const blocks = r.group!.rotationBlocks as Array<{
+        hospital: { name: string };
+        daysOfWeek: string | null;
+      }>;
+      const scheduledBlock = blocks.find((b) => isDateInScheduledDays(today, b.daysOfWeek));
+      return {
+        id: r.id,
+        universityNumber: r.universityNumber,
+        nameAr: r.nameAr,
+        nameEn: r.nameEn,
+        groupName: r.group!.name,
+        hospitalName: (scheduledBlock ?? blocks[0])?.hospital.name ?? "",
+        scheduledToday: !!scheduledBlock,
+      };
+    });
 }

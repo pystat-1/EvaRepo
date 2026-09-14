@@ -1,5 +1,6 @@
 import { prisma } from "../db";
 import { recordAudit } from "../audit";
+import { isDateInScheduledDays } from "../weekdays";
 
 export interface RotationBlock {
   id: string;
@@ -76,6 +77,23 @@ export async function getActiveRotationForGroup(
     include: { hospital: { select: { name: true } } },
   });
   return row ? serialize(row) : undefined;
+}
+
+// Same as getActiveRotationForGroup but also requires the date to match
+// the block's specific attendance weekdays (daysOfWeek), not just fall
+// within its start/end range — this is the "is today actually a
+// scheduled attendance day" check grading enforcement needs, distinct
+// from "which hospital is this group's stint at right now" display use.
+export async function getScheduledRotationForDate(
+  groupId: string,
+  dateISO: string
+): Promise<RotationBlock | undefined> {
+  const rows = await prisma.rotationBlock.findMany({
+    where: { groupId, active: true, startDate: { lte: dateISO }, endDate: { gte: dateISO } },
+    include: { hospital: { select: { name: true } } },
+  });
+  const match = rows.find((r) => isDateInScheduledDays(dateISO, r.daysOfWeek));
+  return match ? serialize(match) : undefined;
 }
 
 export interface CreateRotationBlockInput {

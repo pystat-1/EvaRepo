@@ -11,7 +11,7 @@ export async function createRotationBlockAction(formData: FormData) {
     hospitalId: String(formData.get("hospitalId") ?? "").trim(),
     startDate: String(formData.get("startDate") ?? "").trim(),
     endDate: String(formData.get("endDate") ?? "").trim(),
-    daysOfWeek: String(formData.get("daysOfWeek") ?? "").trim() || undefined,
+    daysOfWeek: formData.getAll("daysOfWeek").map(String).join(",") || undefined,
     notes: String(formData.get("notes") ?? "").trim() || undefined,
   });
   revalidatePath("/groups");

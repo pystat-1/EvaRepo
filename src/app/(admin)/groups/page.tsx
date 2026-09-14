@@ -8,6 +8,7 @@ import {
   createRotationBlockAction,
   toggleRotationBlockActiveAction,
 } from "@/lib/actions/rotationBlocks";
+import { WEEKDAYS } from "@/lib/weekdays";
 
 const SHIFT_LABEL: Record<string, string> = { MORNING: "صباحي", EVENING: "مسائي" };
 
@@ -129,7 +130,14 @@ export default async function GroupsPage() {
                       <td>{rb.hospitalName}</td>
                       <td>{rb.startDate}</td>
                       <td>{rb.endDate}</td>
-                      <td>{rb.daysOfWeek ?? "—"}</td>
+                      <td>
+                        {rb.daysOfWeek
+                          ? rb.daysOfWeek
+                              .split(",")
+                              .map((c) => WEEKDAYS.find((d) => d.code === c.trim())?.labelAr ?? c)
+                              .join("، ")
+                          : "كل الأيام"}
+                      </td>
                       <td>
                         <span className={`badge ${rb.active ? "badge-green" : "badge-gray"}`}>
                           {rb.active ? "فعّالة" : "معطّلة"}
@@ -181,9 +189,18 @@ export default async function GroupsPage() {
                 <label className="block text-sm font-medium mb-1">إلى تاريخ</label>
                 <input name="endDate" type="date" required className="input" />
               </div>
-              <div className="flex-1 min-w-[140px]">
-                <label className="block text-sm font-medium mb-1">أيام الأسبوع (اختياري)</label>
-                <input name="daysOfWeek" className="input" placeholder="مثال: SUN,TUE" />
+              <div className="flex-1 min-w-[260px]">
+                <label className="block text-sm font-medium mb-1">
+                  أيام الحضور الأسبوعية (اختياري — بدون تحديد = كل أيام الفترة)
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {WEEKDAYS.map((d) => (
+                    <label key={d.code} className="flex items-center gap-1 text-xs bg-slate-50 border border-slate-200 rounded-md px-2 py-1">
+                      <input type="checkbox" name="daysOfWeek" value={d.code} />
+                      {d.labelAr}
+                    </label>
+                  ))}
+                </div>
               </div>
               <button type="submit" className="btn btn-secondary">
                 إضافة فترة دوران

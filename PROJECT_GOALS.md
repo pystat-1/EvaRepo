@@ -86,15 +86,22 @@ Plan:
 
 ## Goal 4: Offline-capable evaluation, sync when back online
 
-**Status: SCOPE DECIDED (2026-09-15) — full PWA, not started**
+**Status: IN PROGRESS (2026-09-14) — Phase 4a shipped, 4b next**
 
 Decision: full offline capability — works with zero connectivity for hours, not just
 resilient to brief drops. This is a genuinely large, multi-session build. Phased plan:
 
-**Phase 4a — PWA shell (installable, static-asset offline)**
-- [ ] `manifest.json` + icons, service worker registration
-- [ ] Service worker caches the evaluator app shell (JS/CSS) so the app *opens*
-      offline, even before any data work
+**Phase 4a — PWA shell (installable, static-asset offline)** — DONE (2026-09-14)
+- [x] `manifest.json` + icons, service worker registration — `src/app/manifest.ts`
+      (start_url `/my`, brand-colored icons at `public/icon-192.png` /
+      `icon-512.png`), registered from `src/app/sw-register.tsx` in the root
+      layout.
+- [x] Service worker caches the evaluator app shell (JS/CSS) so the app *opens*
+      offline, even before any data work — `public/sw.js`: precaches
+      `public/offline.html` + icons, cache-first for `/_next/static/*`,
+      network-first-with-offline-fallback for navigations. Deliberately does
+      **not** cache dynamic/personalized HTML yet (grades, schedules) — that's
+      explicit IndexedDB work in 4b/4c, not implicit HTTP caching.
 
 **Phase 4b — "Import once": local data cache**
 - [ ] IndexedDB store (via a small wrapper, e.g. `idb`) for: the evaluator's
@@ -143,6 +150,40 @@ are clear.
 ## Session Log
 
 _Newest entry on top. One entry per work session — what was done, what's next._
+
+### 2026-09-14 — Goal 4 Phase 4a (PWA shell) shipped
+- Autonomous run. Goal 2 (Google OAuth) still blocked — no
+  `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` documented anywhere in this file —
+  so it was skipped entirely, per this run's instructions.
+- Read `node_modules/next/dist/docs/01-app/02-guides/progressive-web-apps.md`
+  and `offline-support.md` first, per `AGENTS.md`: confirmed this Next.js
+  version's `manifest.ts` file convention and the experimental `useOffline`
+  hook both behave as expected, and that `useOffline` alone does **not**
+  cover a full offline app open (it only retries soft navigations/Server
+  Actions) — a service worker is required for that, matching the Phase 4a
+  plan already written here.
+- Implemented Phase 4a in full: `src/app/manifest.ts` (installable manifest,
+  `start_url: "/my"`), two brand-colored PNG icons generated locally (no new
+  dependency — a small one-off Python/zlib script, not checked in),
+  `public/sw.js` (precache + cache-first for `/_next/static/*` + offline
+  fallback on failed navigations), `public/offline.html` (static branded
+  offline page), `src/app/sw-register.tsx` wired into the root layout, plus
+  `themeColor`/`icons` metadata. Fixed a stale comment in
+  `(evaluator)/layout.tsx` that still said the PWA work was "scoped for
+  Phase 3".
+- No schema/DB changes (none needed for 4a, per the hard safety rules).
+  Verified with `npx tsc --noEmit` (clean) and `npx next build` (clean, zero
+  errors) — also smoke-tested with `next start`: `/manifest.webmanifest`,
+  `/sw.js`, `/offline.html`, `/icon-192.png` all serve 200, and `/login`'s
+  HTML includes the `<link rel="manifest">` and `<meta name="theme-color">`
+  tags. Pushed to `main` after rebasing onto a concurrent push-capability
+  test commit (see the entry below this one) — deploy status confirmed
+  separately below.
+- **Next step:** Goal 4 Phase 4b ("Import once": IndexedDB store for the
+  evaluator's schedule/roster/rubric via a small wrapper like `idb`, plus an
+  explicit "استيراد الجدول للعمل دون اتصال" import action on `/schedule`).
+  Goal 2 stays skipped until the user hands over the Google OAuth
+  credentials.
 
 ### 2026-09-14 — Push-capability re-test
 - Cloud routine push-capability re-test succeeded after GitHub App install.

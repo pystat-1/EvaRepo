@@ -15,27 +15,6 @@ export interface LoginState {
 }
 
 export async function loginAction(_prev: LoginState, formData: FormData): Promise<LoginState> {
-  try {
-    return await loginActionInner(formData);
-  } catch (err) {
-    // next/navigation's redirect() works by throwing; let that through.
-    if (
-      err &&
-      typeof err === "object" &&
-      "digest" in err &&
-      typeof (err as { digest?: unknown }).digest === "string" &&
-      (err as { digest: string }).digest.startsWith("NEXT_REDIRECT")
-    ) {
-      throw err;
-    }
-    // TEMP debug shim — surfaces the real error instead of Next's opaque
-    // production digest, to diagnose the deploy-only 500. Revert once done.
-    const message = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
-    return { error: `DEBUG: ${message}` };
-  }
-}
-
-async function loginActionInner(formData: FormData): Promise<LoginState> {
   const email = String(formData.get("email") ?? "").trim();
   const password = String(formData.get("password") ?? "");
 

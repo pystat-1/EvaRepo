@@ -24,6 +24,7 @@ export async function createGroupAction(formData: FormData) {
     studyTypeId: studyTypeId || null,
   });
   revalidatePath("/groups");
+  revalidatePath("/setup");
 }
 
 export async function updateGroupAction(formData: FormData) {
@@ -41,6 +42,7 @@ export async function updateGroupAction(formData: FormData) {
     studyTypeId: studyTypeId || null,
   });
   revalidatePath("/groups");
+  revalidatePath("/setup");
 }
 
 export async function toggleGroupActiveAction(formData: FormData) {
@@ -49,4 +51,5 @@ export async function toggleGroupActiveAction(formData: FormData) {
   const active = formData.get("active") === "1";
   await updateGroup(session.sub, id, { active });
   revalidatePath("/groups");
+  revalidatePath("/setup");
 }

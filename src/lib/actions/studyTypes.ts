@@ -12,6 +12,7 @@ export async function createStudyTypeAction(formData: FormData) {
   if (!name) throw new Error("Name is required");
   await createStudyType(session.sub, { name, nameAr: nameAr || undefined, code });
   revalidatePath("/study-types");
+  revalidatePath("/setup");
 }
 
 export async function updateStudyTypeAction(formData: FormData) {
@@ -22,6 +23,7 @@ export async function updateStudyTypeAction(formData: FormData) {
   const code = String(formData.get("code") ?? "").trim();
   await updateStudyType(session.sub, id, { name, nameAr, code: code || undefined });
   revalidatePath("/study-types");
+  revalidatePath("/setup");
 }
 
 export async function toggleStudyTypeActiveAction(formData: FormData) {
@@ -30,4 +32,5 @@ export async function toggleStudyTypeActiveAction(formData: FormData) {
   const active = formData.get("active") === "1";
   await updateStudyType(session.sub, id, { active });
   revalidatePath("/study-types");
+  revalidatePath("/setup");
 }

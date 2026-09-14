@@ -23,6 +23,7 @@ export async function createStudentAction(formData: FormData) {
     shift: parseShift(formData.get("shift")),
   });
   revalidatePath("/students");
+  revalidatePath("/setup");
 }
 
 export async function updateStudentAction(formData: FormData) {
@@ -87,5 +88,6 @@ export async function importStudentsAction(
   }));
   const result = await importStudents(session.sub, rows);
   revalidatePath("/students");
+  revalidatePath("/setup");
   return { result };
 }

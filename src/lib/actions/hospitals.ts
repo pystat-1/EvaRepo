@@ -12,6 +12,7 @@ export async function createHospitalAction(formData: FormData) {
   if (!name) throw new Error("Name is required");
   await createHospital(session.sub, { name, nameAr: nameAr || undefined, address: address || undefined });
   revalidatePath("/hospitals");
+  revalidatePath("/setup");
 }
 
 export async function updateHospitalAction(formData: FormData) {
@@ -22,6 +23,7 @@ export async function updateHospitalAction(formData: FormData) {
   const address = String(formData.get("address") ?? "").trim();
   await updateHospital(session.sub, id, { name, nameAr, address });
   revalidatePath("/hospitals");
+  revalidatePath("/setup");
 }
 
 export async function toggleHospitalActiveAction(formData: FormData) {
@@ -30,4 +32,5 @@ export async function toggleHospitalActiveAction(formData: FormData) {
   const active = formData.get("active") === "1";
   await updateHospital(session.sub, id, { active });
   revalidatePath("/hospitals");
+  revalidatePath("/setup");
 }

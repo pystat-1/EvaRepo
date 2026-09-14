@@ -15,6 +15,7 @@ export async function createRotationBlockAction(formData: FormData) {
     notes: String(formData.get("notes") ?? "").trim() || undefined,
   });
   revalidatePath("/groups");
+  revalidatePath("/setup");
 }
 
 export async function toggleRotationBlockActiveAction(formData: FormData) {
@@ -23,4 +24,5 @@ export async function toggleRotationBlockActiveAction(formData: FormData) {
   const active = formData.get("active") === "1";
   await toggleRotationBlockActive(session.sub, id, active);
   revalidatePath("/groups");
+  revalidatePath("/setup");
 }

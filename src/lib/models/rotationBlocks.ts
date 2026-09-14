@@ -40,6 +40,21 @@ function serialize(row: {
   };
 }
 
+export interface RotationBlockWithGroup extends RotationBlock {
+  groupName: string;
+}
+
+// All rotation blocks across all active groups, for building an overview
+// timeline (see /setup) rather than one group's schedule at a time.
+export async function listAllRotationBlocks(includeInactive = false): Promise<RotationBlockWithGroup[]> {
+  const rows = await prisma.rotationBlock.findMany({
+    where: includeInactive ? undefined : { active: true, group: { active: true } },
+    orderBy: { startDate: "asc" },
+    include: { hospital: { select: { name: true } }, group: { select: { name: true } } },
+  });
+  return rows.map((r) => ({ ...serialize(r), groupName: r.group.name }));
+}
+
 export async function listRotationBlocksForGroup(groupId: string): Promise<RotationBlock[]> {
   const rows = await prisma.rotationBlock.findMany({
     where: { groupId },

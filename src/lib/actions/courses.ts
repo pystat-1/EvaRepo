@@ -11,6 +11,7 @@ export async function createCourseAction(formData: FormData) {
   const label = String(formData.get("label") ?? "").trim();
   await createCourse(session.sub, { year, number, label: label || undefined });
   revalidatePath("/courses");
+  revalidatePath("/setup");
 }
 
 export async function toggleCourseActiveAction(formData: FormData) {
@@ -19,4 +20,5 @@ export async function toggleCourseActiveAction(formData: FormData) {
   const active = formData.get("active") === "1";
   await updateCourse(session.sub, id, { active });
   revalidatePath("/courses");
+  revalidatePath("/setup");
 }

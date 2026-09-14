@@ -17,7 +17,9 @@ Neon project: `dry-cell-81671466` (DB name `eva`) · Netlify site: `eva-v3-app` 
 
 ## Goal 1: Evaluator schedule view — "import the group and start evaluating"
 
-**Status: NOT STARTED**
+**Status: DONE** (2026-09-15) — `/schedule` page, `getEvaluatorSchedule()` in
+`src/lib/models/evaluators.ts`, roster import via `listActiveStudentsInGroup()`.
+Nav link added to `(evaluator)/layout.tsx`.
 
 Evaluators currently only see `/my` (today's scoped students, flat list — added in the
 rotation-enforcement work). Add a schedule-first view: an evaluator-facing page showing
@@ -37,34 +39,36 @@ Plan:
 
 ## Goal 2: Zero data loss — permanent storage, Google-account-linked
 
-**Status: BLOCKED on user decision — see questions below**
+**Status: DECIDED, blocked on credentials from user**
 
-This is flagged as the most important goal. Current state: Postgres on Neon (durable,
-already has automated backups on Neon's side — verify retention/plan), email+password
-auth with bcrypt + JWT session cookies. "Linked to their Google account" implies adding
-Google OAuth, which is a real architecture decision, not a small tweak:
+Decisions (2026-09-15):
+- Google Sign-In is **added alongside** email+password, not a replacement.
+- User will create the Google Cloud OAuth client (Cloud Console project, consent
+  screen, client ID/secret) and hand the credentials to Claude to wire in.
 
-- Does Google Sign-In **replace** email+password, or is it **added alongside** it?
-  (Replacing locks out anyone without a Google account — e.g. do all evaluators/students
-  actually have one?)
-- Who registers the OAuth client in Google Cloud Console? I cannot create Google Cloud
-  credentials on your behalf — you (or someone with access) needs to create the OAuth
-  consent screen + client ID/secret and hand me the credentials to wire in.
-- Does "linked to their Google account" also mean: data should be exportable/portable
-  per-account, or just that login goes through Google?
+**Waiting on:** `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` from the user. Once
+received: set as Netlify env vars (same pattern as `DATABASE_URL`/`JWT_SECRET` —
+non-secret build scope isn't needed, only functions/runtime), then implement:
+- [ ] Add `googleId`/`googleEmail` (nullable, unique) to `Account` in schema.prisma
+      + migration (additive only — never touches the existing passwordHash column)
+- [ ] OAuth flow: a `/api/auth/google` route (redirect to Google) +
+      `/api/auth/google/callback` (exchange code, find-or-link Account by email,
+      issue the same JWT session cookie `signSession()` already uses)
+- [ ] "Sign in with Google" button on `/login` alongside the existing form
+- [ ] Account-linking UI: an already-logged-in user (email+password) can link their
+      Google account from a settings page, rather than only at first sign-in
 
-Until answered, safe/no-regret hardening I can do immediately without an architecture
-decision:
+Also queued, independent of the OAuth question (started but not committed yet):
 - [ ] Verify Neon's backup/PITR settings on the current plan and document them
-- [ ] Add a scheduled export/backup routine (e.g. nightly `pg_dump` or Neon branch
-      snapshot) so "zero data loss" has a concrete mechanism, independent of the
-      auth question
+- [ ] Add a scheduled export/backup routine (nightly `pg_dump` or Neon branch
+      snapshot) so "zero data loss" has a concrete mechanism
 - [ ] Audit that every grade-write path is transactional (already true for
       `upsertEvaluation` — confirm no other write path regressed this)
 
 ## Goal 3: Evaluator — download the day's detailed evaluation as Excel
 
-**Status: NOT STARTED**
+**Status: DONE** (2026-09-15) — `GET /api/my/export?date=YYYY-MM-DD` using
+`exceljs`, button on `/my`. Full per-rubric-section columns, not just totals.
 
 An evaluator should be able to download an `.xlsx` of a given day's evaluations they
 did (or are scheduled for) — full per-criterion detail, not just totals, matching the
@@ -82,42 +86,77 @@ Plan:
 
 ## Goal 4: Offline-capable evaluation, sync when back online
 
-**Status: BLOCKED on scope confirmation — see questions below**
+**Status: SCOPE DECIDED (2026-09-15) — full PWA, not started**
 
-Reading of the request: an evaluator downloads/imports their schedule + assigned
-students once (while online), can then open the grading form and enter scores with
-no network connection, and whatever was entered offline syncs to the server
-automatically once connectivity returns.
+Decision: full offline capability — works with zero connectivity for hours, not just
+resilient to brief drops. This is a genuinely large, multi-session build. Phased plan:
 
-This is a substantial architecture addition — the app is currently 100% server-rendered
-(every page load and every grade save is a live request; there is no client-side data
-layer at all). True offline support needs, at minimum:
-- A service worker + PWA manifest (installable, works offline)
-- A client-side store (IndexedDB) caching the evaluator's schedule + student list +
-  rubric definition after the "import once" step
-- Local-first grade entry UI (works fully offline, not just cached-read)
-- A sync queue that replays queued writes through `upsertEvaluation` when back online,
-  with real conflict handling (what if the same student/day was also graded from
-  another device, or the rubric changed while offline?)
+**Phase 4a — PWA shell (installable, static-asset offline)**
+- [ ] `manifest.json` + icons, service worker registration
+- [ ] Service worker caches the evaluator app shell (JS/CSS) so the app *opens*
+      offline, even before any data work
 
-Before starting, need to confirm:
-- Is this "resilient to brief connectivity drops" (a lighter retry/queue on top of the
-  existing server-action flow) or genuinely "fully usable with zero connectivity for
-  an extended period" (full PWA + local DB)? The engineering cost is very different.
-- Is a rubric change while an evaluator is offline an edge case worth handling now, or
-  deferrable?
+**Phase 4b — "Import once": local data cache**
+- [ ] IndexedDB store (via a small wrapper, e.g. `idb`) for: the evaluator's
+      schedule (`getEvaluatorSchedule` result), each stint's student roster, the
+      active rubric sections (`listRubricSections`), and any already-saved
+      evaluations for context
+- [ ] An explicit "استيراد الجدول للعمل دون اتصال" (import schedule for offline
+      work) action on `/schedule` that fetches all of the above and populates
+      IndexedDB in one shot
+
+**Phase 4c — Offline-first grading UI**
+- [ ] `/grade/[studentId]` reads from IndexedDB when offline (detect via
+      `navigator.onLine` + actual fetch failure, not just the flag) instead of
+      failing on the server component fetch
+- [ ] Grade submission writes to a local outbox (IndexedDB) instead of calling the
+      server action directly when offline; UI shows "محفوظ محليًا — سيُزامن عند
+      الاتصال" (saved locally — will sync when online)
+
+**Phase 4d — Sync queue**
+- [ ] Background sync (Background Sync API where supported, falling back to an
+      on-`online`-event flush) replays the outbox through the *existing*
+      `gradeStudentAction`/`upsertEvaluation` — reuses all existing server-side
+      enforcement (schedule check, hospital assignment check) unchanged
+- [ ] Conflict handling: `upsertEvaluation` is already an upsert keyed on
+      (studentId, dateISO), so a same-student-same-day double-write just becomes
+      "last sync wins" — acceptable for one evaluator's own queued writes, but
+      cross-device conflicts (two devices, same evaluator, same day, offline on
+      both) need a explicit decision: last-write-wins (simple, current default) or
+      surface a merge prompt. **Revisit before shipping 4d.**
+- [ ] Handle: rubric changed on the server while evaluator was offline and had
+      already scored against the old rubric shape — validate/remap on sync, surface
+      a clear error rather than silently dropping scores for removed sections
+
+Not started — Goals 1 and 3 (done) and the Google auth wiring (pending credentials)
+take priority since they're smaller and don't block on anything. Start 4a once those
+are clear.
 
 ## Open questions for the user
 
-1. Google Sign-In: replace or add alongside email/password?
-2. Who provisions the Google OAuth client (Cloud Console access)?
-3. Offline: lightweight retry-queue, or full PWA/local-database?
+1. ~~Google Sign-In: replace or add alongside email/password?~~ **Answered: alongside.**
+2. **Still waiting**: Google OAuth client ID + secret (user is creating them).
+3. ~~Offline: lightweight retry-queue, or full PWA/local-database?~~ **Answered: full PWA.**
 
 ---
 
 ## Session Log
 
 _Newest entry on top. One entry per work session — what was done, what's next._
+
+### 2026-09-15 — Goals 1 & 3 shipped, Goal 2/4 scoped
+- User answered the open questions: Google Sign-In added alongside existing auth
+  (user provisions OAuth credentials and will hand them over); offline goal is a
+  full PWA (zero-connectivity-for-hours), not a lightweight retry queue.
+- Built and deployed Goal 1 (`/schedule` — evaluator's own rotation stints,
+  past/current/future, roster import into grading) and Goal 3 (`GET
+  /api/my/export?date=` — per-day Excel export via `exceljs`, full rubric-section
+  detail). Commit `32fd7ad`, verified live (see below).
+- Wrote the full Phase 4a–4d plan for the offline PWA into Goal 4 above — did not
+  start building it yet; it's the largest remaining piece.
+- **Next step:** waiting on Google OAuth credentials from the user to continue
+  Goal 2. In the meantime, start Goal 4 Phase 4a (PWA shell: manifest + service
+  worker + installable app shell) since it doesn't depend on anything blocked.
 
 ### 2026-09-15 — Session start
 - Ran `/graphify` on the full repo: 417 nodes, 970 edges, 32 communities.

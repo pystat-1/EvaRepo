@@ -1,0 +1,246 @@
+// Eva v3 — Phase 1 schema (Database / Registry)
+//
+// Design notes (see project plan "Eva v3 Rewrite Plan"):
+// - Student identity is the `universityNumber`, never the name. This is the
+//   single decision that prevents the "ghost student from a name typo" bug
+//   that existed in the old app's bridge/legacy path.
+// - `Account` is the one auth identity table shared by all three phases
+//   (admin now; evaluator/student roles are added in Phase 2/3), with role
+//   enforced server-side only — never a client-writable field.
+// - AuditLog is a first-class table from day one, not bolted on later.
+// - Postgres (Neon) is the production datasource. During Phase 1/2/3
+//   development this schema was kept in sync by hand against a
+//   node:sqlite mirror (see the history of src/lib/db.ts) because the
+//   sandbox those phases were built in blocks binaries.prisma.sh, so
+//   `prisma generate` could not run there. Now that the app is deploying
+//   to Vercel + Neon, `provider` below is "postgresql" for real.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  EVALUATOR
+  STUDENT
+}
+
+model Account {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String?
+  name         String
+  role         Role     @default(ADMIN)
+  // Phase 3: set only for role = STUDENT, linking the login to the
+  // student's registry record. Resolving what a student can see is always
+  // done server-side from this field on the logged-in session — never from
+  // a client-supplied student id (same pattern as EvaluatorAssignment).
+  studentId    String?
+  student      Student? @relation(fields: [studentId], references: [id])
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  auditLogs    AuditLog[]
+  assignments  EvaluatorAssignment[]
+  evaluations  Evaluation[]
+
+  @@map("accounts")
+}
+
+// Phase 2: In-Hospital Evaluators. An evaluator is simply an `Account` with
+// role = EVALUATOR; this table is what makes "who is allowed to see/grade
+// whom, and where" data instead of code (plan §4.1). `groupId` null means
+// "every group at this hospital, current and future"; a non-null groupId
+// scopes to just that one group. Resolving what an evaluator can see is
+// always done server-side from the logged-in account's id (plan §2.4) —
+// never from a client-supplied hospital/group id.
+model EvaluatorAssignment {
+  id         String   @id @default(cuid())
+  accountId  String
+  account    Account  @relation(fields: [accountId], references: [id])
+  hospitalId String
+  hospital   Hospital @relation(fields: [hospitalId], references: [id])
+  groupId    String?
+  group      Group?   @relation(fields: [groupId], references: [id])
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([accountId])
+  @@index([hospitalId])
+  @@map("evaluator_assignments")
+}
+
+model StudyType {
+  id        String    @id @default(cuid())
+  name      String    @unique
+  nameAr    String?
+  active    Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  students  Student[]
+
+  @@map("study_types")
+}
+
+model Hospital {
+  id        String   @id @default(cuid())
+  name      String
+  nameAr    String?
+  address   String?
+  notes     String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  groups    Group[]
+  assignments EvaluatorAssignment[]
+
+  @@map("hospitals")
+}
+
+model Group {
+  id           String    @id @default(cuid())
+  name         String
+  cycleLabel   String?
+  hospitalId   String?
+  hospital     Hospital? @relation(fields: [hospitalId], references: [id])
+  active       Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  students     Student[]
+  assignments  EvaluatorAssignment[]
+
+  @@map("groups")
+}
+
+model Student {
+  id               String    @id @default(cuid())
+  universityNumber String    @unique
+  nameAr           String
+  nameEn           String?
+  email            String?
+  studyTypeId      String?
+  studyType        StudyType? @relation(fields: [studyTypeId], references: [id])
+  groupId          String?
+  group            Group?    @relation(fields: [groupId], references: [id])
+  active           Boolean   @default(true)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  accounts    Account[]
+  evaluations Evaluation[]
+  flags       Flag[]
+
+  @@index([groupId])
+  @@index([studyTypeId])
+  @@map("students")
+}
+
+// Phase 3: the scoring rubric as data, not a hardcoded template (plan
+// §4.3) — seeded once via ensureDefaultRubric() with the current app's
+// 15-point, 5-section rubric, but admin-editable from /rubric without a
+// redeploy.
+model RubricSection {
+  id         String   @id @default(cuid())
+  labelAr    String
+  labelEn    String?
+  maxScore   Float
+  sortOrder  Int      @default(0)
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  scores EvaluationScore[]
+
+  @@map("rubric_sections")
+}
+
+// Phase 3: one row per (student, day). This is the structural fix for the
+// old app's Tier 0 bug (plan §1, data-integrity roadmap): the old app kept
+// a whole day's session as one object and blindly `.set()`-overwrote it,
+// so a second evaluator's save could erase an earlier evaluator's grades
+// for other students that same day. Making the unit of write one row per
+// student per day, enforced by @@unique below, means two evaluators
+// grading two different students on the same day write two independent
+// rows and cannot collide — there is nothing to overwrite.
+model Evaluation {
+  id          String   @id @default(cuid())
+  studentId   String
+  student     Student  @relation(fields: [studentId], references: [id])
+  evaluatorId String
+  evaluator   Account  @relation(fields: [evaluatorId], references: [id])
+  groupId     String?
+  hospitalId  String?
+  dateISO     String // "YYYY-MM-DD"
+  attendance  String // "present" | "late" | "absent"
+  notes       String?
+  feedback    String?
+  total       Float    @default(0)
+  locked      Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  scores EvaluationScore[]
+
+  @@unique([studentId, dateISO])
+  @@index([groupId])
+  @@index([hospitalId])
+  @@map("evaluations")
+}
+
+model EvaluationScore {
+  id              String        @id @default(cuid())
+  evaluationId    String
+  evaluation      Evaluation    @relation(fields: [evaluationId], references: [id])
+  rubricSectionId String
+  rubricSection   RubricSection @relation(fields: [rubricSectionId], references: [id])
+  score           Float
+
+  @@unique([evaluationId, rubricSectionId])
+  @@map("evaluation_scores")
+}
+
+// Phase 3: the at-risk flag engine, ported from the current app — low
+// score, attendance, and declining-trend rules — recomputed after every
+// evaluation save. `seen` is preserved across recomputes so an admin's
+// acknowledgement isn't lost just because a new evaluation triggered a
+// recompute of the same rule.
+model Flag {
+  id        String   @id @default(cuid())
+  studentId String
+  student   Student  @relation(fields: [studentId], references: [id])
+  ruleId    String // "low_score" | "attendance" | "declining_trend"
+  severity  String // "warning" | "danger"
+  msg       String
+  dateISO   String // date of the evaluation that most recently triggered/refreshed this flag
+  seen      Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([studentId, ruleId])
+  @@map("flags")
+}
+
+// Every create/update/deactivate on any registry record is recorded here —
+// carried over as a first-class table from day one (see plan §3.1), rather
+// than the old app's bolted-on audit tab.
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String?
+  actor      Account? @relation(fields: [actorId], references: [id])
+  entityType String // "Student" | "Group" | "Hospital" | "StudyType" | "Evaluator" | "EvaluatorAssignment" | "Evaluation" | "RubricSection" | "StudentAccount"
+  entityId   String
+  action     String // "create" | "update" | "deactivate" | "reactivate" | "delete"
+  before     String? // JSON snapshot before the change
+  after      String? // JSON snapshot after the change
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@map("audit_logs")
+}

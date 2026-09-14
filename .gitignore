@@ -4,3 +4,5 @@ dev.db
 .env
 *.log
 tsconfig.tsbuildinfo
+graphify-out/.graphify_python
+graphify-out/.graphify_root

@@ -21,13 +21,18 @@ export default async function MyStudentsPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div>
-        <h1 className="text-xl font-bold">طلابي</h1>
-        <p className="text-sm text-slate-500 mt-1">
-          {hospitalNames.length > 0
-            ? `مرتبط بـ: ${hospitalNames.join("، ")} — تقييم اليوم (${dateISO})`
-            : "لم يتم تخصيصك لأي مستشفى بعد — تواصل مع المدير."}
-        </p>
+      <div className="flex items-start justify-between flex-wrap gap-2">
+        <div>
+          <h1 className="text-xl font-bold">طلابي</h1>
+          <p className="text-sm text-slate-500 mt-1">
+            {hospitalNames.length > 0
+              ? `مرتبط بـ: ${hospitalNames.join("، ")} — تقييم اليوم (${dateISO})`
+              : "لم يتم تخصيصك لأي مستشفى بعد — تواصل مع المدير."}
+          </p>
+        </div>
+        <a href={`/api/my/export?date=${dateISO}`} className="btn btn-secondary text-sm">
+          تنزيل تقرير اليوم (Excel)
+        </a>
       </div>
 
       <div className="flex flex-col gap-2">

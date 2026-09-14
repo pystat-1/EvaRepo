@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { logoutAction } from "@/lib/actions/auth";
@@ -16,9 +17,19 @@ export default async function EvaluatorLayout({ children }: { children: React.Re
     <div className="flex flex-1 flex-col">
       <header className="border-b bg-white">
         <div className="mx-auto max-w-lg px-4 py-3 flex items-center justify-between">
-          <span className="font-bold" style={{ color: "var(--brand)" }}>
-            Eva — تطبيق المقيّم
-          </span>
+          <div className="flex items-center gap-4">
+            <span className="font-bold" style={{ color: "var(--brand)" }}>
+              Eva — تطبيق المقيّم
+            </span>
+            <nav className="flex gap-1">
+              <Link href="/my" className="px-2 py-1 rounded-md text-sm text-slate-600 hover:bg-slate-100">
+                طلابي
+              </Link>
+              <Link href="/schedule" className="px-2 py-1 rounded-md text-sm text-slate-600 hover:bg-slate-100">
+                جدولي
+              </Link>
+            </nav>
+          </div>
           <form action={logoutAction}>
             <button type="submit" className="btn btn-secondary text-xs px-2 py-1">
               خروج

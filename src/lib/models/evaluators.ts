@@ -264,6 +264,67 @@ export async function canEvaluatorGradeGroupAtHospital(
   return assignments.some((a) => a.groupId === null || a.groupId === groupId);
 }
 
+export interface EvaluatorStint {
+  blockId: string;
+  groupId: string;
+  groupName: string;
+  hospitalId: string;
+  hospitalName: string;
+  startDate: string;
+  endDate: string;
+  daysOfWeek: string | null;
+  status: "past" | "current" | "future";
+  studentCount: number;
+}
+
+// The evaluator's own rotation schedule — every RotationBlock their
+// assignments actually cover (a specific group's blocks for a group-scoped
+// assignment, or every block at the hospital for a hospital-wide one),
+// chronological, with past/current/future status so an evaluator can see
+// their whole assignment at a glance instead of only "who's scheduled
+// today" on /my.
+export async function getEvaluatorSchedule(accountId: string): Promise<EvaluatorStint[]> {
+  const assignments = await prisma.evaluatorAssignment.findMany({
+    where: { accountId, active: true },
+    select: { hospitalId: true, groupId: true },
+  });
+  if (assignments.length === 0) return [];
+
+  const today = new Date().toISOString().slice(0, 10);
+  const seen = new Set<string>();
+  const stints: EvaluatorStint[] = [];
+
+  for (const a of assignments) {
+    const blocks = await prisma.rotationBlock.findMany({
+      where: a.groupId ? { groupId: a.groupId, active: true } : { hospitalId: a.hospitalId, active: true },
+      orderBy: { startDate: "asc" },
+      include: {
+        hospital: { select: { name: true } },
+        group: { select: { id: true, name: true, active: true, _count: { select: { students: { where: { active: true } } } } } },
+      },
+    });
+    for (const b of blocks) {
+      if (seen.has(b.id) || !b.group.active) continue;
+      seen.add(b.id);
+      stints.push({
+        blockId: b.id,
+        groupId: b.groupId,
+        groupName: b.group.name,
+        hospitalId: b.hospitalId,
+        hospitalName: b.hospital.name,
+        startDate: b.startDate,
+        endDate: b.endDate,
+        daysOfWeek: b.daysOfWeek,
+        status: today < b.startDate ? "future" : today > b.endDate ? "past" : "current",
+        studentCount: b.group._count.students,
+      });
+    }
+  }
+
+  stints.sort((x, y) => x.startDate.localeCompare(y.startDate));
+  return stints;
+}
+
 export interface ScopedStudent {
   id: string;
   universityNumber: string;

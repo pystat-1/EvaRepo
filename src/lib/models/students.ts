@@ -82,6 +82,23 @@ export async function listStudents(includeInactive = false): Promise<StudentWith
   }));
 }
 
+export interface StudentBasic {
+  id: string;
+  nameAr: string;
+  nameEn: string | null;
+  universityNumber: string;
+  code: string | null;
+}
+
+export async function listActiveStudentsInGroup(groupId: string): Promise<StudentBasic[]> {
+  const rows = await prisma.student.findMany({
+    where: { groupId, active: true },
+    orderBy: { nameAr: "asc" },
+    select: { id: true, nameAr: true, nameEn: true, universityNumber: true, code: true },
+  });
+  return rows;
+}
+
 export async function getStudent(id: string): Promise<Student | undefined> {
   const row = await prisma.student.findUnique({ where: { id } });
   return row ? serialize(row) : undefined;

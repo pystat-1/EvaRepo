@@ -15,9 +15,11 @@
 //   `prisma generate` could not run there. Now that the app is deploying
 //   to Vercel + Neon, `provider` below is "postgresql" for real.
 
+// No binaryTargets: the Neon driver adapter (src/lib/db.ts) means Prisma
+// never spawns its native query engine binary, which also wouldn't run in
+// the Cloudflare Workers runtime this app is deployed to.
 generator client {
-  provider      = "prisma-client-js"
-  binaryTargets = ["native", "rhel-openssl-3.0.x"]
+  provider = "prisma-client-js"
 }
 
 datasource db {

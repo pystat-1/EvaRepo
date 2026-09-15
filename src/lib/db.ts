@@ -22,11 +22,24 @@ function createPrismaClient(): PrismaClient {
   return new PrismaClient({ adapter });
 }
 
-// Standard Next.js dev-hot-reload-safe singleton: without this, every hot
-// reload in `next dev` would construct a new PrismaClient (and a new
-// connection pool) on top of the last one.
-export const prisma: PrismaClient = global.__evaPrisma ?? createPrismaClient();
-
-if (process.env.NODE_ENV !== "production") {
-  global.__evaPrisma = prisma;
+function getPrismaClient(): PrismaClient {
+  if (!global.__evaPrisma) {
+    global.__evaPrisma = createPrismaClient();
+  }
+  return global.__evaPrisma;
 }
+
+// Lazy singleton, proxied so `createPrismaClient()` only runs on first
+// actual use — not at module load. Next's build-time "collect page data"
+// step imports every route module (including this one, transitively) to
+// inspect its exports, with no real DATABASE_URL in that build
+// environment; a client constructed eagerly at module scope would throw
+// there. This also keeps the standard Next.js dev-hot-reload-safe
+// singleton behavior: without it, every hot reload in `next dev` would
+// construct a new PrismaClient (and a new connection pool) on top of the
+// last one.
+export const prisma: PrismaClient = new Proxy({} as PrismaClient, {
+  get(_target, prop, receiver) {
+    return Reflect.get(getPrismaClient(), prop, receiver);
+  },
+});

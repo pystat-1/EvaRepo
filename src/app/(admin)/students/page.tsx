@@ -1,15 +1,26 @@
-import { listStudents } from "@/lib/models/students";
+import { listStudentsPage } from "@/lib/models/students";
 import { listGroups } from "@/lib/models/groups";
 import { listStudyTypes } from "@/lib/models/studyTypes";
 import { listCourses } from "@/lib/models/courses";
+import { Suspense } from "react";
 import { createStudentAction, toggleStudentActiveAction } from "@/lib/actions/students";
 import ImportStudentsForm from "@/components/ImportStudentsForm";
+import DebouncedSearch from "@/components/DebouncedSearch";
+import Pager from "@/components/Pager";
 
 const SHIFT_LABEL: Record<string, string> = { MORNING: "صباحي", EVENING: "مسائي" };
 
-export default async function StudentsPage() {
-  const [students, groups, studyTypes, courses] = await Promise.all([
-    listStudents(true),
+export default async function StudentsPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const sp = await searchParams;
+  const q = typeof sp.q === "string" ? sp.q : undefined;
+  const page = typeof sp.page === "string" ? Number(sp.page) || 1 : 1;
+
+  const [{ rows: students, total, pageSize }, groups, studyTypes, courses] = await Promise.all([
+    listStudentsPage({ search: q, page, includeInactive: true }),
     listGroups(),
     listStudyTypes(),
     listCourses(),
@@ -96,6 +107,14 @@ export default async function StudentsPage() {
 
       <ImportStudentsForm />
 
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="w-full sm:w-72">
+          <Suspense fallback={<input className="input" placeholder="بحث..." disabled />}>
+            <DebouncedSearch placeholder="بحث بالاسم أو الرقم الجامعي أو الرمز..." />
+          </Suspense>
+        </div>
+      </div>
+
       <div className="card p-0 overflow-x-auto">
         <table className="data-table">
           <thead>
@@ -155,6 +174,8 @@ export default async function StudentsPage() {
           </tbody>
         </table>
       </div>
+
+      <Pager page={page} pageSize={pageSize} total={total} searchParams={sp} />
     </div>
   );
 }

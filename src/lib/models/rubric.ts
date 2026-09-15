@@ -8,6 +8,7 @@
 // source of truth, this file just keeps the `label` name in its own
 // exported interface/inputs so nothing calling into this module needs to
 // change.
+import { cache } from "react";
 import { prisma } from "../db";
 import { recordAudit } from "../audit";
 
@@ -69,14 +70,20 @@ export async function ensureDefaultRubric(): Promise<void> {
   });
 }
 
-export async function listRubricSections(includeInactive = false): Promise<RubricSection[]> {
+// Rubric sections are near-static reference data (edited a few times a
+// year from /rubric) but were being re-fetched from the DB on every call —
+// up to 4 round trips in a single page render (e.g. statistics.ts calls
+// getMaxTotal twice). react's cache() dedupes identical calls within one
+// request's render pass; it's cleared automatically between requests, so
+// an edit is visible on the very next request with no manual invalidation.
+export const listRubricSections = cache(async (includeInactive = false): Promise<RubricSection[]> => {
   await ensureDefaultRubric();
   const rows = await prisma.rubricSection.findMany({
     where: includeInactive ? undefined : { active: true },
     orderBy: { sortOrder: "asc" },
   });
   return rows.map(serialize);
-}
+});
 
 export async function getMaxTotal(): Promise<number> {
   const sections = await listRubricSections();

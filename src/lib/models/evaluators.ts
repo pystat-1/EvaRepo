@@ -90,9 +90,95 @@ export async function listEvaluators(includeInactive = false): Promise<Evaluator
     where: includeInactive ? { role: "EVALUATOR" } : { role: "EVALUATOR", active: true },
     orderBy: { name: "asc" },
   });
-  return Promise.all(
-    accounts.map(async (a: any) => ({ ...serializeAccount(a), assignments: await listAssignmentsForAccount(a.id) }))
-  );
+  if (accounts.length === 0) return [];
+
+  // One query for every account's assignments instead of one query per
+  // account (was N+1 — see listAssignmentsForAccount, still used by the
+  // single-account read paths below).
+  const allAssignments = await prisma.evaluatorAssignment.findMany({
+    where: { accountId: { in: accounts.map((a) => a.id) } },
+    orderBy: { createdAt: "desc" },
+    include: {
+      hospital: { select: { name: true } },
+      group: { select: { name: true } },
+    },
+  });
+  const byAccount = new Map<string, AssignmentRow[]>();
+  for (const row of allAssignments) {
+    const list = byAccount.get(row.accountId) ?? [];
+    list.push(serializeAssignment(row));
+    byAccount.set(row.accountId, list);
+  }
+
+  return accounts.map((a) => ({ ...serializeAccount(a), assignments: byAccount.get(a.id) ?? [] }));
+}
+
+export interface EvaluatorsPageResult {
+  rows: EvaluatorWithAssignments[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+// Paginated + searchable variant of listEvaluators, for the admin
+// /evaluators table — see listStudentsPage for why this is a separate
+// function rather than changing listEvaluators' signature.
+export async function listEvaluatorsPage(params: {
+  search?: string;
+  page?: number;
+  pageSize?: number;
+  includeInactive?: boolean;
+}): Promise<EvaluatorsPageResult> {
+  const page = Math.max(1, params.page ?? 1);
+  const pageSize = params.pageSize ?? 50;
+  const search = params.search?.trim();
+
+  const where = {
+    role: "EVALUATOR" as const,
+    ...(params.includeInactive ? {} : { active: true }),
+    ...(search
+      ? {
+          OR: [
+            { name: { contains: search, mode: "insensitive" as const } },
+            { email: { contains: search, mode: "insensitive" as const } },
+          ],
+        }
+      : {}),
+  };
+
+  const [accounts, total] = await Promise.all([
+    prisma.account.findMany({
+      where,
+      orderBy: { name: "asc" },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }),
+    prisma.account.count({ where }),
+  ]);
+
+  if (accounts.length === 0) return { rows: [], total, page, pageSize };
+
+  const allAssignments = await prisma.evaluatorAssignment.findMany({
+    where: { accountId: { in: accounts.map((a) => a.id) } },
+    orderBy: { createdAt: "desc" },
+    include: {
+      hospital: { select: { name: true } },
+      group: { select: { name: true } },
+    },
+  });
+  const byAccount = new Map<string, AssignmentRow[]>();
+  for (const row of allAssignments) {
+    const list = byAccount.get(row.accountId) ?? [];
+    list.push(serializeAssignment(row));
+    byAccount.set(row.accountId, list);
+  }
+
+  return {
+    rows: accounts.map((a) => ({ ...serializeAccount(a), assignments: byAccount.get(a.id) ?? [] })),
+    total,
+    page,
+    pageSize,
+  };
 }
 
 export async function getEvaluator(accountId: string): Promise<EvaluatorWithAssignments | undefined> {

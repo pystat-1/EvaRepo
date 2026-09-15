@@ -1,4 +1,5 @@
-import { listEvaluators } from "@/lib/models/evaluators";
+import { Suspense } from "react";
+import { listEvaluatorsPage } from "@/lib/models/evaluators";
 import { listHospitals } from "@/lib/models/hospitals";
 import { listGroups } from "@/lib/models/groups";
 import {
@@ -7,10 +8,20 @@ import {
   addAssignmentAction,
   toggleAssignmentActiveAction,
 } from "@/lib/actions/evaluators";
+import DebouncedSearch from "@/components/DebouncedSearch";
+import Pager from "@/components/Pager";
 
-export default async function EvaluatorsPage() {
-  const [evaluators, hospitals, groups] = await Promise.all([
-    listEvaluators(true),
+export default async function EvaluatorsPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const sp = await searchParams;
+  const q = typeof sp.q === "string" ? sp.q : undefined;
+  const page = typeof sp.page === "string" ? Number(sp.page) || 1 : 1;
+
+  const [{ rows: evaluators, total, pageSize }, hospitals, groups] = await Promise.all([
+    listEvaluatorsPage({ search: q, page, includeInactive: true }),
     listHospitals(),
     listGroups(),
   ]);
@@ -68,6 +79,12 @@ export default async function EvaluatorsPage() {
             </button>
           </div>
         </form>
+      </div>
+
+      <div className="w-full sm:w-72">
+        <Suspense fallback={<input className="input" placeholder="بحث..." disabled />}>
+          <DebouncedSearch placeholder="بحث بالاسم أو البريد الإلكتروني..." />
+        </Suspense>
       </div>
 
       <div className="flex flex-col gap-4">
@@ -161,6 +178,8 @@ export default async function EvaluatorsPage() {
           <div className="card text-center text-slate-400 py-6">لا يوجد مقيّمون بعد</div>
         )}
       </div>
+
+      <Pager page={page} pageSize={pageSize} total={total} searchParams={sp} />
     </div>
   );
 }

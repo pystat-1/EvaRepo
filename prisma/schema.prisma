@@ -81,6 +81,7 @@ model Account {
   assignments  EvaluatorAssignment[]
   evaluations  Evaluation[]
 
+  @@index([studentId])
   @@map("accounts")
 }
 
@@ -266,6 +267,8 @@ model Evaluation {
   @@unique([studentId, dateISO])
   @@index([groupId])
   @@index([hospitalId])
+  @@index([evaluatorId])
+  @@index([dateISO])
   @@map("evaluations")
 }
 
@@ -317,5 +320,6 @@ model AuditLog {
   createdAt  DateTime @default(now())
 
   @@index([entityType, entityId])
+  @@index([actorId])
   @@map("audit_logs")
 }

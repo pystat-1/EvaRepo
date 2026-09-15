@@ -82,6 +82,72 @@ export async function listStudents(includeInactive = false): Promise<StudentWith
   }));
 }
 
+export interface StudentsPageResult {
+  rows: StudentWithRelations[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+// Paginated + searchable variant of listStudents, for the admin /students
+// table — that page renders every row unbounded, which gets slow (both the
+// query and the DOM) as the registry grows. Kept separate from
+// listStudents rather than changing its signature, since other callers
+// (CSV export, setup dropdowns, dashboard counts) genuinely need the full
+// unpaginated list.
+export async function listStudentsPage(params: {
+  search?: string;
+  page?: number;
+  pageSize?: number;
+  includeInactive?: boolean;
+}): Promise<StudentsPageResult> {
+  const page = Math.max(1, params.page ?? 1);
+  const pageSize = params.pageSize ?? 50;
+  const search = params.search?.trim();
+
+  const where = {
+    ...(params.includeInactive ? {} : { active: true }),
+    ...(search
+      ? {
+          OR: [
+            { nameAr: { contains: search, mode: "insensitive" as const } },
+            { nameEn: { contains: search, mode: "insensitive" as const } },
+            { universityNumber: { contains: search, mode: "insensitive" as const } },
+            { code: { contains: search, mode: "insensitive" as const } },
+          ],
+        }
+      : {}),
+  };
+
+  const [rows, total] = await Promise.all([
+    prisma.student.findMany({
+      where,
+      orderBy: { nameAr: "asc" },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+      include: {
+        studyType: { select: { name: true } },
+        group: { select: { name: true } },
+        course: { select: { year: true, number: true, label: true } },
+      },
+    }),
+    prisma.student.count({ where }),
+  ]);
+
+  return {
+    rows: rows.map((r) => ({
+      ...serialize(r),
+      studyTypeName: r.studyType?.name ?? null,
+      groupName: r.group?.name ?? null,
+      courseLabel: r.course ? r.course.label ?? `${r.course.year}-${r.course.number}` : null,
+      courseCode: r.course ? `${r.course.year}-${r.course.number}` : null,
+    })),
+    total,
+    page,
+    pageSize,
+  };
+}
+
 export interface StudentBasic {
   id: string;
   nameAr: string;

@@ -6,7 +6,16 @@
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "assets": {
     "directory": ".open-next/assets",
-    "binding": "ASSETS"
+    "binding": "ASSETS",
+    // Without this, Cloudflare serves any request whose path matches a
+    // static asset (e.g. /login, which Next.js prerendered as static
+    // HTML) directly from the assets layer — for every HTTP method,
+    // including the POST a Server Action form submits — and never
+    // invokes the Worker at all, so a login POST to /login 404'd instead
+    // of ever reaching Next.js. Routing every request through the Worker
+    // first (it serves static assets itself via the ASSETS binding when
+    // appropriate) fixes that at a negligible cost for an app this size.
+    "run_worker_first": true
   },
   "services": [
     {

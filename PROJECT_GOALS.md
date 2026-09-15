@@ -108,10 +108,14 @@ Plan:
 
 ## Goal 4: Offline-capable evaluation, sync when back online
 
-**Status: IN PROGRESS (2026-09-15) — Phase 4a, 4b & 4c shipped; 4d's online-
-event sync queue shipped (code, not yet independently verified live — see
-Session Log); true Background Sync API registration deliberately not
-attempted (see Phase 4d notes)**
+**Status: CODE-COMPLETE (2026-09-15) — all of Phases 4a-4d are implemented,
+type-checked, build-verified, and pushed to `main`. Production deploy is
+stuck on the Phase 4c commit (`ea5ea1f`) — the site's auto-deploy has not
+picked up any commit since, across two consecutive autonomous sessions;
+needs a human to check `eva-v3-app-gsfa`'s Build & deploy settings. True
+Background Sync API registration deliberately not attempted (see Phase 4d
+notes). No further autonomous code work remains in Goal 4 — see the
+2026-09-15 "Autonomous queue check" Session Log entry.**
 
 Decision: full offline capability — works with zero connectivity for hours, not just
 resilient to brief drops. This is a genuinely large, multi-session build. Phased plan:
@@ -222,6 +226,66 @@ click through it once to confirm live), Goal 4's PWA build is the
 ## Session Log
 
 _Newest entry on top. One entry per work session — what was done, what's next._
+
+### 2026-09-15 — Autonomous queue check: Goal 4 fully code-complete, nothing left to build
+- Autonomous run. Repo was in a detached-HEAD state at session start again
+  (same recurring pattern noted in several prior entries). This time it
+  turned out to be a stale local `origin/main` ref rather than lost work:
+  `git fetch origin` alone brought `origin/main` forward from `1af1817` to
+  `82d3384` (25 commits) with no divergence — `ls-remote` confirmed
+  `refs/heads/main` on the remote matches the detached HEAD exactly. Checked
+  out `main` and reset it to match `origin/main`; no data was ever at risk,
+  this was just this container's local ref being behind.
+- Read this file in full, including the Session Log. Confirmed every
+  checklist item in Goal 4 Phases 4a, 4b, 4c, and 4d is already checked
+  `[x]` — there is no next unchecked step in the phased plan to pick up.
+  Made zero code changes this run, and correspondingly made zero
+  Neon/database calls and touched no Prisma/migration files, per the hard
+  safety rule (nothing to build meant nothing to risk).
+- Per the hard safety rules, re-checked the deploy before concluding
+  anything: `netlify-project-services-reader get-project` on
+  `61860730-67b5-4418-81bf-a89c30900e45` (`eva-v3-app-gsfa`) still shows
+  `currentDeploy` = `6aa8a74483196d000869afc3`, and
+  `netlify-deploy-services-reader get-deploy-for-site` confirms its
+  `commit_ref` is still `ea5ea1f...` (Phase 4c), `state: ready`, no
+  `error_message`. **No new deploy has fired for any commit since
+  `ea5ea1f`** — not for `b6e45af`/`ea5ea1f` (already confirmed live last
+  session) nor for the Phase 4d commits (`2ca3ce5`, `82d3384`) the previous
+  session pushed and flagged as stuck. This is the same "auto-deploy
+  trigger isn't firing for this repo's pushes" symptom already documented
+  in the 2026-09-15 Phase 4d entry below, now confirmed to still be true a
+  full cycle later with zero change — i.e. it is not a transient timing
+  issue, the site's GitHub link/webhook genuinely appears stuck. Did not
+  touch any Netlify setting (read-only checks only), per the hard rule.
+- **Conclusion: the autonomous work queue for Goal 4 is empty.** All four
+  phases are code-complete, type-checked, build-verified, and pushed to
+  `main`/`origin/main`. What remains is entirely outside this routine's
+  scope per its own instructions:
+  1. **Needs a human, Netlify dashboard**: `eva-v3-app-gsfa`'s Build & deploy
+     settings — confirm the GitHub repo link/webhook is still active and, if
+     needed, manually trigger a deploy for `82d3384` (or later) to get Phase
+     4d live. This has now been flagged across two consecutive sessions
+     without a new deploy appearing in between.
+  2. **Needs a human, Google Cloud Console**: the redirect-URI fix already
+     flagged at the top of this file (Goal 2 is otherwise done).
+  3. **Needs a human with a browser**: end-to-end click-through testing of
+     both the Google Sign-In flow and the full offline PWA flow (import →
+     go offline → grade → reconnect → confirm sync) — no browser or logged-in
+     session available in this sandbox for any session so far.
+  4. Goal 2's two remaining "queued, independent of OAuth" items (Neon
+     backup/PITR verification, a scheduled export routine) are ops/backup
+     policy decisions this file itself scopes as "not something to implement
+     unprompted" — left untouched, not invented as new work.
+  Per this run's own instructions, doing nothing further and not inventing
+  new scope. **Future hourly runs should not re-investigate this from
+  scratch** — if the deploy `commit_ref` at
+  `61860730-67b5-4418-81bf-a89c30900e45` is still `ea5ea1f` and this file's
+  Goal 4 checklist is still all `[x]`, the correct action is the same as
+  this entry's: confirm nothing changed, note it tersely (or skip logging
+  entirely if truly nothing changed), and stop rather than re-deriving this
+  finding every hour. Only act again once either (a) a human unblocks the
+  deploy and it's worth verifying live, or (b) this file gains new unchecked
+  scope for a human has added.
 
 ### 2026-09-15 — Goal 4 Phase 4d shipped (code): outbox sync queue
 - **Deploy check: pushed as commit `2ca3ce5`, but the site's auto-deploy did

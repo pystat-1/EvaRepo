@@ -224,6 +224,21 @@ click through it once to confirm live), Goal 4's PWA build is the
 _Newest entry on top. One entry per work session — what was done, what's next._
 
 ### 2026-09-15 — Goal 4 Phase 4d shipped (code): outbox sync queue
+- **Deploy check: pushed as commit `2ca3ce5`, but the site's auto-deploy did
+  not pick it up within this run's polling window** (~8+ minutes, repeated
+  `get-project` polls on `eva-v3-app-gsfa` / `61860730-...`). `currentDeploy`
+  stayed on the previous deploy the whole time — commit `ea5ea1f` (the tip
+  before this session's push), state `ready`, no `error_message`. This is
+  the same "auto-deploy trigger itself didn't fire for this push" pattern
+  already documented in the 2026-09-14 Phase 4a entry, not a build failure:
+  nothing errored, production is simply still serving the last good deploy
+  (stale, not broken). Per the hard safety rules, did not force a manual
+  deploy or touch any Netlify setting — read-only status checks only. **A
+  human should check `eva-v3-app-gsfa`'s Build & deploy settings (is the
+  GitHub webhook/repo link still active?) and, if needed, trigger a manual
+  deploy for `2ca3ce5` from the Netlify dashboard.** The next autonomous run
+  should re-check `get-project`/`get-deploy-for-site` for this commit before
+  assuming anything about whether 4d is actually live.
 - Autonomous run. Repo's local `main` was on a stale fetch of `origin/main`
   again at session start (same recurring pattern as prior sessions' notes) —
   re-fetched, confirmed `origin/main` and the pre-existing detached HEAD

@@ -252,6 +252,48 @@ click through it once to confirm live), Goal 4's PWA build is the
 
 _Newest entry on top. One entry per work session — what was done, what's next._
 
+### 2026-09-15 — Autonomous queue check: still empty; human's manual deploy nudge also didn't trigger
+- Autonomous run. Local `main` was a stale fetch of `origin/main` again at
+  session start (same recurring pattern) — `git fetch origin main` then
+  `git merge --ff-only` brought it forward 30 commits with no divergence,
+  confirmed via `ls-remote` matching `refs/heads/main` exactly. No lost work.
+- Since the last logged entry (`cef0b9a`), three more commits landed on
+  `main` that were not this routine's doing (git author matches the repo
+  owner's own identity, commit style is terse/manual rather than this
+  routine's narrated style, and none added a Session Log entry as this
+  routine's own protocol requires): `c502321` (an empty "nudge" commit
+  aimed at kicking Netlify's stuck auto-deploy), and `b338842`/`1f32389`
+  which checked Neon's PITR settings and added a daily Neon snapshot backup
+  routine (`eva-db-daily-backup`) for Goal 2's backup item. Both are
+  reflected in this file's Goal 2 section already (now `[x]`). Per this
+  run's hard safety rule, did **not** call any Neon/database MCP tool or
+  touch that routine — left it entirely alone, consistent with "Goal 2 is
+  DONE, don't touch it."
+- Re-checked Goal 4: every item in Phases 4a-4d is still `[x]` — no next
+  unchecked step to pick up. Made zero code changes, zero Neon/database
+  calls, per the hard safety rules.
+- Re-checked the deploy per the hard safety rules before concluding
+  anything: `netlify-project-services-reader get-project` and
+  `netlify-deploy-services-reader get-deploy-for-site` on
+  `61860730-67b5-4418-81bf-a89c30900e45` (`eva-v3-app-gsfa`, the current
+  canonical site) still show `currentDeploy` = `6aa8a74483196d000869afc3`,
+  `commit_ref` still `ea5ea1f...` (Phase 4c), `state: ready`, no
+  `error_message`. **Notably, this is unchanged even after the human's own
+  empty "nudge" commit (`c502321`)** — a manual push that also failed to
+  trigger a new deploy is stronger evidence than before that this isn't a
+  transient/stale-webhook-timing issue but something actually broken in
+  `eva-v3-app-gsfa`'s Build & deploy settings (e.g. the GitHub repo
+  link/webhook itself, not just "hasn't caught up yet"). Flagging this
+  distinction back to the user since their own attempted fix not working is
+  new information worth knowing, even though the underlying issue was
+  already logged.
+- **Conclusion: autonomous work queue for Goal 4 is still empty**, per this
+  file's own standing guidance not to re-invent work. Nothing left for this
+  routine to do until either (a) a human fixes the Netlify deploy link (a
+  push-based nudge has now been tried and didn't work — dashboard
+  inspection is likely required), or (b) new unchecked scope is added to
+  this file.
+
 ### 2026-09-15 — Autonomous queue check (repeat): still nothing new
 - Autonomous run. Local `main`/`origin/main` were in sync with the detached
   HEAD this container started on (`e7da4f5`) after a fresh `git fetch` — no

@@ -197,6 +197,31 @@ _Newest entry on top. One entry per work session — what was done, what's next.
   is resolved. Code safety is unaffected (nothing is lost, just not
   deployed) but "confirm the deploy is ready" (a hard safety rule for that
   routine) will keep failing through no fault of the code itself.
+- **User asked to avoid paying for more Netlify build minutes — fixed with
+  a build-elsewhere pipeline instead.** Added `.github/workflows/deploy.yml`:
+  builds on GitHub Actions' free runners (`netlify build`, using the
+  existing `netlify.toml` config — no changes needed there) and only
+  uploads the finished artifact with `netlify deploy --prod --no-build`.
+  Netlify only meters builds that run on *their* infrastructure, not
+  receiving a pre-built deploy, so this sidesteps the credit issue
+  entirely going forward, independent of whether/when the exhausted
+  credits reset.
+  - **Needs one thing from the user to activate**: a Netlify **personal
+    access token** (different from the OAuth session Claude uses) —
+    generate one at https://app.netlify.com/user/applications#personal-access-tokens
+    → "New access token" — then add it as a GitHub Actions secret named
+    `NETLIFY_AUTH_TOKEN`: repo → **Settings → Secrets and variables →
+    Actions → New repository secret**. The site ID is already hardcoded
+    in the workflow (not sensitive, no secret needed for it).
+  - Until that secret is added, the workflow will run on every push and
+    fail at the `netlify build` step (expected, harmless) — future
+    `eva-goals-autopilot` runs should note this rather than treating it
+    as a code problem to fix.
+  - Netlify's own git-linked auto-deploy is still connected and will keep
+    trying (and being skipped for credits) in parallel — harmless, but the
+    user may want to disable it in the Netlify dashboard (Site
+    configuration → Build & deploy → "Stop builds") once the GitHub
+    Actions pipeline is confirmed working, to keep things tidy.
 - **Needs a human to resolve** — I cannot see Netlify billing/plan details
   or purchase more credits. Options: wait for the usage window to reset
   (check the Netlify dashboard for when), or upgrade the plan/add credits at

@@ -108,8 +108,8 @@ Plan:
 
 ## Goal 4: Offline-capable evaluation, sync when back online
 
-**Status: IN PROGRESS (2026-09-15) — Phase 4a & 4b shipped (code, not yet live — see deploy
-pipeline issue in Session Log), 4c next**
+**Status: IN PROGRESS (2026-09-15) — Phase 4a, 4b & 4c shipped (code, not yet
+independently verified live — see Session Log), 4d (sync queue) next**
 
 Decision: full offline capability — works with zero connectivity for hours, not just
 resilient to brief drops. This is a genuinely large, multi-session build. Phased plan:
@@ -137,13 +137,19 @@ verified live — deploy pipeline is currently broken, see Session Log)
       IndexedDB in one shot — `GET /api/schedule/offline-bundle` +
       `import-offline-button.tsx`
 
-**Phase 4c — Offline-first grading UI**
-- [ ] `/grade/[studentId]` reads from IndexedDB when offline (detect via
+**Phase 4c — Offline-first grading UI** — DONE (2026-09-15, code; not yet
+verified live — see Session Log)
+- [x] `/grade/[studentId]` reads from IndexedDB when offline (detect via
       `navigator.onLine` + actual fetch failure, not just the flag) instead of
-      failing on the server component fetch
-- [ ] Grade submission writes to a local outbox (IndexedDB) instead of calling the
+      failing on the server component fetch — converted to a Client Component,
+      new `GET /api/grade/[studentId]` (JSON twin of the old server-fetch
+      logic), `src/lib/offline/gradeData.ts` rebuilds the same view from the
+      Phase 4b IndexedDB cache when the fetch fails
+- [x] Grade submission writes to a local outbox (IndexedDB) instead of calling the
       server action directly when offline; UI shows "محفوظ محليًا — سيُزامن عند
-      الاتصال" (saved locally — will sync when online)
+      الاتصال" (saved locally — will sync when online) — `outbox` store added to
+      `src/lib/offline/db.ts` (DB v2), page tries `gradeStudentAction` first and
+      only queues locally on an actual network failure
 
 **Phase 4d — Sync queue**
 - [ ] Background sync (Background Sync API where supported, falling back to an
@@ -194,6 +200,113 @@ click through it once to confirm live), Goal 4's PWA build is the
 ## Session Log
 
 _Newest entry on top. One entry per work session — what was done, what's next._
+
+### 2026-09-15 — Goal 4 Phase 4c shipped (code): offline-first grading UI
+- Autonomous run. Repo was on a detached HEAD at session start pointing at a
+  stale local fetch of `origin/main` (same pattern as a previous session's
+  note) — re-fetched, confirmed `origin/main` and the detached HEAD were
+  actually identical (`git merge-base --is-ancestor` both directions), then
+  checked out `main` and fast-forwarded it to match. No divergent/lost work.
+- Goal 2 (Google OAuth) — untouched, per hard rule. Did not call any
+  Neon/database tool and made zero schema/migration changes, per the hard
+  safety rule — this phase is pure client-side/API-route work.
+- Read `node_modules/next/dist/docs/01-app/02-guides/offline-support.md`
+  first per `AGENTS.md`. Confirmed a load-bearing fact for this phase's
+  design: even this Next version's built-in `experimental.useOffline`
+  mechanism explicitly does **not** cover a full/cold page load offline
+  ("A full page reload while offline still fails because the browser needs
+  the network to deliver the HTML; full offline loads would need a service
+  worker") — it only helps soft navigations into already-prefetched routes
+  and Server Action retries. This confirmed the IndexedDB-cache approach
+  already scoped in this file for 4b/4c (not `useOffline`) is the correct
+  mechanism, and that the site's `next.config.ts` correctly does not enable
+  that experimental flag — left it untouched.
+- Implemented Phase 4c in full:
+  - `GET /api/grade/[studentId]` (new route): a JSON twin of the old
+    `/grade/[studentId]` Server Component's data-fetch — same checks, same
+    order (student exists → evaluator's scope → schedule → hospital
+    coverage) as `page.tsx` and `gradeStudentAction`'s
+    `assertEvaluatorCanGrade` used to duplicate between themselves anyway.
+  - `src/lib/offline/gradeData.ts`: rebuilds the identical view-model from
+    the Phase 4b IndexedDB cache when the network fetch fails — finds the
+    student across cached rosters (rosters are keyed by groupId; a hit
+    doubles as the offline "in scope" check), matches today's date against
+    the cached schedule's stints using the *same* pure `isDateInScheduledDays`
+    helper the server uses (`src/lib/weekdays.ts`, no DB dependency, safe to
+    import client-side) — and because `getEvaluatorSchedule` only ever
+    returns stints the evaluator's own assignments actually cover, a
+    matching stint offline already implies "hospital covered" too, so there's
+    one fewer failure case offline than online (no `not_covered`, only
+    `out_of_scope`/`not_scheduled`) — documented in the module comment rather
+    than left implicit.
+  - `src/app/(evaluator)/grade/[studentId]/page.tsx`: converted from an
+    `async` Server Component to a Client Component (`useParams` for the
+    dynamic segment). On mount: skip straight to the offline path if
+    `navigator.onLine === false`; otherwise try the fetch and only fall back
+    to `loadOfflineGradeData` on an actual thrown fetch failure — i.e. both
+    signals from the plan, not just the flag. All the original inline error
+    states (out of scope / not scheduled / not covered / not found) are
+    preserved verbatim, just driven by state instead of server props.
+  - `outbox` object store added to `src/lib/offline/db.ts` (bumped
+    `DB_VERSION` 1→2, upgrade guarded with `objectStoreNames.contains(...)`
+    checks so an evaluator's existing v1 database upgrades in place without
+    erroring on stores that already exist). On submit: try
+    `gradeStudentAction` directly (a "use server" action can be called as a
+    plain async function from a Client Component, not just via
+    `<form action=>`) first; only on a real network failure (`TypeError`
+    from the underlying fetch, or `navigator.onLine` having gone false
+    mid-session) does it queue to the outbox instead — a real
+    validation/authorization error the action throws is shown to the user,
+    not silently swallowed into a local save. Success shows "محفوظ محليًا —
+    سيُزامن عند الاتصال" per the plan's exact wording. Reopening the form
+    offline prefers a queued-but-unsynced outbox entry over the last-known
+    server evaluation, so in-progress offline edits aren't lost by
+    re-rendering from stale imported data.
+  - Actually *replaying* the outbox through the server (background sync) is
+    explicitly Phase 4d, not this phase — untouched here, matches the plan.
+- Known, deliberate limitation carried over from how Phase 4a's service
+  worker is scoped (not a regression from this session): this only helps
+  once the evaluator has already navigated into the `(evaluator)` route
+  group at least once while online this session/cache-lifetime (so the
+  shared layout's session check and this route's JS chunk are already
+  loaded/cached) — a genuinely cold, first-ever offline page load straight
+  to `/grade/[id]` still can't render, same as `/my` or `/schedule` already
+  couldn't before this phase. Solving that fully would mean caching the
+  personalized app-shell HTML itself, which Phase 4a's service worker
+  comment explicitly deferred to "explicit IndexedDB work," not implicit
+  HTTP caching — left as-is, consistent with that earlier decision.
+- `npm install` (node_modules was missing this run), `npx next build` clean
+  (zero errors; new route `/api/grade/[studentId]` listed in the route
+  table; this also regenerates `.next/types` which a fresh `tsc --noEmit`
+  needs — the pre-existing `LayoutProps` global type it provides made a raw
+  `tsc --noEmit` on a from-scratch checkout error before the first build,
+  unrelated to this session's changes), then `npx tsc --noEmit` clean.
+  Smoke-tested with `next start`: `/login`, `/manifest.webmanifest`,
+  `/offline.html`, `/sw.js` still 200 (no regression to the existing PWA
+  shell); `GET /api/grade/nonexistent` correctly 401s unauthenticated
+  (matches the `/api/schedule/offline-bundle` pattern); a cold
+  `/grade/nonexistent` request still 307-redirects to `/login`, confirming
+  the `(evaluator)/layout.tsx` server-side session gate still runs and this
+  change didn't weaken it. Did not browser-test the actual offline
+  read/outbox-write flow end-to-end (would need a logged-in evaluator
+  session with real roster/rubric data and DevTools' offline throttling —
+  not available in this sandbox, no DB access here either, consistent with
+  how previous sessions' smoke-testing was scoped).
+- Checked `git status` before staging — only the four intended files
+  (`src/lib/offline/db.ts`, new `src/lib/offline/gradeData.ts`, new
+  `src/app/api/grade/[studentId]/route.ts`, and the rewritten
+  `src/app/(evaluator)/grade/[studentId]/page.tsx`) plus this file. No stray
+  files, no `package.json`/`package-lock.json` changes (no new dependency
+  needed — reused the existing `idb` wrapper).
+- **Next step:** Goal 4 Phase 4d (sync queue) — replay the outbox through
+  `gradeStudentAction` on an `online` event / Background Sync API, and the
+  two decisions this file already flags as needing a revisit before shipping
+  it (cross-device last-write-wins conflict handling; validate/remap if the
+  rubric changed on the server while an evaluator was offline). Also worth a
+  human's attention whenever they're next in the app: browser-test 4b+4c's
+  actual offline flow once (import the schedule while online, go offline,
+  open a scheduled student's grading form, confirm it renders from cache and
+  a submitted grade shows "محفوظ محليًا").
 
 ### 2026-09-15 — Migrated to a new Netlify site; deploy is fixed and verified live
 - Root cause of the deploy pipeline being broken (both the original site's

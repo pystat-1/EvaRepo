@@ -10,8 +10,19 @@ Knowledge base: `graphify-out/GRAPH_REPORT.md` (human-readable) and
 structural map of this codebase. Consult them before large changes; re-run
 `graphify <path> --update` after significant structural changes so they stay current.
 
-Live site: https://eva-v3-app.netlify.app · Repo: https://github.com/pystat-1/EvaRepo
-Neon project: `dry-cell-81671466` (DB name `eva`) · Netlify site: `eva-v3-app` (id `400fb70b-5646-424a-baf2-ae5cfd9e5e9b`)
+**CANONICAL LIVE SITE (as of 2026-09-15): https://eva-v3-app-gsfa.netlify.app**
+— the original `eva-v3-app.netlify.app` (site id `400fb70b-5646-424a-baf2-ae5cfd9e5e9b`,
+account `ammar.abd2000@conursing.uobaghdad.edu.iq`) hit its Netlify free-tier build
+quota and is dormant/unmaintained until that resets — do not deploy there, do not
+report it as "the site" without checking this note first.
+
+Repo: https://github.com/pystat-1/EvaRepo
+Neon project: `dry-cell-81671466` (DB name `eva`, unchanged — both Netlify sites
+point at the same database)
+**Current Netlify site**: `eva-v3-app-gsfa` (id `61860730-67b5-4418-81bf-a89c30900e45`),
+account `pystat.2@gmail.com`, git-linked to `main` for continuous deployment.
+When checking/confirming deploys (autopilot routine: this means YOU), always use
+this site id, not the old one.
 
 ---
 
@@ -159,6 +170,21 @@ are clear.
 2. ~~Google OAuth client ID + secret~~ **Received 2026-09-15, set as Netlify env vars.**
 3. ~~Offline: lightweight retry-queue, or full PWA/local-database?~~ **Answered: full PWA.**
 
+## ⚠️ NEEDS HUMAN ACTION — Google Sign-In will fail on the new domain until this is done
+
+The registered OAuth redirect URI in Google Cloud Console is still
+`https://eva-v3-app.netlify.app/api/auth/google/callback` (the OLD, now-dormant
+site). The canonical site is now `eva-v3-app-gsfa.netlify.app` — Google will
+reject the login with a `redirect_uri_mismatch` error until a second redirect URI
+is added for the new domain:
+```
+https://eva-v3-app-gsfa.netlify.app/api/auth/google/callback
+```
+Add this at https://console.cloud.google.com/apis/credentials → the OAuth client
+→ Authorized redirect URIs → **+ Add URI** (don't remove the old one, just add
+this as a second entry). Email+password login is unaffected and already verified
+working on the new site — only Google Sign-In needs this.
+
 No open questions remain — Goal 2's OAuth flow is implemented (needs a human to
 click through it once to confirm live), Goal 4's PWA build is the
 `eva-goals-autopilot` cloud routine's job now.
@@ -168,6 +194,55 @@ click through it once to confirm live), Goal 4's PWA build is the
 ## Session Log
 
 _Newest entry on top. One entry per work session — what was done, what's next._
+
+### 2026-09-15 — Migrated to a new Netlify site; deploy is fixed and verified live
+- Root cause of the deploy pipeline being broken (both the original site's
+  "account credit usage exceeded" AND the GitHub Actions workflow's
+  `JSONHTTPError: Forbidden`, noted in the entry below as unexplained): the
+  Netlify **team** (`BlueSky`, Free plan, account `ammar.abd2000@...`) was
+  quota-locked account-wide. Confirmed via `get-team` (plan: Free, user is
+  sole Owner — ruling out a permissions/role explanation) and by testing a
+  fresh personal access token (still `Forbidden` on deploy, even though
+  `netlify build` with that same token succeeded) — the block applies to
+  deploy-writes specifically, regardless of auth method or where the build
+  ran. Building elsewhere (GitHub Actions) cannot route around an
+  account-level lock enforced server-side by Netlify.
+- User does not want to pay for more Netlify credits. Tried Render as a free
+  alternative — blocked immediately by Render now requiring card verification
+  even for free web services (`402 Payment information is required`).
+- **Fix: migrated to a second, fresh Netlify account** (`pystat.2@gmail.com`
+  — free tier, no card, same product, fresh quota bucket). New site
+  `eva-v3-app-gsfa` (id `61860730-67b5-4418-81bf-a89c30900e45`), git-linked
+  to this repo's `main` branch for continuous deployment, same as the
+  original setup. **This is now the canonical live site** — updated the
+  header of this file accordingly. The old site/account is left alone,
+  dormant, not deleted (in case its quota resets and the user wants it back).
+- Hit the exact same "DATABASE_URL not found at runtime" bug as the very
+  first deploy of the original site, for the same reason: env vars set via
+  the Netlify MCP tool report success but don't actually reach the function
+  at runtime (this looks like a real, reproducible bug in that tool/connector
+  path — happened identically on two separate Netlify accounts now). Fixed
+  the same way as before: had the user add the 4 env vars (`DATABASE_URL`,
+  `JWT_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`) manually via the
+  Netlify dashboard UI, which works reliably where the API tool doesn't.
+- Diagnosed via the same temporary debug-shim technique as before
+  (`loginAction` catch-and-return-real-error) — confirmed the exact error,
+  then reverted the shim once fixed (commit `b7458dd`). Verified live:
+  email+password login works end-to-end on the new site (admin login →
+  `/dashboard` renders).
+- **Did NOT verify Google Sign-In on the new domain** — flagged prominently
+  above ("NEEDS HUMAN ACTION") because it needs a new redirect URI added in
+  Google Cloud Console, which only the user can do.
+- The GitHub Actions workflow (`.github/workflows/deploy.yml`) is now
+  redundant (the new site's native git-linked deploy works and is simpler)
+  but left in place, unchanged — harmless if it keeps failing against the
+  old site's `NETLIFY_SITE_ID`, not worth spending a run's time on unless it
+  becomes actively annoying (e.g. failure-notification noise).
+- **Next step for the routine**: resume Goal 4 Phase 4c (offline-first
+  grading UI) against the new site id noted at the top of this file. Before
+  editing further, re-verify current deploy state on `eva-v3-app-gsfa`
+  (`400fb70b...` is NOT this project anymore) — don't assume the last known
+  state.
 
 ### 2026-09-15 — Goal 4 Phase 4b shipped (code); deploy pipeline still broken, new symptom
 - Autonomous run. Repo was left in a detached-HEAD state pointing at a stale

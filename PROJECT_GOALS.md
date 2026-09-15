@@ -80,10 +80,23 @@ Not yet done:
       Google account from a settings page, rather than only at first sign-in with
       matching email (nice-to-have, not blocking)
 
-Also queued, independent of the OAuth work (not started yet):
-- [ ] Verify Neon's backup/PITR settings on the current plan and document them
+Also queued, independent of the OAuth work:
+- [x] Verify Neon's backup/PITR settings — checked via `describe_project`
+      (2026-09-15): **`history_retention_seconds: 21600` = only 6 hours** of
+      point-in-time recovery on this free (`free_v3`) plan. Also: 512MB
+      logical-size limit per branch, single 0.25 CU compute (no autoscale
+      headroom). **This is a real gap against "zero data loss"**: bad writes
+      not caught within 6 hours can't be rolled back via Neon's own
+      mechanism. Confirms the next item isn't optional polish.
 - [ ] Add a scheduled export/backup routine (nightly `pg_dump` or Neon branch
-      snapshot) so "zero data loss" has a concrete mechanism
+      snapshot) so "zero data loss" has a concrete mechanism beyond Neon's
+      6-hour window — **this is the actual remaining risk on Goal 2, more
+      than the OAuth work was.** Needs a place to store the dump (can't be
+      this same DB) — e.g. push to a private GitHub repo, or Cloudflare R2
+      (connector already available). Human input useful here: is 6 hours of
+      recovery actually acceptable given how the app is used (an evaluator
+      would notice a bad grade save same-day), or does this need solving
+      urgently? Leaning toward: worth building, not a fire drill.
 - [ ] Audit that every grade-write path is transactional (already true for
       `upsertEvaluation` — confirm no other write path regressed this)
 

@@ -109,8 +109,24 @@ Also queued, independent of the OAuth work:
       still be worth adding later. Judged good-enough for now given the
       free-tier constraint and that this already goes from 6 hours to a
       30-day rolling recovery window.
-- [ ] Audit that every grade-write path is transactional (already true for
-      `upsertEvaluation` — confirm no other write path regressed this)
+- [x] Audit multi-step write paths for transactional safety — DONE
+      (2026-09-15). The core grading path (`upsertEvaluation` in
+      `evaluations.ts`) was already correctly wrapped in
+      `prisma.$transaction` — confirmed, no regression. Checked every other
+      model file (`students`, `groups`, `rotationBlocks`, `studyTypes`,
+      `courses`, `studentAccounts`, `rubric`, `hospitals`, `flags`) for
+      multi-write-without-transaction gaps; found and fixed one real one:
+      `createEvaluator` (`evaluators.ts`) did `account.create` then
+      `evaluatorAssignment.create` as two separate writes — a crash between
+      them would leave an orphaned evaluator login with no assignment
+      (violates the function's own documented invariant "an evaluator can
+      never exist without a real hospital/group to attach to"). Wrapped
+      both in `prisma.$transaction`. All other multi-write call sites are
+      either genuinely independent per-row operations (CSV import — each
+      row is its own atomic unit by design) or audit-log calls after the
+      real write (acceptable: a crash there loses an audit trail entry, not
+      grade/account data). `npx tsc --noEmit` and `npx next build` both
+      clean after the fix.
 
 ## Goal 3: Evaluator — download the day's detailed evaluation as Excel
 

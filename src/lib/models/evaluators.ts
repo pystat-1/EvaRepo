@@ -129,21 +129,27 @@ export async function createEvaluator(
 
   const passwordHash = await hashPassword(data.password);
 
-  const account = await prisma.account.create({
-    data: {
-      email: data.email.trim(),
-      passwordHash,
-      name: data.name.trim(),
-      role: "EVALUATOR",
-    },
-  });
-
-  const assignment = await prisma.evaluatorAssignment.create({
-    data: {
-      accountId: account.id,
-      hospitalId: data.hospitalId,
-      groupId: data.groupId ?? null,
-    },
+  // Both writes happen together or not at all — an evaluator account must
+  // never exist without its first assignment (see this function's doc
+  // comment above): a crash between two separate writes would otherwise
+  // leave an orphaned login with nothing to grade.
+  const { account, assignment } = await prisma.$transaction(async (tx) => {
+    const account = await tx.account.create({
+      data: {
+        email: data.email.trim(),
+        passwordHash,
+        name: data.name.trim(),
+        role: "EVALUATOR",
+      },
+    });
+    const assignment = await tx.evaluatorAssignment.create({
+      data: {
+        accountId: account.id,
+        hospitalId: data.hospitalId,
+        groupId: data.groupId ?? null,
+      },
+    });
+    return { account, assignment };
   });
 
   const created = (await getEvaluator(account.id))!;

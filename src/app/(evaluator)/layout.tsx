@@ -4,9 +4,9 @@ import { getSession } from "@/lib/auth";
 import { logoutAction } from "@/lib/actions/auth";
 
 // The Evaluator App shell (plan §2.4) — a separate, focused experience from
-// the admin dashboard, built mobile-first per §2.3. This is a static shell
-// today; the offline/installable-PWA work is scoped for Phase 3, once
-// there is an actual daily workflow (grading) worth taking offline.
+// the admin dashboard, built mobile-first per §2.3. The app is now
+// installable and opens offline (Goal 4 Phase 4a); offline data/grading
+// work continues in Phase 4b onward.
 export default async function EvaluatorLayout({ children }: { children: React.ReactNode }) {
   const session = await getSession();
   if (!session || session.role !== "EVALUATOR") {

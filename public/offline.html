@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Eva — لا يوجد اتصال</title>
+    <style>
+      html, body {
+        height: 100%;
+        margin: 0;
+        font-family: system-ui, -apple-system, "Segoe UI", Tahoma, sans-serif;
+        background: #f8fafc;
+        color: #1e293b;
+      }
+      body {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        box-sizing: border-box;
+      }
+      .card {
+        max-width: 26rem;
+        text-align: center;
+      }
+      .badge {
+        width: 64px;
+        height: 64px;
+        margin: 0 auto 16px;
+        border-radius: 16px;
+        background: #1a5276;
+        color: #fff;
+        font-weight: 700;
+        font-size: 28px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      h1 {
+        font-size: 1.25rem;
+        margin: 0 0 8px;
+      }
+      p {
+        color: #64748b;
+        line-height: 1.6;
+        margin: 0 0 20px;
+      }
+      button {
+        border: none;
+        border-radius: 8px;
+        background: #1a5276;
+        color: #fff;
+        padding: 10px 20px;
+        font-size: 0.95rem;
+        cursor: pointer;
+      }
+      button:hover {
+        background: #113a54;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="badge">E</div>
+      <h1>لا يوجد اتصال بالإنترنت</h1>
+      <p>
+        هذه الصفحة غير متاحة دون اتصال بعد. تحقق من اتصالك بالإنترنت ثم أعد
+        المحاولة.
+      </p>
+      <button onclick="location.reload()">إعادة المحاولة</button>
+    </div>
+  </body>
+</html>

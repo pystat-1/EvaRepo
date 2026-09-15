@@ -298,6 +298,16 @@ _Newest entry on top. One entry per work session — what was done, what's next.
   `src/app/(evaluator)/grade/[studentId]/page.tsx`) plus this file. No stray
   files, no `package.json`/`package-lock.json` changes (no new dependency
   needed — reused the existing `idb` wrapper).
+- **Deploy confirmed live**: pushed as commit `b6e45af`. Polled
+  `eva-v3-app-gsfa` (site `61860730-67b5-4418-81bf-a89c30900e45`) via
+  `get-project`/`get-deploy-for-site` — new deploy `6aa8a5d0...` reached
+  `state: ready` in 70s, `commit_ref` matches `b6e45af` exactly, no
+  `error_message`, build summary all green (function deployed, redirects/
+  headers processed). Direct `curl` from this sandbox to the live URL itself
+  was blocked by this environment's own egress policy (unrelated to
+  Netlify/production — a sandbox network restriction, not a site problem);
+  the Netlify API's deploy record is the authoritative source here and it's
+  clean, so no further verification action needed this run.
 - **Next step:** Goal 4 Phase 4d (sync queue) — replay the outbox through
   `gradeStudentAction` on an `online` event / Background Sync API, and the
   two decisions this file already flags as needing a revisit before shipping

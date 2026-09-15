@@ -239,10 +239,33 @@ _Newest entry on top. One entry per work session — what was done, what's next.
     missing token. Once fixed, the next autonomous run (or a manual
     `workflow_dispatch`/re-push) should confirm the deploy goes green and
     `currentDeploy`'s `commit_ref` catches up.
-- **Next step:** once the deploy pipeline is confirmed working again, verify
-  4a+4b live (installable PWA, offline-bundle import button on `/schedule`
-  actually populating IndexedDB in a real browser). Either way, code-wise the
-  next unit of work is Goal 4 Phase 4c (offline-first grading UI: read from
+- **Mid-run, a live human push landed on `main`**: commit `e7fc7db` "TEMP:
+  debug shim to surface real login error on new Netlify site" (by the repo
+  owner, not this routine) — a temporary try/catch in `loginAction` that
+  returns the real error message instead of the generic one, to debug login
+  on what the commit message calls a "new Netlify site." Merged cleanly with
+  this session's Phase 4b work (no conflicts, `git merge origin/main`,
+  re-verified `tsc --noEmit` clean after) and pushed as `1ea24cd`. **Did not
+  touch, revert, or "clean up" that debug shim** — it's someone else's
+  in-progress work and still live on `main`; whoever added it should remove
+  it once done debugging. The GitHub Actions deploy run for *that* commit
+  (`952f7c6`, run `34914966184`) and for this session's merge commit
+  (`1ea24cd`, run `34915174199`) **both also failed with the same
+  `JSONHTTPError: Forbidden`**, confirming again this is pipeline-wide, not
+  specific to any one commit's code.
+  - The mention of a "new Netlify site" in that commit message may mean the
+    repo owner is already aware the `eva-v3-app` site (`400fb70b-...`, the
+    one this file and the GH Actions workflow are wired to) has a broken
+    login/deploy story and is standing up a replacement — worth confirming
+    with them directly rather than assuming; if so, the GH Actions
+    workflow's hardcoded `NETLIFY_SITE_ID` and this file's site references
+    would need updating to match, which is a decision for a human, not
+    something to guess at here.
+- **Next step:** once the deploy pipeline is confirmed working again (or
+  pointed at whatever site the human is now using), verify 4a+4b live
+  (installable PWA, offline-bundle import button on `/schedule` actually
+  populating IndexedDB in a real browser). Either way, code-wise the next
+  unit of work is Goal 4 Phase 4c (offline-first grading UI: read from
   IndexedDB when offline on `/grade/[studentId]`, local outbox for
   submissions) — should proceed with 4c next run regardless of deploy status,
   per last session's own guidance not to get stuck polling a deploy that

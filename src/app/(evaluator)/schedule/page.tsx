@@ -2,6 +2,7 @@ import Link from "next/link";
 import { getSession } from "@/lib/auth";
 import { getEvaluatorSchedule } from "@/lib/models/evaluators";
 import { listActiveStudentsInGroup } from "@/lib/models/students";
+import { ImportOfflineButton } from "./import-offline-button";
 
 const STATUS_LABEL: Record<string, string> = { past: "منتهية", current: "حالية", future: "قادمة" };
 const STATUS_BADGE: Record<string, string> = {
@@ -27,6 +28,8 @@ export default async function EvaluatorSchedulePage() {
           قائمة طلابها والبدء بالتقييم.
         </p>
       </div>
+
+      <ImportOfflineButton />
 
       <div className="flex flex-col gap-3">
         {stints.map((s, i) => (

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { logoutAction } from "@/lib/actions/auth";
+import { OfflineSyncStatus } from "./offline-sync-status";
 
 // The Evaluator App shell (plan §2.4) — a separate, focused experience from
 // the admin dashboard, built mobile-first per §2.3. The app is now
@@ -37,7 +38,10 @@ export default async function EvaluatorLayout({ children }: { children: React.Re
           </form>
         </div>
       </header>
-      <main className="mx-auto w-full max-w-lg flex-1 px-4 py-6">{children}</main>
+      <main className="mx-auto w-full max-w-lg flex-1 px-4 py-6 flex flex-col gap-4">
+        <OfflineSyncStatus />
+        {children}
+      </main>
     </div>
   );
 }

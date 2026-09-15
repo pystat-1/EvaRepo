@@ -108,8 +108,10 @@ Plan:
 
 ## Goal 4: Offline-capable evaluation, sync when back online
 
-**Status: IN PROGRESS (2026-09-15) — Phase 4a, 4b & 4c shipped (code, not yet
-independently verified live — see Session Log), 4d (sync queue) next**
+**Status: IN PROGRESS (2026-09-15) — Phase 4a, 4b & 4c shipped; 4d's online-
+event sync queue shipped (code, not yet independently verified live — see
+Session Log); true Background Sync API registration deliberately not
+attempted (see Phase 4d notes)**
 
 Decision: full offline capability — works with zero connectivity for hours, not just
 resilient to brief drops. This is a genuinely large, multi-session build. Phased plan:
@@ -151,20 +153,40 @@ verified live — see Session Log)
       `src/lib/offline/db.ts` (DB v2), page tries `gradeStudentAction` first and
       only queues locally on an actual network failure
 
-**Phase 4d — Sync queue**
-- [ ] Background sync (Background Sync API where supported, falling back to an
-      on-`online`-event flush) replays the outbox through the *existing*
-      `gradeStudentAction`/`upsertEvaluation` — reuses all existing server-side
-      enforcement (schedule check, hospital assignment check) unchanged
-- [ ] Conflict handling: `upsertEvaluation` is already an upsert keyed on
-      (studentId, dateISO), so a same-student-same-day double-write just becomes
-      "last sync wins" — acceptable for one evaluator's own queued writes, but
-      cross-device conflicts (two devices, same evaluator, same day, offline on
-      both) need a explicit decision: last-write-wins (simple, current default) or
-      surface a merge prompt. **Revisit before shipping 4d.**
-- [ ] Handle: rubric changed on the server while evaluator was offline and had
-      already scored against the old rubric shape — validate/remap on sync, surface
-      a clear error rather than silently dropping scores for removed sections
+**Phase 4d — Sync queue** — online-event flush DONE (2026-09-15, code; not yet
+independently verified live — see Session Log); Background Sync API itself
+explicitly not attempted (decision below)
+- [x] Sync replays the outbox through the *existing* `gradeStudentAction`/
+      `upsertEvaluation` — `src/lib/offline/sync.ts`'s `replayOutbox()`,
+      triggered on mount and on the `online` event by a new always-mounted
+      `OfflineSyncStatus` component in `(evaluator)/layout.tsx`, plus a manual
+      "زامن الآن" button. **Decision: true Background Sync API (firing with
+      the app closed) is deliberately not implemented** — it would need a
+      plain fetch/POST endpoint the service worker can call without Next's
+      Server Action wiring (a second write path to keep in sync with
+      `gradeStudentAction`, more surface area for a grades-safety bug), and
+      has no Safari/iOS support anyway. The `online`-event + manual-button
+      path covers the realistic reconnect case (app open or backgrounded)
+      and is the one the plan already named as an acceptable fallback — if a
+      human wants true background-sync-while-closed later, revisit then.
+- [x] Conflict handling: **decided — last-write-wins**, matching
+      `upsertEvaluation`'s existing upsert-by-(studentId, dateISO) behavior
+      unchanged (no code change needed). Accepted for a single evaluator's
+      own queued writes; a cross-device same-evaluator-same-day-both-offline
+      conflict remains a known, accepted edge case (not a merge-prompt UI) —
+      revisit only if this actually causes a reported data problem.
+- [x] Rubric-changed handling: before resubmitting a queued entry, `sync.ts`
+      re-fetches `/api/grade/[studentId]` (the same endpoint the online form
+      uses) and compares its current rubric section ids against the ids the
+      queued entry has scores for. A currently-active section missing from
+      the queued scores (added while the evaluator was offline) blocks that
+      entry with a clear error surfaced in the evaluator UI instead of
+      silently submitting a 0 for a section they never saw; a scope/schedule
+      change (evaluator no longer covers this student/day) is surfaced the
+      same way instead of guessed at. Sections removed from the rubric are
+      simply not in `gradeStudentAction`'s FormData lookup and are dropped
+      the same way the server already drops unknown form fields — no special
+      handling needed for that direction.
 
 Not started — Goals 1 and 3 (done) and the Google auth wiring (pending credentials)
 take priority since they're smaller and don't block on anything. Start 4a once those
@@ -200,6 +222,105 @@ click through it once to confirm live), Goal 4's PWA build is the
 ## Session Log
 
 _Newest entry on top. One entry per work session — what was done, what's next._
+
+### 2026-09-15 — Goal 4 Phase 4d shipped (code): outbox sync queue
+- Autonomous run. Repo's local `main` was on a stale fetch of `origin/main`
+  again at session start (same recurring pattern as prior sessions' notes) —
+  re-fetched, confirmed `origin/main` and the pre-existing detached HEAD
+  were identical both ways via `git merge-base --is-ancestor`, then
+  fast-forwarded local `main` to match. No divergent/lost work.
+- Confirmed via this file that Goal 2 (Google OAuth) is DONE per the hard
+  rule — did not touch its code. Made zero Neon/database/Prisma calls or
+  commands, per the hard safety rule; this phase is pure client-side/API-
+  route work as expected.
+- Read `node_modules/next/dist/docs/01-app/02-guides/offline-support.md`
+  first per `AGENTS.md` (again, since `node_modules` isn't committed and
+  `npm install` was needed this run too). Re-confirmed `experimental.
+  useOffline` (auto-retry of a pending Server Action once connectivity
+  returns, no throw) is a genuinely different mechanism from what this
+  phase needed — it would fight with Phase 4c's existing catch-and-queue
+  design (which needs the action to actually reject on a network failure so
+  it can fall back to the local outbox) rather than help it, so left
+  `next.config.ts` untouched, consistent with the standing decision.
+- Implemented Phase 4d's sync queue:
+  - `src/lib/offline/sync.ts` (new): `replayOutbox()` reads every queued
+    `OutboxEntry`, re-validates each one against `GET /api/grade/[studentId]`
+    (the same endpoint the online grading page already uses) before
+    resubmitting — this re-checks scope/schedule (which may have changed
+    server-side since the entry was queued) and detects a rubric section
+    added while offline that the queued entry has no score for, surfacing a
+    clear Arabic error instead of silently sending `0` for it or guessing.
+    A passing entry is submitted via the *existing* `gradeStudentAction`
+    (built into a `FormData`, same shape the online form already posts) —
+    no second/parallel write path, so all of `assertEvaluatorCanGrade` and
+    `upsertEvaluation`'s existing enforcement applies unchanged. A network
+    failure (`TypeError`, or `navigator.onLine` flipping false) stops the
+    whole pass immediately (still offline — try again next trigger) rather
+    than marking every remaining item an error.
+  - `src/lib/offline/db.ts`: added `error?: string` to `OutboxEntry`, plus
+    `listOutboxEntries`/`removeOutboxEntry`/`setOutboxEntryError` helpers.
+    `queueOutboxEntry` now clears any stale `error` on a fresh resubmission.
+  - `src/app/(evaluator)/offline-sync-status.tsx` (new): a small status strip
+    mounted once in `(evaluator)/layout.tsx` (visible on every evaluator
+    page, not just the grading form) — shows the pending/errored outbox
+    count, a manual "زامن الآن" button, and links each errored entry to its
+    `/grade/[studentId]` form for manual review. Triggers `replayOutbox()`
+    on mount and on the browser `online` event.
+  - **Decision, documented in Goal 4 above**: true Background Sync API
+    (fires even with the app fully closed) is deliberately not attempted —
+    it would need a plain POST endpoint callable from a bare service-worker
+    context without Next's Server Action wiring, meaning a second write path
+    to keep bug-for-bug identical to `gradeStudentAction` forever, which is
+    more risk than a "sync when back online" checklist item justifies on an
+    app whose one hard rule is zero grade data loss; it also has no iOS/
+    Safari support. The online-event + manual-button path is the fallback
+    the plan itself named as acceptable and covers the realistic case
+    (evaluator's connection returns while the app is open or backgrounded).
+  - **Decision, documented in Goal 4 above**: conflict handling stays
+    last-write-wins (no code change — this is `upsertEvaluation`'s existing
+    behavior). Cross-device double-offline conflicts remain a known, accepted
+    edge case rather than a merge-prompt UI, per the plan's own framing of
+    that as the acceptable default.
+  - Known minor UX gap, not a data-safety issue: if an evaluator is actively
+    on a student's `/grade/[studentId]` page when the layout-level sync
+    strip syncs that same entry in the background, that page's own
+    `saveStatus` banner ("محفوظ محليًا") doesn't live-update to "synced" —
+    it's stale until reload/renavigation, since there's no cross-component
+    event bus wiring it up. The grade itself is safely saved server-side
+    either way; only the on-screen label lags. Worth fixing later with a
+    shared event emitter or a `BroadcastChannel`, not urgent.
+- `npm install` (node_modules missing this run again — not committed, as
+  expected), `npx next build` clean (zero errors, route table unchanged
+  except this doesn't add any new route — sync logic is client-side/reuses
+  existing routes), then `npx tsc --noEmit` clean (needed the build to run
+  first for `.next/types`, same pre-existing quirk noted in earlier
+  entries). Smoke-tested with `next start`: `/login`, `/manifest.webmanifest`,
+  `/sw.js` still 200, `/api/grade/nonexistent` still 401s unauthenticated,
+  `/grade/nonexistent` still 307-redirects to `/login` — no regression to
+  the existing auth/offline shell. Did not browser-test the actual sync
+  flow end-to-end (queue an entry offline, go back online, watch it
+  disappear from the outbox) — would need a logged-in evaluator session
+  with real roster/rubric data and DevTools' offline throttling, not
+  available in this sandbox, consistent with how every previous Goal 4
+  phase's testing was scoped here.
+- Checked `git status` before staging — only the four intended files
+  (`src/lib/offline/db.ts`, new `src/lib/offline/sync.ts`, new
+  `src/app/(evaluator)/offline-sync-status.tsx`, `(evaluator)/layout.tsx`)
+  plus this file. No stray files, no dependency changes.
+- **Next step:** Goal 4's phased plan (4a-4d) is now code-complete except
+  for the deliberately-deferred Background Sync API piece (see decision
+  above — not planned unless a human asks for it specifically). What's left
+  for a human, not the autopilot: (1) the Google Sign-In redirect URI still
+  flagged at the top of this file, (2) browser-testing the full offline
+  flow end-to-end at least once (import → go offline → grade → reconnect →
+  confirm it syncs and the outbox empties) since no run of this routine has
+  had a real browser + logged-in session to do that with, (3) the two
+  "queued, independent of the OAuth work" Goal 2 items (Neon backup/PITR
+  verification, a scheduled export routine) which are the only remaining
+  unchecked work in this file's active goals and are backup/ops decisions,
+  not something to implement unprompted. If the next run finds nothing
+  else queued, it should say so per its instructions rather than inventing
+  new scope.
 
 ### 2026-09-15 — Goal 4 Phase 4c shipped (code): offline-first grading UI
 - Autonomous run. Repo was on a detached HEAD at session start pointing at a

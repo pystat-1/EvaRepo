@@ -8,9 +8,11 @@ const DB_NAME = "eva-offline";
 const DB_VERSION = 2;
 
 // A grade submission made while offline — the same shape gradeStudentAction
-// takes, queued locally instead of reaching the server. Phase 4c only
-// writes/reads this store; actually replaying it through gradeStudentAction
-// is Phase 4d's sync queue.
+// takes, queued locally instead of reaching the server. Phase 4c writes/
+// reads this store; Phase 4d (`src/lib/offline/sync.ts`) replays it through
+// gradeStudentAction and, on a non-network failure (scope/schedule/rubric
+// changed server-side while offline), sets `error` instead of resubmitting
+// blindly or dropping the entry.
 export interface OutboxEntry {
   studentId: string;
   dateISO: string;
@@ -19,6 +21,7 @@ export interface OutboxEntry {
   feedback?: string;
   scores: Record<string, number>;
   queuedAt: string;
+  error?: string;
 }
 
 // Browser-only cache for Phase 4b ("import once"): the evaluator's schedule,
@@ -146,7 +149,9 @@ export async function findOfflineStudent(
 
 export async function queueOutboxEntry(entry: OutboxEntry): Promise<void> {
   const db = await getDb();
-  await db.put("outbox", entry, outboxKey(entry.studentId, entry.dateISO));
+  // A resubmission (e.g. the evaluator reopens and re-saves the same
+  // student/date) clears any previous sync error — it's a fresh attempt.
+  await db.put("outbox", { ...entry, error: undefined }, outboxKey(entry.studentId, entry.dateISO));
 }
 
 export async function getOutboxEntry(
@@ -155,4 +160,22 @@ export async function getOutboxEntry(
 ): Promise<OutboxEntry | undefined> {
   const db = await getDb();
   return db.get("outbox", outboxKey(studentId, dateISO));
+}
+
+export async function listOutboxEntries(): Promise<OutboxEntry[]> {
+  const db = await getDb();
+  return db.getAll("outbox");
+}
+
+export async function removeOutboxEntry(studentId: string, dateISO: string): Promise<void> {
+  const db = await getDb();
+  await db.delete("outbox", outboxKey(studentId, dateISO));
+}
+
+export async function setOutboxEntryError(studentId: string, dateISO: string, error: string): Promise<void> {
+  const db = await getDb();
+  const key = outboxKey(studentId, dateISO);
+  const entry = await db.get("outbox", key);
+  if (!entry) return;
+  await db.put("outbox", { ...entry, error }, key);
 }

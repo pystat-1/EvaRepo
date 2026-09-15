@@ -59,6 +59,12 @@ model Account {
   id           String   @id @default(cuid())
   email        String   @unique
   passwordHash String?
+  // Google Sign-In, added alongside email+password (never a replacement —
+  // an account only gets a googleId once it successfully signs in with
+  // Google using an email matching an existing account; Google login never
+  // creates a new account on its own, preserving the admin-provisioned
+  // account model).
+  googleId     String?  @unique
   name         String
   role         Role     @default(ADMIN)
   // Phase 3: set only for role = STUDENT, linking the login to the

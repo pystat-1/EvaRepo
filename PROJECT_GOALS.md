@@ -39,26 +39,37 @@ Plan:
 
 ## Goal 2: Zero data loss — permanent storage, Google-account-linked
 
-**Status: DECIDED, blocked on credentials from user**
+**Status: OAuth flow DONE** (2026-09-15). Credentials received from the user
+(2026-09-15) and set as Netlify env vars `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`
+(secret-scoped — never written to any file in this repo, never logged here).
 
 Decisions (2026-09-15):
 - Google Sign-In is **added alongside** email+password, not a replacement.
-- User will create the Google Cloud OAuth client (Cloud Console project, consent
-  screen, client ID/secret) and hand the credentials to Claude to wire in.
+- Google login only ever signs in to an **existing** account (matched by email,
+  linked on first successful sign-in) — it never creates a new account. Preserves
+  the admin-provisioned account model; no self-registration via Google.
 
-**Waiting on:** `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` from the user. Once
-received: set as Netlify env vars (same pattern as `DATABASE_URL`/`JWT_SECRET` —
-non-secret build scope isn't needed, only functions/runtime), then implement:
-- [ ] Add `googleId`/`googleEmail` (nullable, unique) to `Account` in schema.prisma
-      + migration (additive only — never touches the existing passwordHash column)
-- [ ] OAuth flow: a `/api/auth/google` route (redirect to Google) +
-      `/api/auth/google/callback` (exchange code, find-or-link Account by email,
-      issue the same JWT session cookie `signSession()` already uses)
-- [ ] "Sign in with Google" button on `/login` alongside the existing form
+Implemented:
+- [x] Added `googleId` (nullable, unique) to `Account` in schema.prisma — migration
+      `20260915000900_add_google_signin`, additive only, applied to production
+- [x] `GET /api/auth/google` — redirects to Google's consent screen, CSRF state
+      cookie
+- [x] `GET /api/auth/google/callback` — exchanges code, verifies `email_verified`,
+      finds-or-links the Account by email, issues the same JWT session cookie
+      `signSession()`/`SESSION_COOKIE` that email+password login uses, redirects by
+      role same as `loginAction`
+- [x] "الدخول باستخدام Google" button on `/login`, with a translated error banner
+      for each failure mode (no matching account, already linked elsewhere, etc.)
+
+Not yet done:
+- [ ] Verify live end-to-end (needs a real Google account to click through — could
+      not fully test from an unattended/automated context; a human should try it
+      once against `https://eva-v3-app.netlify.app/login` and report back)
 - [ ] Account-linking UI: an already-logged-in user (email+password) can link their
-      Google account from a settings page, rather than only at first sign-in
+      Google account from a settings page, rather than only at first sign-in with
+      matching email (nice-to-have, not blocking)
 
-Also queued, independent of the OAuth question (started but not committed yet):
+Also queued, independent of the OAuth work (not started yet):
 - [ ] Verify Neon's backup/PITR settings on the current plan and document them
 - [ ] Add a scheduled export/backup routine (nightly `pg_dump` or Neon branch
       snapshot) so "zero data loss" has a concrete mechanism
@@ -135,14 +146,36 @@ are clear.
 ## Open questions for the user
 
 1. ~~Google Sign-In: replace or add alongside email/password?~~ **Answered: alongside.**
-2. **Still waiting**: Google OAuth client ID + secret (user is creating them).
+2. ~~Google OAuth client ID + secret~~ **Received 2026-09-15, set as Netlify env vars.**
 3. ~~Offline: lightweight retry-queue, or full PWA/local-database?~~ **Answered: full PWA.**
+
+No open questions remain — Goal 2's OAuth flow is implemented (needs a human to
+click through it once to confirm live), Goal 4's PWA build is the
+`eva-goals-autopilot` cloud routine's job now.
 
 ---
 
 ## Session Log
 
 _Newest entry on top. One entry per work session — what was done, what's next._
+
+### 2026-09-15 — Google Sign-In wired in
+- Also set up and verified (via two capability tests) the `eva-goals-autopilot`
+  cloud routine (trig_01Cy3PFo9Z5oF1HWJJyJrL24, hourly at :45) — confirmed it runs
+  on genuinely independent cloud infrastructure (not the user's machine) and can
+  push to this repo (required installing the Claude GitHub App for this repo,
+  which the user did). It's working through Goal 4's phases autonomously now.
+- User created the Google OAuth client and sent the Client ID/Secret. Set as
+  Netlify env vars `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` (secret-scoped).
+- Implemented the full Google Sign-In flow: schema migration (additive `googleId`
+  column), `/api/auth/google` + `/api/auth/google/callback` routes, login page
+  button + error states. Google login only signs in to an existing
+  admin-provisioned account (matched/linked by email) — never creates one.
+- Migration applied to production (additive only, zero risk to existing rows).
+- **Next step:** a human needs to actually click "الدخول باستخدام Google" on
+  https://eva-v3-app.netlify.app/login once, with a real Google account matching
+  an existing Eva account's email, to confirm the live flow end-to-end — this
+  wasn't fully testable without a real Google account and browser interaction.
 
 ### 2026-09-14 — Push-capability re-test
 - Cloud routine push-capability re-test succeeded after GitHub App install.

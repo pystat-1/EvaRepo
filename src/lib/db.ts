@@ -3,12 +3,25 @@
 // Runs on Cloudflare Workers (via OpenNext), which has no TCP sockets and
 // can't spawn Prisma's native query engine binary — so this uses Prisma's
 // Neon driver adapter (GA as of Prisma 6.16) instead of a plain
-// `new PrismaClient()`. The adapter talks to Neon over HTTP/WebSocket
-// (via @neondatabase/serverless) rather than a raw Postgres connection,
-// which is also why DATABASE_URL must be the Neon *pooled* ("-pooler")
+// `new PrismaClient()`. That adapter is built on @neondatabase/serverless,
+// which is why DATABASE_URL must be the Neon *pooled* ("-pooler")
 // connection string, not the direct one.
+//
+// poolQueryViaFetch=true makes every query go over plain HTTP fetch
+// instead of opening a WebSocket. This is required, not just faster: a
+// WebSocket-backed Pool "can't outlive a single request" in Workers (Neon
+// and Cloudflare both document this), but this module's client is a
+// singleton reused across requests within the same Worker isolate — with
+// WebSocket mode, a second request reusing the isolate would try to reuse
+// a socket from a prior, already-finished request and Workers kills that
+// as "I/O on behalf of a different request", crashing every request past
+// the first with a 500. Fetch-mode queries are stateless, so there's no
+// connection lifetime to violate.
 import { PrismaClient } from "@prisma/client";
 import { PrismaNeon } from "@prisma/adapter-neon";
+import { neonConfig } from "@neondatabase/serverless";
+
+neonConfig.poolQueryViaFetch = true;
 
 declare global {
   // eslint-disable-next-line no-var

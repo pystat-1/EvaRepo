@@ -1,0 +1,37 @@
+name: Build and deploy to Netlify
+
+# Builds the app on GitHub's free runners, then uploads the finished build
+# to Netlify with `netlify deploy`. This deliberately never runs `netlify
+# build` ON Netlify's own infrastructure — it only ever receives a
+# pre-built artifact — so it does not consume Netlify's build-minute quota
+# at all, only the (much larger) GitHub Actions free tier.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build (via Netlify's own build pipeline, run on this runner)
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: 400fb70b-5646-424a-baf2-ae5cfd9e5e9b
+        run: npx netlify build
+
+      - name: Deploy pre-built output to Netlify (no build on their side)
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: 400fb70b-5646-424a-baf2-ae5cfd9e5e9b
+        run: npx netlify deploy --prod --no-build

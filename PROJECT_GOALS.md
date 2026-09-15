@@ -252,6 +252,45 @@ click through it once to confirm live), Goal 4's PWA build is the
 
 _Newest entry on top. One entry per work session — what was done, what's next._
 
+### 2026-09-15 — Root-caused the "stuck deploy": SAME quota issue, new account, faster
+- The new site (`eva-v3-app-gsfa`) hit the identical "Skipped due to account
+  credit usage exceeded" error as the original site — just invisible until
+  now, because `get-project`'s `currentDeploy` only ever shows the last
+  *successful* deploy, silently hiding every skipped one after it. Checked
+  the FULL deploy list (`get-deploy-for-site` with no id → all deploys) and
+  found every commit since `2ca3ce5` (02:52 UTC) has been silently skipped.
+  Between account creation (~00:41 UTC) and the quota hit (~02:52 UTC), ~20
+  deploys ran successfully in about 2 hours — this fresh account's free
+  quota is clearly much smaller/faster-exhausted than expected, or a
+  new-account anti-abuse throttle is in play. Not investigating further;
+  the fix is the same regardless of the exact number.
+- **Conclusion: hopping to a third Netlify account would just repeat this in
+  another 2 hours. Not doing that.** The actual fix is deploy FREQUENCY, not
+  platform. Changed `eva-goals-autopilot`'s cron from hourly to every 6
+  hours (`trig_01Cy3PFo9Z5oF1HWJJyJrL24`) — cuts deploy-triggering pushes
+  ~6x going forward. Did not attempt to reduce further or pause entirely:
+  code safety is unaffected either way (everything lands on GitHub
+  regardless of Netlify's state), so the cost of continuing to push at a
+  slower cadence is just "site goes live a bit later," not risk.
+  - Also flagged the leftover context from an earlier probe: an
+    `--no-wait`-triggered direct upload deploy failed with a Netlify-side
+    `500 Internal Server Error` around 04:xx UTC — not investigated further
+    since the git-linked path is the intended one and the root cause
+    (quota) explains everything without it.
+- **No further platform migration will be attempted without the user
+  explicitly asking for one.** If a future session/routine is tempted to
+  "just try a different Netlify account/Render/etc." again when it sees
+  deploys stuck, read this entry first — it is very likely the same quota
+  pattern, and the fix is patience + lower frequency, not new
+  infrastructure.
+- **Next step:** nothing to do about this specific block right now except
+  wait for quota to recover (unknown reset timing — free-tier reset
+  schedules aren't visible via any tool available here) or for the user to
+  decide to pay. Code work (Goal 4 is already code-complete; only Google
+  auth verification and the Neon backup follow-ups remain open) can
+  continue regardless and will simply go live whenever the next deploy
+  succeeds.
+
 ### 2026-09-15 — Autonomous queue check (repeat): still nothing new
 - Autonomous run. Local `main`/`origin/main` were in sync with the detached
   HEAD this container started on (`e7da4f5`) after a fresh `git fetch` — no

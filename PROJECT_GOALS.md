@@ -97,7 +97,8 @@ Plan:
 
 ## Goal 4: Offline-capable evaluation, sync when back online
 
-**Status: IN PROGRESS (2026-09-14) — Phase 4a shipped, 4b next**
+**Status: IN PROGRESS (2026-09-15) — Phase 4a & 4b shipped (code, not yet live — see deploy
+pipeline issue in Session Log), 4c next**
 
 Decision: full offline capability — works with zero connectivity for hours, not just
 resilient to brief drops. This is a genuinely large, multi-session build. Phased plan:
@@ -114,14 +115,16 @@ resilient to brief drops. This is a genuinely large, multi-session build. Phased
       **not** cache dynamic/personalized HTML yet (grades, schedules) — that's
       explicit IndexedDB work in 4b/4c, not implicit HTTP caching.
 
-**Phase 4b — "Import once": local data cache**
-- [ ] IndexedDB store (via a small wrapper, e.g. `idb`) for: the evaluator's
+**Phase 4b — "Import once": local data cache** — DONE (2026-09-15, code; not yet
+verified live — deploy pipeline is currently broken, see Session Log)
+- [x] IndexedDB store (via a small wrapper, `idb`) for: the evaluator's
       schedule (`getEvaluatorSchedule` result), each stint's student roster, the
       active rubric sections (`listRubricSections`), and any already-saved
-      evaluations for context
-- [ ] An explicit "استيراد الجدول للعمل دون اتصال" (import schedule for offline
+      evaluations for context — `src/lib/offline/db.ts`
+- [x] An explicit "استيراد الجدول للعمل دون اتصال" (import schedule for offline
       work) action on `/schedule` that fetches all of the above and populates
-      IndexedDB in one shot
+      IndexedDB in one shot — `GET /api/schedule/offline-bundle` +
+      `import-offline-button.tsx`
 
 **Phase 4c — Offline-first grading UI**
 - [ ] `/grade/[studentId]` reads from IndexedDB when offline (detect via
@@ -165,6 +168,110 @@ click through it once to confirm live), Goal 4's PWA build is the
 ## Session Log
 
 _Newest entry on top. One entry per work session — what was done, what's next._
+
+### 2026-09-15 — Goal 4 Phase 4b shipped (code); deploy pipeline still broken, new symptom
+- Autonomous run. Repo was left in a detached-HEAD state pointing at a stale
+  local fetch of `origin/main`; re-fetched and fast-forwarded local `main` to
+  match `origin/main` (`c2652cf`) before doing anything — no divergent/lost
+  work, just a stale local ref, confirmed via `git merge-base --is-ancestor`
+  both ways before touching it.
+- Goal 2 (Google OAuth) — untouched, per hard rule, regardless of credential
+  status.
+- Read `node_modules/next/dist/docs/01-app/02-guides/offline-support.md`
+  first per `AGENTS.md`. Confirmed `experimental.useOffline`/`useOffline()`
+  (soft-navigation/Server-Action retry) is a *different* mechanism from
+  Phase 4b's explicit local cache — not a substitute for it — so proceeded
+  with the IndexedDB plan as already scoped here.
+- Implemented Phase 4b in full: `GET /api/schedule/offline-bundle` (new
+  route, `requireRole("EVALUATOR")`-gated like the existing `/api/my/export`)
+  returns the evaluator's schedule, each non-past stint's roster, the active
+  rubric sections, and today's already-saved evaluations in one response;
+  `src/lib/offline/db.ts` wraps IndexedDB via `idb` (added as a dependency —
+  small, no native deps) with stores for schedule/rosters/rubricSections/
+  evaluations plus an import-timestamp `meta` store; new client component
+  `import-offline-button.tsx` on `/schedule` ("استيراد الجدول للعمل دون
+  اتصال") fetches the bundle and writes it in, showing last-import time and
+  error state. No schema/DB changes — confirmed no Neon/Prisma tool or
+  command was touched, per the hard safety rule.
+- `npm install` (node_modules was missing this run), `npx tsc --noEmit`
+  clean, `npx next build` clean (zero errors, new route listed in the route
+  table). Smoke-tested with `next start`: `/login` still 200s, and the new
+  `/api/schedule/offline-bundle` correctly 401s unauthenticated (matches the
+  existing `/api/my/export` auth pattern) rather than erroring. Did not
+  browser-test the IndexedDB write itself (would need a logged-in evaluator
+  session + real roster data) — flagging this as untested-in-browser, next
+  step below.
+- Committed only the intended files (checked `git status` before staging —
+  no stray files) and pushed: commit `bc782ac` on `main`.
+- **Deploy pipeline is still broken, but with a different symptom than last
+  session's note.** Polled the GitHub Actions "Build and deploy to Netlify"
+  workflow (`.github/workflows/deploy.yml`) for this push (run `34914835280`)
+  and the one immediately before mine (run `34913377146`, commit `c2652cf`,
+  from last session, before any of my code existed): **both fail identically**
+  — `next build`/`netlify build` succeed fully (route table prints, zero
+  errors), then the `npx netlify deploy --prod` step fails immediately with
+  `JSONHTTPError: Forbidden`. This is **not the "account credit usage
+  exceeded" error from before** — it's an authorization failure on the
+  deploy-upload call itself, and it already failed on the pre-existing
+  commit before my push, so **it is not caused by my code change**. Most
+  likely cause: the `NETLIFY_AUTH_TOKEN` GitHub Actions secret (regenerated
+  last session) either lacks permission for this specific site/team, or the
+  regeneration didn't actually take/save correctly.
+  - Confirmed via `netlify-project-services-reader get-project` that
+    production is **not broken**, just stale: `currentDeploy` is still
+    `6aa886b7a192600008ef1a77` (`ready`), the same old deploy from several
+    sessions ago — nothing is 500ing, evaluators are just not seeing 4a/4b
+    yet.
+  - **Did not revert my commit.** The hard safety rule says revert on deploy
+    failure to avoid leaving production broken — but production isn't
+    broken here (still serving the last good deploy), and the identical
+    failure already reproduced on the commit *before* mine with zero code
+    involvement, so reverting would fix nothing and would only throw away
+    working, type-checked, build-verified code. Did not touch any Netlify
+    settings (read-only checks only), per the hard rule.
+  - **Needs a human**: check that the `NETLIFY_AUTH_TOKEN` repo secret
+    (GitHub → Settings → Secrets and variables → Actions) is a *fresh, valid*
+    personal access token generated at
+    https://app.netlify.com/user/applications#personal-access-tokens by an
+    account that actually has deploy permission on the `eva-v3-app` site/team
+    — re-paste it even if one is already set, since "Forbidden" (not
+    "Unauthorized"/expired) suggests a scope/team mismatch rather than a
+    missing token. Once fixed, the next autonomous run (or a manual
+    `workflow_dispatch`/re-push) should confirm the deploy goes green and
+    `currentDeploy`'s `commit_ref` catches up.
+- **Mid-run, a live human push landed on `main`**: commit `e7fc7db` "TEMP:
+  debug shim to surface real login error on new Netlify site" (by the repo
+  owner, not this routine) — a temporary try/catch in `loginAction` that
+  returns the real error message instead of the generic one, to debug login
+  on what the commit message calls a "new Netlify site." Merged cleanly with
+  this session's Phase 4b work (no conflicts, `git merge origin/main`,
+  re-verified `tsc --noEmit` clean after) and pushed as `1ea24cd`. **Did not
+  touch, revert, or "clean up" that debug shim** — it's someone else's
+  in-progress work and still live on `main`; whoever added it should remove
+  it once done debugging. The GitHub Actions deploy run for *that* commit
+  (`952f7c6`, run `34914966184`) and for this session's merge commit
+  (`1ea24cd`, run `34915174199`) **both also failed with the same
+  `JSONHTTPError: Forbidden`**, confirming again this is pipeline-wide, not
+  specific to any one commit's code.
+  - The mention of a "new Netlify site" in that commit message may mean the
+    repo owner is already aware the `eva-v3-app` site (`400fb70b-...`, the
+    one this file and the GH Actions workflow are wired to) has a broken
+    login/deploy story and is standing up a replacement — worth confirming
+    with them directly rather than assuming; if so, the GH Actions
+    workflow's hardcoded `NETLIFY_SITE_ID` and this file's site references
+    would need updating to match, which is a decision for a human, not
+    something to guess at here.
+- **Next step:** once the deploy pipeline is confirmed working again (or
+  pointed at whatever site the human is now using), verify 4a+4b live
+  (installable PWA, offline-bundle import button on `/schedule` actually
+  populating IndexedDB in a real browser). Either way, code-wise the next
+  unit of work is Goal 4 Phase 4c (offline-first grading UI: read from
+  IndexedDB when offline on `/grade/[studentId]`, local outbox for
+  submissions) — should proceed with 4c next run regardless of deploy status,
+  per last session's own guidance not to get stuck polling a deploy that
+  can't succeed yet, and log the same "still broken, still not code's fault"
+  finding tersely rather than re-investigating from scratch if it recurs
+  unchanged.
 
 ### 2026-09-15 — Google Sign-In wired in
 - Also set up and verified (via two capability tests) the `eva-goals-autopilot`

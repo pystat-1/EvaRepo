@@ -34,4 +34,4 @@ jobs:
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: 400fb70b-5646-424a-baf2-ae5cfd9e5e9b
-        run: npx netlify deploy --prod --no-build
+        run: npx netlify deploy --prod

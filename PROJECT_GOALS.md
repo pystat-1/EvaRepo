@@ -17,8 +17,9 @@ quota and is dormant/unmaintained until that resets — do not deploy there, do 
 report it as "the site" without checking this note first.
 
 Repo: https://github.com/pystat-1/EvaRepo
-Neon project: `dry-cell-81671466` (DB name `eva`, unchanged — both Netlify sites
-point at the same database)
+Neon project: `dry-cell-81671466` (DB name `eva`, branch `br-dark-hat-arg40fn4` =
+`main`, unchanged — both Netlify sites point at the same database). Daily
+snapshot backups run via routine `eva-db-daily-backup` (see Goal 2).
 **Current Netlify site**: `eva-v3-app-gsfa` (id `61860730-67b5-4418-81bf-a89c30900e45`),
 account `pystat.2@gmail.com`, git-linked to `main` for continuous deployment.
 When checking/confirming deploys (autopilot routine: this means YOU), always use
@@ -88,15 +89,26 @@ Also queued, independent of the OAuth work:
       headroom). **This is a real gap against "zero data loss"**: bad writes
       not caught within 6 hours can't be rolled back via Neon's own
       mechanism. Confirms the next item isn't optional polish.
-- [ ] Add a scheduled export/backup routine (nightly `pg_dump` or Neon branch
-      snapshot) so "zero data loss" has a concrete mechanism beyond Neon's
-      6-hour window — **this is the actual remaining risk on Goal 2, more
-      than the OAuth work was.** Needs a place to store the dump (can't be
-      this same DB) — e.g. push to a private GitHub repo, or Cloudflare R2
-      (connector already available). Human input useful here: is 6 hours of
-      recovery actually acceptable given how the app is used (an evaluator
-      would notice a bad grade save same-day), or does this need solving
-      urgently? Leaning toward: worth building, not a fire drill.
+- [x] Scheduled backup routine — DONE (2026-09-15). Used Neon's own
+      `create_snapshot` (branch snapshot, distinct from the 6h PITR window —
+      confirmed no expiry when created without one) rather than an external
+      `pg_dump` target, since it needed no new storage/credentials and Neon
+      snapshots are restorable natively (`restore_snapshot`). Created one
+      manual baseline snapshot (`manual-backup-2026-09-15`,
+      `snap-cool-paper-ar3c3h5v`) and a cloud routine
+      `eva-db-daily-backup` (trig_01JWJGWgArGEBb72uNFoNKgD, daily 03:00 UTC)
+      that creates `daily-backup-<date>` snapshots and prunes ones older
+      than 30 days (only ones matching that naming pattern — never touches
+      unrelated snapshots). This routine's tool access is deliberately
+      narrow (Neon MCP + Bash only, no Write/Edit) since its only job is the
+      snapshot lifecycle, not code.
+      **Caveat**: this protects against bad data (accidental/buggy writes,
+      recoverable via `restore_snapshot`) but NOT against losing the Neon
+      account itself — for true off-platform redundancy, an external
+      `pg_dump` (e.g. to Cloudflare R2, connector already available) would
+      still be worth adding later. Judged good-enough for now given the
+      free-tier constraint and that this already goes from 6 hours to a
+      30-day rolling recovery window.
 - [ ] Audit that every grade-write path is transactional (already true for
       `upsertEvaluation` — confirm no other write path regressed this)
 

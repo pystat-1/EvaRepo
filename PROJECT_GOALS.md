@@ -300,6 +300,30 @@ click through it once to confirm live), Goal 4's PWA build is the
 
 _Newest entry on top. One entry per work session — what was done, what's next._
 
+### 2026-09-16 — Autonomous queue check: hold still in effect, unchanged
+- This run's stored instructions again described the old Netlify site
+  (`eva-v3-app-gsfa`) as canonical — same staleness flagged in every entry
+  below, still not corrected. Did not poll Netlify, made zero Cloudflare/
+  Neon/DB calls, touched no Goal 4 code.
+- Local checkout was on a detached HEAD 53 commits behind `origin/main`
+  (same benign stale-local-ref pattern as prior runs); `git fetch` +
+  `git merge --ff-only` brought it current, no lost work, no conflicts.
+- Two new commits since the entry below, both direct human work unrelated
+  to Goal 4 (`41f6668` CSV bulk import for hospitals/evaluators/groups/
+  rotation blocks, `fdc6f59` redesigned Grading Center dashboard) — same
+  pattern as the master-sheet commit already noted: normal ongoing human
+  development on top of the Cloudflare deploy target, not a resolution of
+  the hold.
+- **Decision: holding still stands, unchanged.** Per this file's own
+  standing guidance, keeping this entry terse and not re-notifying the
+  user — the hold and the stale routine prompt have already been flagged
+  repeatedly with no new information to add.
+- **Next step:** unchanged — needs a human to confirm the actual live
+  deploy target (old Netlify `400fb70b`, new Netlify `eva-v3-app-gsfa`, or
+  Cloudflare Worker `evarepo`), update this file's STALE box, and update
+  this routine's own scheduled-task prompt. Until then, Goal 4 autonomous
+  work stays paused.
+
 ### 2026-09-16 — Autonomous queue check: hold still in effect; new human commit landed (unrelated to Goal 4)
 - Scheduled/autonomous run. This run's own stored instructions again described
   the old Netlify site (`eva-v3-app-gsfa`) as canonical and told autopilot to

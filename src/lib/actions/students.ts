@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import Papa from "papaparse";
 import { requireRole } from "../auth";
-import { createStudent, updateStudent, importStudents, ImportResult } from "../models/students";
+import { createStudent, updateStudent, importStudents } from "../models/students";
+import type { ImportActionState } from "../importHelpers";
 
 function parseShift(value: FormDataEntryValue | null): "MORNING" | "EVENING" | null {
   const s = String(value ?? "").trim();
@@ -52,10 +53,7 @@ export async function toggleStudentActiveAction(formData: FormData) {
   revalidatePath("/master");
 }
 
-export interface ImportActionState {
-  result?: ImportResult;
-  error?: string;
-}
+export type { ImportActionState };
 
 // Bulk import: CSV columns expected are
 // universityNumber,nameAr,nameEn,email,studyType,group,course,shift

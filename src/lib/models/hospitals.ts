@@ -3,6 +3,7 @@
 // for why) — re-check this file once a real client has been generated.
 import { prisma } from "../db";
 import { recordAudit } from "../audit";
+import type { ImportResult } from "../importHelpers";
 
 export interface Hospital {
   id: string;
@@ -95,4 +96,46 @@ export async function updateHospital(
     after,
   });
   return after;
+}
+
+// Bulk import — upserts by name (falling back to nameAr) since Hospital has
+// no unique key beyond id, matching how importStudents/importGroups match
+// existing rows by their own natural-language identity column.
+export async function importHospitals(
+  actorId: string,
+  rows: Array<{ name: string; nameAr?: string; address?: string; notes?: string }>
+): Promise<ImportResult> {
+  const result: ImportResult = { created: 0, updated: 0, errors: [] };
+
+  let index = -1;
+  for (const row of rows) {
+    index++;
+    try {
+      if (!row.name?.trim()) throw new Error("Missing hospital name");
+      const existing = await prisma.hospital.findFirst({
+        where: { OR: [{ name: row.name.trim() }, ...(row.nameAr?.trim() ? [{ nameAr: row.nameAr.trim() }] : [])] },
+      });
+      if (existing) {
+        await updateHospital(actorId, existing.id, {
+          name: row.name.trim(),
+          nameAr: row.nameAr,
+          address: row.address,
+          notes: row.notes,
+        });
+        result.updated++;
+      } else {
+        await createHospital(actorId, {
+          name: row.name.trim(),
+          nameAr: row.nameAr,
+          address: row.address,
+          notes: row.notes,
+        });
+        result.created++;
+      }
+    } catch (err) {
+      result.errors.push({ row: index + 2, message: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  return result;
 }

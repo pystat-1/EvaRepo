@@ -3,6 +3,7 @@
 // for why) — re-check this file once a real client has been generated.
 import { prisma } from "../db";
 import { recordAudit } from "../audit";
+import { parseShiftCell, resolveCourseId, resolveStudyTypeId, resolveGroupId, type ImportResult } from "../importHelpers";
 
 export type Shift = "MORNING" | "EVENING";
 
@@ -290,32 +291,7 @@ export async function updateStudent(
 // (e.g. a refreshed export from the registrar) updates existing students
 // instead of creating duplicates or "ghost" records the way the old app's
 // name-text matching could.
-export interface ImportResult {
-  created: number;
-  updated: number;
-  errors: { row: number; message: string }[];
-}
-
-function parseShiftCell(value: string | undefined): Shift | undefined {
-  const s = value?.trim().toUpperCase();
-  if (!s) return undefined;
-  if (s === "MORNING" || s === "صباحي" || s === "AM") return "MORNING";
-  if (s === "EVENING" || s === "مسائي" || s === "PM") return "EVENING";
-  throw new Error(`Unknown shift "${value}" (expected MORNING/EVENING)`);
-}
-
-// Course cell is "year-number", e.g. "2026-1" — matches how it's exported.
-async function resolveCourseId(value: string | undefined): Promise<string | null> {
-  const v = value?.trim();
-  if (!v) return null;
-  const match = v.match(/^(\d{4})-(\d)$/);
-  if (!match) throw new Error(`Unknown course format "${v}" (expected "YYYY-N", e.g. "2026-1")`);
-  const course = await prisma.course.findUnique({
-    where: { year_number: { year: Number(match[1]), number: Number(match[2]) } },
-  });
-  if (!course) throw new Error(`Unknown course "${v}"`);
-  return course.id;
-}
+export type { ImportResult };
 
 export async function importStudents(
   actorId: string,
@@ -339,24 +315,8 @@ export async function importStudents(
       if (!row.universityNumber?.trim() || !row.nameAr?.trim()) {
         throw new Error("Missing university number or name");
       }
-      let studyTypeId: string | null = null;
-      if (row.studyType?.trim()) {
-        const st = await prisma.studyType.findFirst({
-          where: { OR: [{ name: row.studyType.trim() }, { nameAr: row.studyType.trim() }] },
-          select: { id: true },
-        });
-        if (!st) throw new Error(`Unknown study type "${row.studyType}"`);
-        studyTypeId = st.id;
-      }
-      let groupId: string | null = null;
-      if (row.group?.trim()) {
-        const g = await prisma.group.findFirst({
-          where: { name: row.group.trim() },
-          select: { id: true },
-        });
-        if (!g) throw new Error(`Unknown group "${row.group}"`);
-        groupId = g.id;
-      }
+      const studyTypeId = await resolveStudyTypeId(row.studyType);
+      const groupId = await resolveGroupId(row.group);
       const courseId = await resolveCourseId(row.course);
       const shift = parseShiftCell(row.shift) ?? null;
 

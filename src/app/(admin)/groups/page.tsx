@@ -3,12 +3,14 @@ import { listHospitals } from "@/lib/models/hospitals";
 import { listCourses } from "@/lib/models/courses";
 import { listStudyTypes } from "@/lib/models/studyTypes";
 import { listRotationBlocksForGroup } from "@/lib/models/rotationBlocks";
-import { createGroupAction, toggleGroupActiveAction } from "@/lib/actions/groups";
+import { createGroupAction, toggleGroupActiveAction, importGroupsAction } from "@/lib/actions/groups";
 import {
   createRotationBlockAction,
   toggleRotationBlockActiveAction,
+  importRotationBlocksAction,
 } from "@/lib/actions/rotationBlocks";
 import { WEEKDAYS } from "@/lib/weekdays";
+import ImportCsvForm from "@/components/ImportCsvForm";
 
 const SHIFT_LABEL: Record<string, string> = { MORNING: "صباحي", EVENING: "مسائي" };
 
@@ -78,6 +80,20 @@ export default async function GroupsPage() {
             </button>
           </div>
         </form>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <ImportCsvForm
+          action={importGroupsAction}
+          columnsHint="الأعمدة المتوقعة: name, shift, course, studyType, cycleLabel — يتم الدمج حسب اسم
+          المجموعة. shift بقيمة MORNING أو EVENING، وcourse بصيغة &quot;السنة-رقم الدورة&quot; مثل 2026-1."
+        />
+        <ImportCsvForm
+          action={importRotationBlocksAction}
+          columnsHint="جدول الدوران — الأعمدة المتوقعة: group, hospital, startDate, endDate, daysOfWeek
+          (اختياري، مثل SUN,TUE). إعادة استيراد نفس الصف (نفس المجموعة والمستشفى والتواريخ) لا تُنشئ
+          فترة مكررة."
+        />
       </div>
 
       <div className="flex flex-col gap-4">

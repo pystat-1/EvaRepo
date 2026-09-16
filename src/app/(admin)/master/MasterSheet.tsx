@@ -7,16 +7,18 @@ import type { StudentWithRelations } from "@/lib/models/students";
 import type { Course } from "@/lib/models/courses";
 import type { GroupWithRelations } from "@/lib/models/groups";
 import type { StudyType } from "@/lib/models/studyTypes";
-import { createHospitalAction, toggleHospitalActiveAction } from "@/lib/actions/hospitals";
+import { createHospitalAction, toggleHospitalActiveAction, importHospitalsAction } from "@/lib/actions/hospitals";
 import {
   createEvaluatorAction,
   toggleEvaluatorActiveAction,
   toggleAssignmentActiveAction,
+  importEvaluatorsAction,
 } from "@/lib/actions/evaluators";
-import { createStudentAction, toggleStudentActiveAction } from "@/lib/actions/students";
+import { createStudentAction, toggleStudentActiveAction, importStudentsAction } from "@/lib/actions/students";
 import { createCourseAction, toggleCourseActiveAction } from "@/lib/actions/courses";
-import { createGroupAction, toggleGroupActiveAction } from "@/lib/actions/groups";
+import { createGroupAction, toggleGroupActiveAction, importGroupsAction } from "@/lib/actions/groups";
 import { createStudyTypeAction, toggleStudyTypeActiveAction } from "@/lib/actions/studyTypes";
+import ImportCsvForm from "@/components/ImportCsvForm";
 
 const SHIFT_LABEL: Record<string, string> = { MORNING: "صباحي", EVENING: "مسائي" };
 
@@ -70,11 +72,13 @@ function SectionShell({
   count,
   children,
   addForm,
+  importForm,
 }: {
   sectionKey: SectionKey;
   count: number;
   children: React.ReactNode;
   addForm?: React.ReactNode;
+  importForm?: React.ReactNode;
 }) {
   const s = SECTIONS[sectionKey];
   return (
@@ -108,6 +112,19 @@ function SectionShell({
               </summary>
               <div className="absolute z-10 end-0 mt-2 rounded-lg border border-slate-200 bg-white p-3 shadow-lg w-[min(90vw,560px)]">
                 {addForm}
+              </div>
+            </details>
+          )}
+          {importForm && (
+            <details className="relative text-xs">
+              <summary
+                className="cursor-pointer select-none px-2.5 py-1.5 rounded-md font-semibold border"
+                style={{ color: s.accent, borderColor: s.accent + "55", background: "white" }}
+              >
+                ⇪ استيراد CSV
+              </summary>
+              <div className="absolute z-10 end-0 mt-2 rounded-lg border border-slate-200 bg-white p-3 shadow-lg w-[min(92vw,480px)]">
+                {importForm}
               </div>
             </details>
           )}
@@ -225,6 +242,12 @@ export default function MasterSheet({
             <button type="submit" className="btn btn-primary">إضافة مستشفى</button>
           </form>
         }
+        importForm={
+          <ImportCsvForm
+            action={importHospitalsAction}
+            columnsHint="الأعمدة: name, nameAr, address — دمج حسب الاسم."
+          />
+        }
       >
         <table className="data-table">
           <thead>
@@ -277,6 +300,12 @@ export default function MasterSheet({
             </select>
             <button type="submit" className="btn btn-primary sm:col-span-2">إضافة مقيّم</button>
           </form>
+        }
+        importForm={
+          <ImportCsvForm
+            action={importEvaluatorsAction}
+            columnsHint="الأعمدة: name, email, password, hospital, group — دمج حسب البريد."
+          />
         }
       >
         <table className="data-table">
@@ -362,6 +391,13 @@ export default function MasterSheet({
             </select>
             <button type="submit" className="btn btn-primary sm:col-span-2">إضافة طالب</button>
           </form>
+        }
+        importForm={
+          <ImportCsvForm
+            action={importStudentsAction}
+            columnsHint="الأعمدة: universityNumber, nameAr, nameEn, email, studyType, group, course, shift — دمج حسب الرقم الجامعي."
+            exportHref="/api/students/export"
+          />
         }
       >
         <table className="data-table">
@@ -471,6 +507,12 @@ export default function MasterSheet({
             <input name="cycleLabel" placeholder="الدفعة (اختياري)" className="input" />
             <button type="submit" className="btn btn-primary sm:col-span-2">إضافة مجموعة</button>
           </form>
+        }
+        importForm={
+          <ImportCsvForm
+            action={importGroupsAction}
+            columnsHint="الأعمدة: name, shift, course, studyType, cycleLabel — دمج حسب اسم المجموعة."
+          />
         }
       >
         <table className="data-table">

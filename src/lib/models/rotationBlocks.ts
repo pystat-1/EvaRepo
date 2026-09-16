@@ -1,6 +1,7 @@
 import { prisma } from "../db";
 import { recordAudit } from "../audit";
 import { isDateInScheduledDays } from "../weekdays";
+import { resolveHospitalId, resolveGroupId, type ImportResult } from "../importHelpers";
 
 export interface RotationBlock {
   id: string;
@@ -150,4 +151,44 @@ export async function toggleRotationBlockActive(
     entityId: id,
     action: active ? "reactivate" : "deactivate",
   });
+}
+
+// Bulk import. Rotation blocks have no natural identity to upsert by, so a
+// row that exactly matches an existing active block (same group, hospital,
+// date range) is skipped rather than duplicated — that's what makes
+// re-importing the same schedule file idempotent — and every other row is
+// always a new block (counted as "created"; there is no update path).
+export async function importRotationBlocks(
+  actorId: string,
+  rows: Array<{ group: string; hospital: string; startDate: string; endDate: string; daysOfWeek?: string }>
+): Promise<ImportResult> {
+  const result: ImportResult = { created: 0, updated: 0, errors: [] };
+
+  let index = -1;
+  for (const row of rows) {
+    index++;
+    try {
+      const groupId = await resolveGroupId(row.group);
+      if (!groupId) throw new Error("Missing group");
+      const hospitalId = await resolveHospitalId(row.hospital);
+      const startDate = row.startDate?.trim();
+      const endDate = row.endDate?.trim();
+      if (!startDate || !endDate) throw new Error("Missing startDate or endDate");
+      const daysOfWeek = row.daysOfWeek?.trim() || undefined;
+
+      const existing = await prisma.rotationBlock.findFirst({
+        where: { groupId, hospitalId, startDate, endDate, active: true },
+      });
+      if (existing) {
+        result.updated++;
+        continue;
+      }
+      await createRotationBlock(actorId, { groupId, hospitalId, startDate, endDate, daysOfWeek });
+      result.created++;
+    } catch (err) {
+      result.errors.push({ row: index + 2, message: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  return result;
 }

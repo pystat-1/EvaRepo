@@ -1,30 +1,37 @@
 "use client";
 
 import { useActionState } from "react";
-import { importStudentsAction, ImportActionState } from "@/lib/actions/students";
+import type { ImportActionState } from "@/lib/importHelpers";
 
 const initialState: ImportActionState = {};
 
-export default function ImportStudentsForm() {
-  const [state, formAction, pending] = useActionState(importStudentsAction, initialState);
+export default function ImportCsvForm({
+  action,
+  columnsHint,
+  exportHref,
+  exportLabel = "تصدير القائمة الحالية (CSV)",
+}: {
+  action: (prev: ImportActionState, formData: FormData) => Promise<ImportActionState>;
+  columnsHint: string;
+  exportHref?: string;
+  exportLabel?: string;
+}) {
+  const [state, formAction, pending] = useActionState(action, initialState);
 
   return (
     <div className="card">
       <h2 className="font-semibold mb-1">استيراد من ملف CSV</h2>
-      <p className="text-xs text-slate-500 mb-3">
-        الأعمدة المتوقعة: universityNumber, nameAr, nameEn, email, studyType, group, course,
-        shift — يتم الدمج حسب الرقم الجامعي (لا يتم إنشاء طالب مكرر عند إعادة الاستيراد).
-        عمود course بصيغة "السنة-رقم الدورة" مثل 2026-1، وshift بقيمة MORNING أو EVENING. رمز
-        الطالب (code) يُولَّد تلقائيًا عند توفر course وstudyType ولا يُقرأ من الملف.
-      </p>
+      <p className="text-xs text-slate-500 mb-3">{columnsHint}</p>
       <form action={formAction} className="flex flex-wrap items-end gap-3">
         <input type="file" name="file" accept=".csv,text/csv" required className="input" />
         <button type="submit" disabled={pending} className="btn btn-primary">
           {pending ? "جارٍ الاستيراد..." : "استيراد"}
         </button>
-        <a href="/api/students/export" className="btn btn-secondary">
-          تصدير القائمة الحالية (CSV)
-        </a>
+        {exportHref && (
+          <a href={exportHref} className="btn btn-secondary">
+            {exportLabel}
+          </a>
+        )}
       </form>
       {state.error && (
         <p className="text-sm text-red-600 mt-3 bg-red-50 border border-red-200 rounded-md px-3 py-2">

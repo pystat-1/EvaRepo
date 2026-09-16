@@ -1,5 +1,6 @@
 import { listHospitals } from "@/lib/models/hospitals";
-import { createHospitalAction, toggleHospitalActiveAction } from "@/lib/actions/hospitals";
+import { createHospitalAction, toggleHospitalActiveAction, importHospitalsAction } from "@/lib/actions/hospitals";
+import ImportCsvForm from "@/components/ImportCsvForm";
 
 export default async function HospitalsPage() {
   const hospitals = await listHospitals(true);
@@ -33,6 +34,11 @@ export default async function HospitalsPage() {
           </button>
         </form>
       </div>
+
+      <ImportCsvForm
+        action={importHospitalsAction}
+        columnsHint="الأعمدة المتوقعة: name, nameAr, address — يتم الدمج حسب الاسم (لا يتم إنشاء مستشفى مكرر عند إعادة الاستيراد)."
+      />
 
       <div className="card p-0 overflow-x-auto">
         <table className="data-table">

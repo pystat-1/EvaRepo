@@ -1,8 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import Papa from "papaparse";
 import { requireRole } from "../auth";
-import { createGroup, updateGroup, Shift } from "../models/groups";
+import { createGroup, updateGroup, importGroups, Shift } from "../models/groups";
+import type { ImportActionState } from "../importHelpers";
 
 function parseShift(value: FormDataEntryValue | null): Shift | null {
   const s = String(value ?? "").trim();
@@ -54,4 +56,37 @@ export async function toggleGroupActiveAction(formData: FormData) {
   revalidatePath("/groups");
   revalidatePath("/setup");
   revalidatePath("/master");
+}
+
+// CSV columns expected: name, shift, course, studyType, cycleLabel
+export async function importGroupsAction(
+  _prev: ImportActionState,
+  formData: FormData
+): Promise<ImportActionState> {
+  const session = await requireRole("ADMIN");
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) {
+    return { error: "الرجاء اختيار ملف CSV" };
+  }
+  const text = await file.text();
+  const parsed = Papa.parse<Record<string, string>>(text, {
+    header: true,
+    skipEmptyLines: true,
+    transformHeader: (h) => h.trim(),
+  });
+  if (parsed.errors.length > 0) {
+    return { error: `تعذرت قراءة الملف: ${parsed.errors[0].message}` };
+  }
+  const rows = parsed.data.map((r) => ({
+    name: r.name ?? r["الاسم"] ?? "",
+    shift: r.shift,
+    course: r.course,
+    studyType: r.studyType,
+    cycleLabel: r.cycleLabel,
+  }));
+  const result = await importGroups(session.sub, rows);
+  revalidatePath("/groups");
+  revalidatePath("/setup");
+  revalidatePath("/master");
+  return { result };
 }

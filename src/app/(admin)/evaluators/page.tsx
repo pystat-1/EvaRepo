@@ -7,9 +7,11 @@ import {
   toggleEvaluatorActiveAction,
   addAssignmentAction,
   toggleAssignmentActiveAction,
+  importEvaluatorsAction,
 } from "@/lib/actions/evaluators";
 import DebouncedSearch from "@/components/DebouncedSearch";
 import Pager from "@/components/Pager";
+import ImportCsvForm from "@/components/ImportCsvForm";
 
 export default async function EvaluatorsPage({
   searchParams,
@@ -80,6 +82,13 @@ export default async function EvaluatorsPage({
           </div>
         </form>
       </div>
+
+      <ImportCsvForm
+        action={importEvaluatorsAction}
+        columnsHint="الأعمدة المتوقعة: name, email, password, hospital, group — يتم الدمج حسب البريد الإلكتروني:
+        مقيّم موجود يحصل على تخصيص جديد (مستشفى/مجموعة)، وبريد جديد ينشئ حسابًا (password إلزامية
+        لحساب جديد فقط، ٨ أحرف على الأقل). group اختياري — فارغ يعني كل مجموعات المستشفى."
+      />
 
       <div className="w-full sm:w-72">
         <Suspense fallback={<input className="input" placeholder="بحث..." disabled />}>

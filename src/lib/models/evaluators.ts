@@ -5,6 +5,7 @@ import { prisma } from "../db";
 import { recordAudit } from "../audit";
 import { hashPassword, findAccountByEmail } from "../auth";
 import { isDateInScheduledDays } from "../weekdays";
+import { resolveHospitalId, resolveGroupId, type ImportResult } from "../importHelpers";
 
 export interface EvaluatorAccount {
   id: string;
@@ -304,6 +305,60 @@ export async function toggleAssignmentActive(
     action: active ? "reactivate" : "deactivate",
     after,
   });
+}
+
+// Bulk import — matches by email. An existing EVALUATOR account gets a new
+// assignment for the row's hospital/group (skipped if that exact
+// hospital+group assignment already exists, so re-importing the same file
+// doesn't pile up duplicate assignments); a new email creates the account
+// and its first assignment together via createEvaluator. `password` is only
+// used for a brand-new account — an existing evaluator's password is never
+// touched by import.
+export async function importEvaluators(
+  actorId: string,
+  rows: Array<{ name: string; email: string; password?: string; hospital: string; group?: string }>
+): Promise<ImportResult> {
+  const result: ImportResult = { created: 0, updated: 0, errors: [] };
+
+  let index = -1;
+  for (const row of rows) {
+    index++;
+    try {
+      if (!row.name?.trim()) throw new Error("Missing evaluator name");
+      if (!row.email?.trim()) throw new Error("Missing evaluator email");
+      const hospitalId = await resolveHospitalId(row.hospital);
+      const groupId = await resolveGroupId(row.group);
+
+      const account = await findAccountByEmail(row.email.trim());
+      if (account && account.role === "EVALUATOR") {
+        const already = await prisma.evaluatorAssignment.findFirst({
+          where: { accountId: account.id, hospitalId, groupId },
+        });
+        if (!already) {
+          await addAssignment(actorId, account.id, hospitalId, groupId);
+        }
+        result.updated++;
+      } else if (account) {
+        throw new Error(`Email "${row.email}" is already used by a non-evaluator account`);
+      } else {
+        if (!row.password || row.password.length < 8) {
+          throw new Error("Password must be at least 8 characters for a new evaluator");
+        }
+        await createEvaluator(actorId, {
+          name: row.name.trim(),
+          email: row.email.trim(),
+          password: row.password,
+          hospitalId,
+          groupId,
+        });
+        result.created++;
+      }
+    } catch (err) {
+      result.errors.push({ row: index + 2, message: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  return result;
 }
 
 // --- Scoping: the server-side enforcement described in plan §2.4/§4.2 ---

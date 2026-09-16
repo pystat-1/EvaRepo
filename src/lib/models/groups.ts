@@ -3,6 +3,7 @@
 // for why) — re-check this file once a real client has been generated.
 import { prisma } from "../db";
 import { recordAudit } from "../audit";
+import { parseShiftCell, resolveCourseId, resolveStudyTypeId, type ImportResult } from "../importHelpers";
 
 export type Shift = "MORNING" | "EVENING";
 
@@ -138,4 +139,48 @@ export async function updateGroup(
     after,
   });
   return after;
+}
+
+// Bulk import — upserts by name (Group has no unique key beyond id).
+export async function importGroups(
+  actorId: string,
+  rows: Array<{ name: string; shift?: string; course?: string; studyType?: string; cycleLabel?: string }>
+): Promise<ImportResult> {
+  const result: ImportResult = { created: 0, updated: 0, errors: [] };
+
+  let index = -1;
+  for (const row of rows) {
+    index++;
+    try {
+      if (!row.name?.trim()) throw new Error("Missing group name");
+      const shift = parseShiftCell(row.shift) ?? null;
+      const courseId = await resolveCourseId(row.course);
+      const studyTypeId = await resolveStudyTypeId(row.studyType);
+
+      const existing = await prisma.group.findFirst({ where: { name: row.name.trim() } });
+      if (existing) {
+        await updateGroup(actorId, existing.id, {
+          name: row.name.trim(),
+          cycleLabel: row.cycleLabel,
+          courseId,
+          shift,
+          studyTypeId,
+        });
+        result.updated++;
+      } else {
+        await createGroup(actorId, {
+          name: row.name.trim(),
+          cycleLabel: row.cycleLabel,
+          courseId,
+          shift,
+          studyTypeId,
+        });
+        result.created++;
+      }
+    } catch (err) {
+      result.errors.push({ row: index + 2, message: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  return result;
 }

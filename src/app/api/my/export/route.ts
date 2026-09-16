@@ -29,7 +29,7 @@ export async function GET(req: NextRequest) {
   const dateISO = req.nextUrl.searchParams.get("date")?.trim() || todayISO();
 
   const [{ rows, maxTotal }, sections] = await Promise.all([
-    listGradingCenter({ evaluatorId, dateFrom: dateISO, dateTo: dateISO }, 1000),
+    listGradingCenter({ evaluatorId, dateFrom: dateISO, dateTo: dateISO }, { pageSize: 1000 }),
     listRubricSections(),
   ]);
 

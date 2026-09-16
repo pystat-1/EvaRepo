@@ -81,6 +81,14 @@ body {
   background: #f1f5f9;
   color: #475569;
 }
+.badge-amber {
+  background: #fdf3e0;
+  color: #92620a;
+}
+.badge-red {
+  background: #fbe8e8;
+  color: #a12626;
+}
 
 table.data-table {
   width: 100%;

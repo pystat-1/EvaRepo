@@ -95,6 +95,15 @@ table.data-table {
   border-collapse: collapse;
   font-size: 0.875rem;
 }
+/* Breaks an element out of its centered max-width parent to span the full
+   viewport width — used by the grading-center tree view, which needs the
+   room a wide roster table wants instead of the admin shell's normal
+   max-w-6xl column. */
+.full-bleed {
+  width: 100vw;
+  margin-inline: calc(50% - 50vw);
+}
+
 table.data-table th {
   text-align: right;
   padding: 0.5rem 0.75rem;

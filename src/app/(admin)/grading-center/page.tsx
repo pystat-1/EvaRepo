@@ -1,4 +1,5 @@
 import { listGradingCenter, getGradingCenterDashboard, GradingCenterFilters } from "@/lib/models/gradingCenter";
+import { getGradingTree } from "@/lib/models/gradingTree";
 import { listHospitals } from "@/lib/models/hospitals";
 import { listCourses } from "@/lib/models/courses";
 import { listStudyTypes } from "@/lib/models/studyTypes";
@@ -6,6 +7,7 @@ import { listGroups } from "@/lib/models/groups";
 import { listEvaluators } from "@/lib/models/evaluators";
 import AutoRefresh from "@/components/AutoRefresh";
 import Pager from "@/components/Pager";
+import GradingTree from "@/components/GradingTree";
 
 const ATTENDANCE_LABEL: Record<string, string> = { present: "حاضر", late: "متأخر", absent: "غائب" };
 const ATTENDANCE_BADGE: Record<string, string> = {
@@ -29,6 +31,47 @@ export default async function GradingCenterPage({
   const sp = await searchParams;
   const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v) || undefined;
   const page = typeof sp.page === "string" ? Number(sp.page) || 1 : 1;
+  const mode = sp.mode === "tree" ? "tree" : "table";
+
+  const ModeToggle = (
+    <div className="inline-flex bg-white border border-slate-200 rounded-lg p-0.5 gap-0.5">
+      <a
+        href="/grading-center"
+        className={`text-xs font-bold rounded-md px-3.5 py-1.5 ${mode === "table" ? "text-white" : "text-slate-500"}`}
+        style={mode === "table" ? { background: "#1a5276" } : undefined}
+      >
+        📋 جدول
+      </a>
+      <a
+        href="/grading-center?mode=tree"
+        className={`text-xs font-bold rounded-md px-3.5 py-1.5 ${mode === "tree" ? "text-white" : "text-slate-500"}`}
+        style={mode === "tree" ? { background: "#1a5276" } : undefined}
+      >
+        🌳 شجري
+      </a>
+    </div>
+  );
+
+  if (mode === "tree") {
+    const tree = await getGradingTree();
+    return (
+      <div className="flex flex-col gap-6">
+        <div className="flex items-start justify-between flex-wrap gap-2">
+          <div>
+            <h1 className="text-2xl font-bold">مركز التقييم — شجري</h1>
+            <p className="text-slate-500 mt-1">
+              الدورة ← الوردية ← المجموعة — وعند فتح مجموعة، يظهر كل طلابها دفعة واحدة بكل تفاصيل
+              تقييمهم، دون أي نقرة إضافية.
+            </p>
+          </div>
+          {ModeToggle}
+        </div>
+        <div className="full-bleed px-4 sm:px-8">
+          <GradingTree data={tree} />
+        </div>
+      </div>
+    );
+  }
 
   const filters: GradingCenterFilters = {
     hospitalId: one(sp.hospitalId),
@@ -63,7 +106,10 @@ export default async function GradingCenterPage({
             المجموع النهائي فقط.
           </p>
         </div>
-        <AutoRefresh intervalSeconds={20} />
+        <div className="flex items-center gap-3">
+          {ModeToggle}
+          <AutoRefresh intervalSeconds={20} />
+        </div>
       </div>
 
       <form method="get" className="card grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 items-end">

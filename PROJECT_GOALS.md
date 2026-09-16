@@ -300,6 +300,40 @@ click through it once to confirm live), Goal 4's PWA build is the
 
 _Newest entry on top. One entry per work session — what was done, what's next._
 
+### 2026-09-16 — Autonomous queue check: hold still in effect; new human commit landed (unrelated to Goal 4)
+- Scheduled/autonomous run. This run's own stored instructions again described
+  the old Netlify site (`eva-v3-app-gsfa`) as canonical and told autopilot to
+  poll Netlify deploy status via Netlify MCP tools — same staleness flagged in
+  the two entries below, still not corrected. Did not poll Netlify (wrong
+  target per those entries) and made zero Cloudflare/Neon/DB calls.
+- Local checkout was on a detached HEAD, and local `main` was 50 commits
+  behind `origin/main` (stale local branch ref, same benign pattern as prior
+  entries — `git fetch` + `git merge --ff-only` brought it current with no
+  lost work, no divergence, no conflicts).
+- New since the entry below: `4ee0eaf` "Add master sheet — combine all admin
+  setup tabs into one colorful view", authored directly by the human user
+  (`pystat-1`, 2026-09-16 14:43 +0300, `Co-Authored-By: Claude Sonnet 5`) — a
+  new `/master` admin page, not part of Goal 4's plan. This is normal human
+  work on top of the Cloudflare deploy target, not a resolution of the hold:
+  it does not confirm the migration is stable, doesn't touch
+  `PROJECT_GOALS.md`'s STALE box, and the STALE box + hold decision are
+  otherwise unchanged. Also re-checked `.github/workflows/deploy.yml`: still
+  unchanged, still targets the *original* dormant Netlify site
+  (`400fb70b...`), which is a third, different deploy target from either
+  Netlify site this project's own instructions have referenced — one more
+  reason a human needs to state, in one place, which target is actually live.
+- **Decision: holding still stands, unchanged from the entries below.** Zero
+  code changes, zero DB/migration/deploy calls. Not re-notifying the user for
+  the hold itself (already flagged twice); mentioning here only because a new
+  commit landed and future runs should know it's accounted for and doesn't
+  change the hold.
+- **Next step:** unchanged — needs a human to (a) confirm which deploy target
+  is actually live (old Netlify `400fb70b`, new Netlify `eva-v3-app-gsfa`, or
+  Cloudflare Worker `evarepo` — three candidates now on record) and that it's
+  stable, (b) update this file's STALE box with the real answer, and (c)
+  update this routine's own scheduled-task prompt to match. Until then, Goal 4
+  autonomous work stays paused.
+
 ### 2026-09-16 — Autonomous queue check: hold still in effect, nothing new
 - This run's own stored instructions still described the old Netlify target
   (`eva-v3-app-gsfa`) — i.e. they predate the entry directly below and are

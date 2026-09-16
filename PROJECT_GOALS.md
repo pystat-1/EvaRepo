@@ -10,7 +10,37 @@ Knowledge base: `graphify-out/GRAPH_REPORT.md` (human-readable) and
 structural map of this codebase. Consult them before large changes; re-run
 `graphify <path> --update` after significant structural changes so they stay current.
 
-**CANONICAL LIVE SITE (as of 2026-09-15): https://eva-v3-app-gsfa.netlify.app**
+**⚠️ STALE — DO NOT TRUST WITHOUT HUMAN CONFIRMATION (flagged 2026-09-16 by
+autopilot):** everything below this line in this box still describes the
+*Netlify* deploy target, but `main` (commit `e1980b4` onward, authored by the
+human user directly, ~2026-09-15 21:00–2026-09-16 01:25 +0300, same session as
+several live production hotfixes) has since **migrated the deploy target to
+Cloudflare Workers** (`wrangler.jsonc`, Worker name `evarepo`, OpenNext build
+via `cf:deploy`/`cf:preview` npm scripts, Prisma switched to the
+`@prisma/adapter-neon` driver adapter over fetch-mode Neon queries instead of
+a raw `PrismaClient`+WebSocket pool). This is **not documented anywhere else
+in this file** — no Session Log entry covers it, Goal 4's status box below
+still only talks about Netlify. `.github/workflows/deploy.yml` still targets
+the OLD dormant Netlify site (`400fb70b...`) and was not updated or removed,
+so its actual status/relevance is unclear. The exact live production URL for
+the new Cloudflare Worker is not recorded anywhere in this repo that autopilot
+could find. The most recent 3 commits on `main` before this note (`3d344df`
+through `4c78324`) are all same-day hotfixes for real production bugs hit
+during/after the migration (Worker name mismatch, a lazy-Prisma-client build
+fix, a login POST 404, a 500-on-every-second-request bug) — the last of these
+(`4c78324`) looks like a solid, well-reasoned fix, but autopilot has no tool
+access to confirm the current Worker deploy is actually healthy end-to-end
+(Cloudflare MCP tools available here are read-only and don't expose deploy
+history/build logs the way the Netlify ones did for the old target).
+**Autopilot's call: hold all Goal 4 autonomous work until a human confirms
+this migration is intentional, finished, and the site is stable** — picking
+up Phase 4 client-side work on top of an in-flux, freshly-hotfixed deploy
+pipeline risks building on a moving target for a system where zero data loss
+is non-negotiable. A human should update this whole box with the real current
+URL/site id once confirmed, and note is safe to delete once done. See the
+2026-09-16 Session Log entry below for full detail.
+
+**CANONICAL LIVE SITE (as of 2026-09-15, PROBABLY STALE — see box above): https://eva-v3-app-gsfa.netlify.app**
 — the original `eva-v3-app.netlify.app` (site id `400fb70b-5646-424a-baf2-ae5cfd9e5e9b`,
 account `ammar.abd2000@conursing.uobaghdad.edu.iq`) hit its Netlify free-tier build
 quota and is dormant/unmaintained until that resets — do not deploy there, do not
@@ -20,10 +50,11 @@ Repo: https://github.com/pystat-1/EvaRepo
 Neon project: `dry-cell-81671466` (DB name `eva`, branch `br-dark-hat-arg40fn4` =
 `main`, unchanged — both Netlify sites point at the same database). Daily
 snapshot backups run via routine `eva-db-daily-backup` (see Goal 2).
-**Current Netlify site**: `eva-v3-app-gsfa` (id `61860730-67b5-4418-81bf-a89c30900e45`),
-account `pystat.2@gmail.com`, git-linked to `main` for continuous deployment.
-When checking/confirming deploys (autopilot routine: this means YOU), always use
-this site id, not the old one.
+**Current Netlify site (PROBABLY STALE, see box above)**: `eva-v3-app-gsfa`
+(id `61860730-67b5-4418-81bf-a89c30900e45`), account `pystat.2@gmail.com`,
+git-linked to `main` for continuous deployment. Do not assume this is still
+the live target — the deploy pipeline appears to have moved to Cloudflare
+Workers since this note was written; confirm before trusting it.
 
 ---
 
@@ -150,13 +181,14 @@ Plan:
 ## Goal 4: Offline-capable evaluation, sync when back online
 
 **Status: CODE-COMPLETE (2026-09-15) — all of Phases 4a-4d are implemented,
-type-checked, build-verified, and pushed to `main`. Production deploy is
-stuck on the Phase 4c commit (`ea5ea1f`) — the site's auto-deploy has not
-picked up any commit since, across two consecutive autonomous sessions;
-needs a human to check `eva-v3-app-gsfa`'s Build & deploy settings. True
-Background Sync API registration deliberately not attempted (see Phase 4d
-notes). No further autonomous code work remains in Goal 4 — see the
-2026-09-15 "Autonomous queue check" Session Log entry.**
+type-checked, build-verified, and pushed to `main`. The Netlify-stuck-deploy
+problem described below (`ea5ea1f`) has since been overtaken by events: the
+human migrated the deploy target to Cloudflare Workers on 2026-09-15/16 — see
+the STALE-flag box at the top of this file and the 2026-09-16 Session Log
+entry. True Background Sync API registration deliberately not attempted (see
+Phase 4d notes). **Autopilot is deliberately holding all further autonomous
+Goal 4 work until a human confirms the new Cloudflare deploy is stable** —
+see 2026-09-16 entry. No further autonomous code work happened this run.**
 
 Decision: full offline capability — works with zero connectivity for hours, not just
 resilient to brief drops. This is a genuinely large, multi-session build. Phased plan:
@@ -267,6 +299,76 @@ click through it once to confirm live), Goal 4's PWA build is the
 ## Session Log
 
 _Newest entry on top. One entry per work session — what was done, what's next._
+
+### 2026-09-16 — Autonomous run: found an undocumented Netlify→Cloudflare Workers migration, held Goal 4 work
+- Scheduled/autonomous run. Container started on a detached HEAD; `git fetch
+  origin main` showed the local `origin/main` ref was just stale-cached (same
+  benign pattern noted in several prior entries) — the real remote `main` and
+  the detached HEAD were already identical at `4c78324`, no lost work, no
+  divergence.
+- This run's stored instructions (and this file's own top-of-file note, before
+  this edit) both describe Netlify site `eva-v3-app-gsfa` as the canonical
+  live target and tell autopilot to poll Netlify for deploy status. **That is
+  now stale.** `git log` on `main` shows 11 commits after the last-logged
+  Session Log entry (`558aa91`) that this file never documented:
+  `e1980b4` "Migrate deployment target from Netlify to Cloudflare Workers"
+  through `4c78324` "Fix 500 on every request past the first — use fetch-mode
+  Neon queries, not WebSocket". All 11 are authored by the human user
+  (`pystat-1 <ammar.abd2000@conursing.uobaghdad.edu.iq>`) directly, not by an
+  autonomous routine — commit timestamps run 2026-09-15 ~21:00 through
+  2026-09-16 01:25 (+0300), i.e. very recent, likely the human's own hands-on
+  debugging session.
+- What changed, from reading the commits: switched Prisma to
+  `@prisma/adapter-neon` (Workers can't spawn Prisma's native query engine
+  binary or use raw TCP sockets) with `neonConfig.poolQueryViaFetch = true`
+  (fetch-mode HTTP queries, not a WebSocket pool that can't outlive a single
+  Worker request); added `wrangler.jsonc` (Worker name `evarepo`,
+  `run_worker_first: true` so Server Action POSTs on statically-prerendered
+  pages actually reach the Worker instead of 404ing from the assets layer)
+  and `open-next.config.ts`; added `cf:preview`/`cf:deploy` npm scripts
+  (`opennextjs-cloudflare build`+`preview`/`deploy`). The last three commits
+  before this one are same-day hotfixes for real bugs hit along the way
+  (Worker name mismatch, a stuck recursive build, login POST 404, a 500 on
+  every request past the first) — the final fix looks correct and
+  well-reasoned (Neon's WebSocket-backed Pool can't survive a Workers isolate
+  reuse across requests; fetch-mode sidesteps that entirely).
+- **No schema/migration changes** — confirmed via `git show --stat` on
+  `e1980b4`: `prisma/schema.prisma` only lost `binaryTargets` from the
+  generator block (build config, not a schema change), no
+  `prisma/migrations/` files touched anywhere in the 11 commits. Nothing here
+  violates this run's hard safety rule against DB/migration calls — made zero
+  Neon/database/Prisma-migrate calls this run either.
+- Checked `.github/workflows/deploy.yml`: **still targets the OLD dormant
+  Netlify site** (`400fb70b-5646-424a-baf2-ae5cfd9e5e9b`) and was not touched
+  by the migration commits — unclear if it's still relevant, been superseded
+  by Cloudflare's own Git integration, or just forgotten. Did not touch it.
+- Used the Cloudflare MCP tools (`workers_get_worker`, `workers_list`,
+  read-only) to sanity-check: Worker `evarepo` exists, `modified_on
+  2026-09-15T22:26:44Z` (close to the final hotfix commit's timestamp, so
+  plausibly that fix did deploy) but the tool exposes no deploy-history,
+  build-log, or health-check data comparable to what the Netlify tools gave
+  prior sessions, and no route/custom-domain binding — **could not confirm
+  end-to-end that the live site is actually healthy right now**, nor find the
+  real production URL anywhere in the repo.
+- **Decision: held all Goal 4 autonomous code work this run.** Goal 4's
+  remaining items (live PWA click-through verification) require a working,
+  *known-stable* production URL, which this run could not establish given (a)
+  the deploy target changed out from under the instructions this run was
+  given, (b) three same-day hotfixes suggest the new pipeline was still being
+  stabilized within the last few hours, and (c) no tool access here to
+  confirm current health. Picking up client-side PWA work or attempting any
+  deploy-status polling against the now-wrong (Netlify) target would either
+  do nothing useful or risk misreporting status. This is a documentation-only
+  change (this file) plus a notification to the user — zero code, zero
+  DB/migration calls, nothing built or pushed to production.
+- **Next step for a human or a future run**: confirm the Cloudflare migration
+  is intentional/finished and the site is actually serving traffic correctly
+  (try the real production URL, whatever it is now), then replace the STALE
+  box at the top of this file with the real current canonical URL/site id and
+  delete the warning. Once that's confirmed stable, Goal 4's remaining
+  live-verification items and any new autonomous work can resume normally.
+  Decide whether `.github/workflows/deploy.yml` (still Netlify-targeted) needs
+  updating or removing.
 
 ### 2026-09-15 — Autonomous queue check: no change (terse per standing guidance)
 - Goal 4 checklist still all `[x]`; `eva-v3-app-gsfa` deploy still `ea5ea1f`/`ready`/no error. Zero code, zero Neon/DB calls. Same state as the entry below — see it for full detail.

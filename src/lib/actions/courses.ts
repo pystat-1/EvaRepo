@@ -12,6 +12,7 @@ export async function createCourseAction(formData: FormData) {
   await createCourse(session.sub, { year, number, label: label || undefined });
   revalidatePath("/courses");
   revalidatePath("/setup");
+  revalidatePath("/master");
 }
 
 export async function toggleCourseActiveAction(formData: FormData) {
@@ -21,4 +22,5 @@ export async function toggleCourseActiveAction(formData: FormData) {
   await updateCourse(session.sub, id, { active });
   revalidatePath("/courses");
   revalidatePath("/setup");
+  revalidatePath("/master");
 }

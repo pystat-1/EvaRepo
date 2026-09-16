@@ -94,6 +94,9 @@ table.data-table th {
   border-bottom: 1px solid #e2e8f0;
   font-weight: 600;
   color: #475569;
+  position: sticky;
+  top: 0;
+  z-index: 1;
 }
 table.data-table td {
   padding: 0.5rem 0.75rem;

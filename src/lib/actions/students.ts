@@ -24,6 +24,7 @@ export async function createStudentAction(formData: FormData) {
   });
   revalidatePath("/students");
   revalidatePath("/setup");
+  revalidatePath("/master");
 }
 
 export async function updateStudentAction(formData: FormData) {
@@ -48,6 +49,7 @@ export async function toggleStudentActiveAction(formData: FormData) {
   const active = formData.get("active") === "1";
   await updateStudent(session.sub, id, { active });
   revalidatePath("/students");
+  revalidatePath("/master");
 }
 
 export interface ImportActionState {

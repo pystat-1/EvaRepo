@@ -13,6 +13,7 @@ export async function createStudyTypeAction(formData: FormData) {
   await createStudyType(session.sub, { name, nameAr: nameAr || undefined, code });
   revalidatePath("/study-types");
   revalidatePath("/setup");
+  revalidatePath("/master");
 }
 
 export async function updateStudyTypeAction(formData: FormData) {
@@ -33,4 +34,5 @@ export async function toggleStudyTypeActiveAction(formData: FormData) {
   await updateStudyType(session.sub, id, { active });
   revalidatePath("/study-types");
   revalidatePath("/setup");
+  revalidatePath("/master");
 }

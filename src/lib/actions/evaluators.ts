@@ -19,6 +19,7 @@ export async function createEvaluatorAction(formData: FormData) {
     groupId: String(formData.get("groupId") ?? "") || null,
   });
   revalidatePath("/evaluators");
+  revalidatePath("/master");
 }
 
 export async function toggleEvaluatorActiveAction(formData: FormData) {
@@ -27,6 +28,7 @@ export async function toggleEvaluatorActiveAction(formData: FormData) {
   const active = formData.get("active") === "1";
   await toggleEvaluatorActive(session.sub, accountId, active);
   revalidatePath("/evaluators");
+  revalidatePath("/master");
 }
 
 export async function addAssignmentAction(formData: FormData) {
@@ -36,6 +38,7 @@ export async function addAssignmentAction(formData: FormData) {
   const groupId = String(formData.get("groupId") ?? "") || null;
   await addAssignment(session.sub, accountId, hospitalId, groupId);
   revalidatePath("/evaluators");
+  revalidatePath("/master");
 }
 
 export async function toggleAssignmentActiveAction(formData: FormData) {
@@ -44,4 +47,5 @@ export async function toggleAssignmentActiveAction(formData: FormData) {
   const active = formData.get("active") === "1";
   await toggleAssignmentActive(session.sub, assignmentId, active);
   revalidatePath("/evaluators");
+  revalidatePath("/master");
 }

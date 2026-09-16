@@ -25,6 +25,7 @@ export async function createGroupAction(formData: FormData) {
   });
   revalidatePath("/groups");
   revalidatePath("/setup");
+  revalidatePath("/master");
 }
 
 export async function updateGroupAction(formData: FormData) {
@@ -52,4 +53,5 @@ export async function toggleGroupActiveAction(formData: FormData) {
   await updateGroup(session.sub, id, { active });
   revalidatePath("/groups");
   revalidatePath("/setup");
+  revalidatePath("/master");
 }

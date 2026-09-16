@@ -13,6 +13,7 @@ export async function createHospitalAction(formData: FormData) {
   await createHospital(session.sub, { name, nameAr: nameAr || undefined, address: address || undefined });
   revalidatePath("/hospitals");
   revalidatePath("/setup");
+  revalidatePath("/master");
 }
 
 export async function updateHospitalAction(formData: FormData) {
@@ -33,4 +34,5 @@ export async function toggleHospitalActiveAction(formData: FormData) {
   await updateHospital(session.sub, id, { active });
   revalidatePath("/hospitals");
   revalidatePath("/setup");
+  revalidatePath("/master");
 }

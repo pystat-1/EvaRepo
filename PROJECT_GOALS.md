@@ -300,6 +300,34 @@ click through it once to confirm live), Goal 4's PWA build is the
 
 _Newest entry on top. One entry per work session — what was done, what's next._
 
+### 2026-09-16 — Autonomous queue check: hold still in effect, nothing new
+- This run's own stored instructions still described the old Netlify target
+  (`eva-v3-app-gsfa`) — i.e. they predate the entry directly below and are
+  themselves stale now; noting this so a human updates that schedule's prompt
+  too, not just this file.
+- `git fetch origin main`: local detached HEAD and `origin/main` both at
+  `ecb22d0`, identical — same benign stale-local-ref pattern as always, no
+  lost work, nothing new landed since the entry below.
+- Re-read this file in full, including the STALE-flag box and the entry
+  below. Nothing indicates a human has confirmed the Cloudflare migration is
+  intentional/stable yet. Quick re-check of `workers_get_worker` on `evarepo`
+  (Cloudflare, read-only) returned only name/id — same lack of deploy-health
+  visibility already noted below, no new information. `wrangler.jsonc` has no
+  route/custom-domain binding, confirming there's still no discoverable
+  production URL to verify against.
+- **Decision: holding still stands, unchanged from the entry below.** Made
+  zero code changes, zero Neon/database/Prisma calls. Not re-notifying the
+  user — this exact condition was already flagged last run; nothing new to
+  report. Per this file's own standing guidance, future runs should keep
+  this check terse (or skip logging) as long as this state persists
+  unchanged.
+- **Next step:** unchanged — needs a human to confirm the Cloudflare Workers
+  migration is intentional, finished, and the live site is healthy (and
+  ideally record its real URL here), and to update this routine's own
+  scheduled-task prompt to stop referencing the old Netlify site. Once that
+  happens, Goal 4's remaining live-verification items and any new autonomous
+  work can resume.
+
 ### 2026-09-16 — Autonomous run: found an undocumented Netlify→Cloudflare Workers migration, held Goal 4 work
 - Scheduled/autonomous run. Container started on a detached HEAD; `git fetch
   origin main` showed the local `origin/main` ref was just stale-cached (same

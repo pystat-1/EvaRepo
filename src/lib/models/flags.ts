@@ -1,6 +1,7 @@
 // TODO(verify-on-deploy): converted from raw SQL to Prisma by hand in a
 // sandbox that cannot run `prisma generate` (see the top of src/lib/db.ts
 // for why) — re-check this file once a real client has been generated.
+import { unstable_cache, revalidateTag } from "next/cache";
 import { prisma } from "../db";
 import { getMaxTotal } from "./rubric";
 
@@ -60,10 +61,12 @@ async function upsertFlag(
     create: { studentId, ruleId, severity, msg, dateISO },
     update: { severity, msg, dateISO },
   });
+  revalidateTag("unseen-flags", { expire: 0 });
 }
 
 async function clearFlag(studentId: string, ruleId: string): Promise<void> {
   await prisma.flag.deleteMany({ where: { studentId, ruleId } });
+  revalidateTag("unseen-flags", { expire: 0 });
 }
 
 function leastSquaresSlope(values: number[]): number {
@@ -159,10 +162,23 @@ export async function listAllFlags(unseenOnly = false): Promise<FlagWithStudent[
   }));
 }
 
+// The admin layout calls this on every single navigation (for the nav
+// badge), so it's cached for a few seconds instead of hitting Neon on
+// every click — a stale-by-a-few-seconds unseen count is a fine trade for
+// not paying a full HTTP round trip per page view. recomputeFlagsForStudent
+// and markFlagSeen both invalidate it immediately via revalidateTag, so a
+// real change is never actually delayed by the cache window.
+const getCachedUnseenFlagsCount = unstable_cache(
+  async () => prisma.flag.count({ where: { seen: false } }),
+  ["unseen-flags-count"],
+  { tags: ["unseen-flags"], revalidate: 15 }
+);
+
 export async function countUnseenFlags(): Promise<number> {
-  return prisma.flag.count({ where: { seen: false } });
+  return getCachedUnseenFlagsCount();
 }
 
 export async function markFlagSeen(id: string): Promise<void> {
   await prisma.flag.update({ where: { id }, data: { seen: true } });
+  revalidateTag("unseen-flags", { expire: 0 });
 }

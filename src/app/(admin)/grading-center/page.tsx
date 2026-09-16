@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { listGradingCenter, getGradingCenterDashboard, GradingCenterFilters } from "@/lib/models/gradingCenter";
 import { getGradingTree } from "@/lib/models/gradingTree";
 import { listHospitals } from "@/lib/models/hospitals";
@@ -53,7 +54,6 @@ export default async function GradingCenterPage({
   );
 
   if (mode === "tree") {
-    const tree = await getGradingTree();
     return (
       <div className="flex flex-col gap-6">
         <div className="flex items-start justify-between flex-wrap gap-2">
@@ -67,7 +67,9 @@ export default async function GradingCenterPage({
           {ModeToggle}
         </div>
         <div className="full-bleed px-4 sm:px-8">
-          <GradingTree data={tree} />
+          <Suspense fallback={<TreeSkeleton />}>
+            <TreeSection />
+          </Suspense>
         </div>
       </div>
     );
@@ -83,16 +85,17 @@ export default async function GradingCenterPage({
     dateTo: one(sp.to),
   };
 
-  const [{ rows, maxTotal, total, pageSize }, dash, hospitals, courses, studyTypes, groups, evaluators] =
-    await Promise.all([
-      listGradingCenter(filters, { page }),
-      getGradingCenterDashboard(filters),
-      listHospitals(true),
-      listCourses(true),
-      listStudyTypes(true),
-      listGroups(true),
-      listEvaluators(true),
-    ]);
+  // Only the filter dropdowns' own option lists (cheap, single-table reads)
+  // block the initial paint — the two expensive reads (dashboard aggregates,
+  // paginated detail rows) stream in behind Suspense below instead of
+  // making every navigation wait on all of it before anything renders.
+  const [hospitals, courses, studyTypes, groups, evaluators] = await Promise.all([
+    listHospitals(true),
+    listCourses(true),
+    listStudyTypes(true),
+    listGroups(true),
+    listEvaluators(true),
+  ]);
 
   const activeFilterCount = Object.values(filters).filter(Boolean).length;
 
@@ -188,6 +191,46 @@ export default async function GradingCenterPage({
         </div>
       </form>
 
+      <Suspense fallback={<DashboardSkeleton />}>
+        <DashboardSection filters={filters} />
+      </Suspense>
+
+      <Suspense fallback={<TableSkeleton />}>
+        <TableSection filters={filters} page={page} sp={sp} />
+      </Suspense>
+    </div>
+  );
+}
+
+async function TreeSection() {
+  const tree = await getGradingTree();
+  return <GradingTree data={tree} />;
+}
+
+function TreeSkeleton() {
+  return <div className="card animate-pulse h-64" />;
+}
+
+function DashboardSkeleton() {
+  return (
+    <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+      {Array.from({ length: 7 }).map((_, i) => (
+        <div key={i} className="card animate-pulse h-20" />
+      ))}
+    </div>
+  );
+}
+
+function TableSkeleton() {
+  return <div className="card animate-pulse h-64" />;
+}
+
+async function DashboardSection({ filters }: { filters: GradingCenterFilters }) {
+  const dash = await getGradingCenterDashboard(filters);
+  const maxTotal = dash.maxTotal;
+
+  return (
+    <>
       <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
         <SummaryCard label="عدد التقييمات" value={dash.summary.evaluationCount} />
         <SummaryCard label="عدد الطلاب" value={dash.summary.studentCount} />
@@ -208,7 +251,7 @@ export default async function GradingCenterPage({
 
       {dash.summary.evaluationCount > 0 && (
         <>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-6">
             <div className="card">
               <h2 className="font-semibold mb-1">اتجاه المعدل عبر فترات الدوران</h2>
               <p className="text-xs text-slate-500 mb-3">
@@ -226,7 +269,7 @@ export default async function GradingCenterPage({
           </div>
 
           {dash.heatmap.length > 0 && dash.maxBlockSeq > 0 && (
-            <div className="card">
+            <div className="card mt-4">
               <h2 className="font-semibold mb-1">خريطة الحضور — كل مجموعة عبر فترات دورانها</h2>
               <p className="text-xs text-slate-500 mb-3">
                 درجة اللون تعني نسبة الحضور (حاضر أو متأخر) في تلك الفترة لتلك المجموعة.
@@ -235,7 +278,7 @@ export default async function GradingCenterPage({
             </div>
           )}
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
             <div className="card">
               <div className="flex items-center gap-2 mb-1">
                 <h2 className="font-semibold">بحاجة إلى متابعة</h2>
@@ -290,7 +333,23 @@ export default async function GradingCenterPage({
           </div>
         </>
       )}
+    </>
+  );
+}
 
+async function TableSection({
+  filters,
+  page,
+  sp,
+}: {
+  filters: GradingCenterFilters;
+  page: number;
+  sp: Record<string, string | string[] | undefined>;
+}) {
+  const { rows, maxTotal, total, pageSize } = await listGradingCenter(filters, { page });
+
+  return (
+    <div className="flex flex-col gap-4">
       <div className="card p-0 overflow-x-auto">
         <table className="data-table">
           <thead>

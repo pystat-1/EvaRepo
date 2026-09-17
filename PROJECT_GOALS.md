@@ -318,6 +318,24 @@ click through it once to confirm live), Goal 4's PWA build is the
 
 _Newest entry on top. One entry per work session — what was done, what's next._
 
+### 2026-09-17 — Autonomous queue check: hold still in effect, zero change (repeat)
+- Same state as every entry since 2026-09-16: this run's stored instructions
+  again cited the stale Netlify site as canonical; `origin/main` had zero new
+  commits since the last logged entry; Goal 4's checklist (4a-4d) is still
+  all `[x]`, so per this file's own rule 6 there is no unchecked work to pick
+  up. One read-only re-check each of Netlify (`get-project` on
+  `eva-v3-app-gsfa`) and Cloudflare (`workers_get_worker` on `evarepo`) — both
+  identical to every prior check, no new information. Zero code changes, zero
+  Neon/DB/migration calls.
+- **Not notifying the user** — repeat of an already-flagged, unchanged
+  condition. Per the standing guidance already written into this file
+  (see several entries below), future runs should keep skipping the
+  investigation and logging only when something actually changes.
+- **Next step:** unchanged — still needs a human to confirm the Cloudflare
+  Workers migration is intentional/stable, record the real live URL, update
+  the STALE box, and fix this routine's own scheduled-task prompt (still
+  Netlify-only).
+
 ### 2026-09-17 — Autonomous queue check: hold still in effect, zero change since last entry
 - This run's stored instructions again cited the stale Netlify site
   (`eva-v3-app-gsfa`/`61860730-...`) as canonical — same staleness flagged in

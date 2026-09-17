@@ -159,6 +159,24 @@ Also queued, independent of the OAuth work:
       grade/account data). `npx tsc --noEmit` and `npx next build` both
       clean after the fix.
 
+**⚠️ NEEDS HUMAN ACTION (2026-09-17) — daily backup routine failed twice in a
+row:** the `eva-db-daily-backup` routine's `create_snapshot` call (project
+`dry-cell-81671466`, branch `br-dark-hat-arg40fn4`, intended name
+`daily-backup-2026-09-17`) failed both the initial attempt and its one retry
+with `NeonApiError: snapshots limit exceeded`. `list_snapshots` on the same
+project shows only **one** snapshot total (`manual-backup-2026-09-15`,
+2 days old) — nowhere near a count that should hit a limit, so this looks
+like a plan/quota ceiling (e.g. free-tier snapshot cap) rather than
+accumulated old snapshots. Per this routine's own rules, nothing was
+deleted (the one existing snapshot is well under the 30-day prune
+threshold and doesn't match for pruning anyway) and no other Neon
+operation was attempted. **Not silently fatal** — Neon's 6-hour PITR window
+(see above) is still the fallback — but this does mean no new rolling
+snapshot was taken today. A human should check the Neon project's plan/
+snapshot quota and either raise it or clear whatever is actually consuming
+it (this account may have snapshots outside what `list_snapshots` on this
+project shows, e.g. on other projects/branches under the same org).
+
 ## Goal 3: Evaluator — download the day's detailed evaluation as Excel
 
 **Status: DONE** (2026-09-15) — `GET /api/my/export?date=YYYY-MM-DD` using

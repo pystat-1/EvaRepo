@@ -300,6 +300,34 @@ click through it once to confirm live), Goal 4's PWA build is the
 
 _Newest entry on top. One entry per work session — what was done, what's next._
 
+### 2026-09-17 — Autonomous queue check: hold still in effect, two more unrelated human commits noted
+- This run's stored instructions again described a Netlify site as canonical
+  (this time claiming a "site change" to `eva-v3-app-gsfa`/`61860730-...`) —
+  still wrong per the STALE box above: the actual deploy target moved to
+  Cloudflare Workers (`evarepo`) back on 2026-09-15/16, and that migration's
+  stability is still unconfirmed by a human. Did not poll Netlify or
+  Cloudflare, made zero Neon/DB calls, touched no Goal 4 code.
+- Local checkout started on a detached HEAD 56 commits behind `origin/main`
+  (same benign stale-local-ref pattern as every prior run); `git fetch` +
+  fast-forward brought it current, no lost work, no conflicts.
+- Two new commits since the entry below, both direct human work unrelated to
+  Goal 4: `cb34c88` (a collapsible tree view for Grading Center) and
+  `fed0360` (nav/Grading-Center latency fixes). Neither touches
+  `PROJECT_GOALS.md`, neither speaks to whether the Cloudflare deploy is
+  stable — same pattern as every other "unrelated human commit" noted in
+  recent entries.
+- Re-confirmed Goal 4's checklist (Phases 4a-4d) is still all `[x]` — no next
+  unchecked step exists to pick up even if the hold were lifted.
+- **Decision: holding still stands, unchanged.** Per this file's own
+  standing guidance, not re-notifying the user for a repeat of an
+  already-flagged condition (stale routine prompt + unconfirmed Cloudflare
+  migration, both raised multiple times since 2026-09-16 with no new
+  information this run).
+- **Next step:** unchanged — needs a human to confirm the Cloudflare Workers
+  deploy is intentional/stable, record its real URL, update this file's
+  STALE box, and update this routine's own scheduled-task prompt (still
+  Netlify-only). Until then, Goal 4 autonomous work stays paused.
+
 ### 2026-09-16 — Autonomous queue check: hold still in effect, unchanged
 - This run's stored instructions again described the old Netlify site
   (`eva-v3-app-gsfa`) as canonical — same staleness flagged in every entry

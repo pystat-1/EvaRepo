@@ -318,6 +318,30 @@ click through it once to confirm live), Goal 4's PWA build is the
 
 _Newest entry on top. One entry per work session — what was done, what's next._
 
+### 2026-09-17 — Autonomous queue check: hold still in effect, no change
+- This run's stored instructions once again described a Netlify site
+  (`eva-v3-app-gsfa`/`61860730-...`) as canonical — same staleness flagged
+  in every entry since 2026-09-16; the STALE box's underlying question
+  (is the Cloudflare Workers migration confirmed stable?) is still
+  unanswered by a human. Did not poll Netlify or Cloudflare, made zero
+  Neon/DB calls, touched no Goal 4 code.
+- Local checkout started on a detached HEAD one commit behind `origin/main`
+  (same benign stale-local-ref pattern as every prior run); `git fetch` +
+  reset to `origin/main` brought it current, no lost work.
+- Only new commit since the last entry (`af86378`) is `dc4c06e`, an
+  unrelated Goal-2-adjacent note (the daily Neon backup snapshot routine
+  hit a quota error) — already flagged in this file's Goal 2 section,
+  not something this routine (scoped to Goal 4) needed to act on.
+- Re-confirmed Goal 4's checklist (Phases 4a-4d) is still all `[x]` — no
+  next unchecked step exists even if the hold were lifted.
+- **Decision: holding still stands, unchanged.** Per this file's own
+  standing guidance, not re-notifying the user for a repeat of an
+  already-flagged condition.
+- **Next step:** unchanged — needs a human to confirm the Cloudflare
+  Workers deploy is intentional/stable, record its real URL, update this
+  file's STALE box, and update this routine's own scheduled-task prompt
+  (still Netlify-only). Until then, Goal 4 autonomous work stays paused.
+
 ### 2026-09-17 — Autonomous queue check: hold still in effect, two more unrelated human commits noted
 - This run's stored instructions again described a Netlify site as canonical
   (this time claiming a "site change" to `eva-v3-app-gsfa`/`61860730-...`) —

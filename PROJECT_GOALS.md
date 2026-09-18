@@ -318,6 +318,43 @@ click through it once to confirm live), Goal 4's PWA build is the
 
 _Newest entry on top. One entry per work session — what was done, what's next._
 
+### 2026-09-18 — Autonomous queue check: hold still in effect, escalating to the user this time
+- This run's stored instructions once again cited a Netlify site
+  (`eva-v3-app-gsfa`/`61860730-...`) as canonical and asked this routine to
+  pick up "the next unchecked Goal 4 phase" — both wrong per the STALE box
+  above: the real deploy target moved to Cloudflare Workers on
+  2026-09-15/16, and Goal 4's checklist (4a-4d) has been all `[x]` since
+  2026-09-15. Made zero Netlify/Cloudflare/Neon calls, touched no Goal 4
+  code, no DB/migration calls.
+- Local checkout started on a detached HEAD pointing at a stale cached ref
+  from container init (an old, unrelated pre-force-push `main` tip,
+  `1af1817` — 20 commits, no common ancestor with the real history at all).
+  `git fetch origin` resynced it: `origin/main` is `fc020c0`, identical to
+  what this container's HEAD already had checked out. No lost work — this
+  was just a stale local ref, not a divergent commit of ours.
+- **Decision: breaking from the last week's "don't renotify" pattern and
+  pinging the user once.** Three items have now sat unresolved and
+  unescalated for 1-3 days across 7+ silent "hold" entries:
+  1. Cloudflare Workers migration (since 2026-09-15/16) still unconfirmed
+     by a human — stable? real live URL?
+  2. Daily Neon backup snapshots (`eva-db-daily-backup`) have been failing
+     since 2026-09-17 on a snapshot-limit quota error — only one snapshot
+     (`manual-backup-2026-09-15`, now 3 days old) exists as a safety net
+     beyond Neon's 6-hour PITR window. Given this app's zero-data-loss
+     requirement, an unattended rolling backup being silently broken for
+     multiple days seemed worth surfacing rather than logging quietly again.
+  3. This routine's own scheduled-task prompt is stale (still describes the
+     old Netlify site as canonical) and will keep wasting each hourly run
+     rediscovering the same non-issue until a human edits the trigger.
+  Also still open: the Google OAuth redirect URI for the new domain still
+  needs adding in Google Cloud Console (Goal 2 section above) — unchanged,
+  not newly escalated, just noting it's still outstanding.
+- **Next step:** unchanged in substance — still needs a human to (a) confirm
+  the Cloudflare migration and record its URL, (b) clear the Neon snapshot
+  quota or otherwise fix the backup routine, (c) add the Google OAuth
+  redirect URI, (d) update this routine's stored prompt. No autonomous code
+  work is available to pick up until then — Goal 4 has nothing left to build.
+
 ### 2026-09-17 — Autonomous queue check: hold still in effect, zero change (repeat)
 - Same state as every entry since 2026-09-16: this run's stored instructions
   again cited the stale Netlify site as canonical; `origin/main` had zero new

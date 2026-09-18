@@ -318,6 +318,36 @@ click through it once to confirm live), Goal 4's PWA build is the
 
 _Newest entry on top. One entry per work session — what was done, what's next._
 
+### 2026-09-18 — Autonomous queue check: hold still in effect, zero change since the escalation
+- This run's stored instructions again cited the old Netlify site as
+  canonical — same staleness flagged repeatedly since 2026-09-16, still not
+  corrected in the trigger itself. Zero Netlify/Cloudflare/Neon writes, no
+  Goal 4 code touched, no DB/migration calls.
+- `git fetch origin main`: `origin/main` landed exactly on `40428b9`, the
+  commit that *is* the entry directly below — nothing has landed on `main`
+  since the previous run escalated to the user. Local checkout was on a
+  stale detached HEAD (harmless, same recurring container-init pattern);
+  resynced with no lost work.
+- Re-checked (read-only) both deploy targets named in the entry below:
+  Netlify `get-project` on `eva-v3-app-gsfa` still shows `currentDeploy`
+  `6aa8a74483196d000869afc3` (`ea5ea1f`, dormant Phase-4c deploy, unchanged);
+  Cloudflare `workers_get_worker` on `evarepo` still resolves to the same
+  worker id, no new information beyond what's already logged. Did not call
+  any Neon/database tool, per the hard safety rule.
+- Goal 4's checklist (4a-4d) is still all `[x]` — nothing unchecked to pick
+  up even if the hold were lifted.
+- **Not re-notifying the user** — the previous entry below already escalated
+  all three open items (Cloudflare migration unconfirmed, failing Neon
+  backup snapshots, this routine's stale trigger prompt) in one push
+  notification; nothing has changed since, so a repeat ping would just be
+  noise per this routine's own standing guidance.
+- **Next step:** unchanged from the entry below — still needs a human to (a)
+  confirm the Cloudflare migration and record its real URL, (b) clear the
+  Neon snapshot quota or otherwise fix `eva-db-daily-backup`, (c) add the
+  Google OAuth redirect URI for the new domain, (d) update this routine's
+  own stored trigger prompt so it stops citing the old Netlify site. No
+  autonomous code work is available until then.
+
 ### 2026-09-18 — Autonomous queue check: hold still in effect, escalating to the user this time
 - This run's stored instructions once again cited a Netlify site
   (`eva-v3-app-gsfa`/`61860730-...`) as canonical and asked this routine to

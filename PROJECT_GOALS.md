@@ -318,6 +318,33 @@ click through it once to confirm live), Goal 4's PWA build is the
 
 _Newest entry on top. One entry per work session — what was done, what's next._
 
+### 2026-09-18 — Autonomous queue check: hold still in effect, zero change (repeat, x2)
+- This run's stored trigger prompt again cited the old Netlify site
+  (`eva-v3-app-gsfa`/`61860730-...`) as canonical — same staleness flagged
+  since 2026-09-16, still not corrected in the trigger. Made zero
+  Netlify/Cloudflare/Neon writes, touched no Goal 4 code, called no
+  Neon/database MCP tool of any kind, per the hard safety rule.
+- `git fetch origin main`: `origin/main` is still exactly `5f6184c`, the
+  commit that *is* the entry directly below — nothing has landed on `main`
+  since that run (`git log 5f6184c..origin/main` is empty). Local checkout
+  matched `origin/main` exactly this time, no stale-ref resync needed.
+- Re-checked (read-only) both deploy targets: Netlify `get-project` on
+  `eva-v3-app-gsfa` still shows the same dormant deploy
+  (`6aa8a74483196d000869afc3`, `commit_ref` `ea5ea1f`, state `ready`,
+  unchanged since 2026-09-15). Cloudflare `workers_get_worker` on `evarepo`
+  still resolves to the same worker id, no new information.
+- Goal 4's checklist (4a-4d) is still all `[x]` — nothing unchecked to pick
+  up even if the hold were lifted, so there is no in-scope work this run per
+  rule 6 (do not invent new work not in this file).
+- **Not notifying the user** — same unchanged condition already escalated
+  once; nothing new to report, so a repeat ping would be pure noise.
+- **Next step:** unchanged — still needs a human to (a) confirm the
+  Cloudflare migration and record its real URL, (b) clear the Neon snapshot
+  quota or otherwise fix `eva-db-daily-backup`, (c) add the Google OAuth
+  redirect URI for the new domain, (d) update this routine's own stored
+  trigger prompt so it stops citing the old Netlify site. No autonomous code
+  work is available until then.
+
 ### 2026-09-18 — Autonomous queue check: hold still in effect, zero change (repeat)
 - This run's stored trigger prompt again cited the old Netlify site
   (`eva-v3-app-gsfa`/`61860730-...`) as canonical — same staleness flagged

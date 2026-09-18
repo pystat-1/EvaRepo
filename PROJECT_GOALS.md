@@ -318,6 +318,39 @@ click through it once to confirm live), Goal 4's PWA build is the
 
 _Newest entry on top. One entry per work session — what was done, what's next._
 
+### 2026-09-18 — Autonomous queue check: hold still in effect, zero change (repeat)
+- This run's stored trigger prompt again cited the old Netlify site
+  (`eva-v3-app-gsfa`/`61860730-...`) as canonical — same staleness flagged
+  since 2026-09-16, still not corrected in the trigger. Made zero
+  Netlify/Cloudflare/Neon writes, touched no Goal 4 code, called no
+  Neon/database MCP tool of any kind (read-only or otherwise), per the hard
+  safety rule.
+- `git fetch origin main`: `origin/main` is still exactly `f517cf9`, the
+  commit that *is* the entry directly below — nothing has landed on `main`
+  since that run. Local checkout again started on a stale detached HEAD from
+  container init (same recurring harmless pattern); resynced, no lost work.
+- Re-checked (read-only) both deploy targets: Netlify `get-project` +
+  `get-deploy-for-site` on `eva-v3-app-gsfa` still shows the same dormant
+  deploy (`6aa8a74483196d000869afc3`, `commit_ref` `ea5ea1f`, state `ready`,
+  unchanged since 2026-09-15) — every commit since then (the Cloudflare
+  migration, Goal 4d, all the hotfixes) is still not reflected in this
+  Netlify deploy. Cloudflare `workers_get_worker` on `evarepo` still
+  resolves to the same worker id, no new information.
+- Goal 4's checklist (4a-4d) is still all `[x]` — nothing unchecked to pick
+  up even if the hold were lifted, so there is no in-scope work this run per
+  rule 6 (do not invent new work not in this file).
+- **Not notifying the user** — the escalation two entries below already
+  surfaced all open items (Cloudflare migration unconfirmed, failing Neon
+  backup snapshots, the Google OAuth redirect URI, this routine's stale
+  trigger prompt) in one push notification; nothing has changed since, so a
+  repeat ping would be pure noise.
+- **Next step:** unchanged — still needs a human to (a) confirm the
+  Cloudflare migration and record its real URL, (b) clear the Neon snapshot
+  quota or otherwise fix `eva-db-daily-backup`, (c) add the Google OAuth
+  redirect URI for the new domain, (d) update this routine's own stored
+  trigger prompt so it stops citing the old Netlify site. No autonomous code
+  work is available until then.
+
 ### 2026-09-18 — Autonomous queue check: hold still in effect, zero change since the escalation
 - This run's stored instructions again cited the old Netlify site as
   canonical — same staleness flagged repeatedly since 2026-09-16, still not

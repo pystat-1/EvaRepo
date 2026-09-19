@@ -5,10 +5,7 @@ import { getScopedGroupIds, canEvaluatorGradeGroupAtHospital } from "@/lib/model
 import { listRubricSections, getMaxTotal } from "@/lib/models/rubric";
 import { getEvaluationForStudentDate } from "@/lib/models/evaluations";
 import { getScheduledRotationForDate } from "@/lib/models/rotationBlocks";
-
-function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
-}
+import { todayISO } from "@/lib/date";
 
 // JSON twin of the grading page's server-side data fetch (same checks, same
 // order, as src/app/(evaluator)/grade/[studentId]/page.tsx and

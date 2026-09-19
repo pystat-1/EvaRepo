@@ -36,21 +36,20 @@ export default async function DashboardPage() {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="text-2xl font-bold">لوحة المدير</h1>
-        <p className="text-slate-500 mt-1">
+        <h1 className="text-2xl font-bold font-display" style={{ color: "var(--ink)" }}>
+          لوحة المدير
+        </h1>
+        <p className="mt-1" style={{ color: "var(--ink-muted)" }}>
           نظرة عامة عبر المراحل الثلاث: قاعدة البيانات، المقيّمون، والتقييم.
         </p>
       </div>
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      <div className="stat-strip grid-cols-2 sm:grid-cols-4">
         {cards.map((c) => (
-          <Link key={c.href} href={c.href} className="card hover:shadow-sm transition-shadow">
-            <div
-              className="text-3xl font-bold"
-              style={{ color: c.highlight ? "#dc2626" : "var(--brand)" }}
-            >
+          <Link key={c.href} href={c.href} className="stat-tile">
+            <div className="stat-value" style={c.highlight ? { color: "var(--red-700)" } : undefined}>
               {c.value}
             </div>
-            <div className="text-sm text-slate-500 mt-1">{c.label}</div>
+            <div className="stat-label">{c.label}</div>
           </Link>
         ))}
       </div>

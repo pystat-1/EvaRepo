@@ -19,6 +19,7 @@ export interface OutboxEntry {
   attendance: Attendance;
   notes?: string;
   feedback?: string;
+  dailyNoteSubmitted?: boolean;
   scores: Record<string, number>;
   queuedAt: string;
   error?: string;

@@ -19,6 +19,7 @@ export interface Evaluation {
   attendance: Attendance;
   notes: string | null;
   feedback: string | null;
+  dailyNoteSubmitted: boolean;
   total: number;
   locked: boolean;
   createdAt: string;
@@ -40,6 +41,7 @@ function serialize(row: {
   attendance: string;
   notes: string | null;
   feedback: string | null;
+  dailyNoteSubmitted: boolean;
   total: number;
   locked: boolean;
   createdAt: Date;
@@ -55,6 +57,7 @@ function serialize(row: {
     attendance: row.attendance as Attendance,
     notes: row.notes,
     feedback: row.feedback,
+    dailyNoteSubmitted: row.dailyNoteSubmitted,
     total: row.total,
     locked: row.locked,
     createdAt: row.createdAt.toISOString(),
@@ -106,6 +109,25 @@ export async function getEvaluationForStudentDate(
   return { ...serialize(row), scores: attachScoresFromRelation(row.scores), evaluatorName: row.evaluator?.name ?? null };
 }
 
+// Batch version of getEvaluationForStudentDate for a whole roster on one day
+// — a single query instead of one per student, which is what makes the
+// offline-bundle import fast (previously N+1 over the network).
+export async function getEvaluationsForStudentsOnDate(
+  studentIds: string[],
+  dateISO: string
+): Promise<EvaluationWithScores[]> {
+  if (studentIds.length === 0) return [];
+  const rows = await prisma.evaluation.findMany({
+    where: { studentId: { in: studentIds }, dateISO },
+    include: { evaluator: { select: { name: true } }, scores: true },
+  });
+  return rows.map((row) => ({
+    ...serialize(row),
+    scores: attachScoresFromRelation(row.scores),
+    evaluatorName: row.evaluator?.name ?? null,
+  }));
+}
+
 export async function listEvaluationsForStudent(
   studentId: string,
   limit = 90
@@ -130,6 +152,7 @@ export interface UpsertEvaluationInput {
   attendance: Attendance;
   notes?: string;
   feedback?: string;
+  dailyNoteSubmitted?: boolean;
   scores: Record<string, number>; // rubricSectionId -> score
 }
 
@@ -141,6 +164,21 @@ export interface UpsertEvaluationInput {
 // blindly overwrite. Re-saving the same student/day updates that one row
 // (an ordinary upsert), which is the correct behavior for "the evaluator
 // corrected today's entry," not a data-loss risk.
+// Which of these students already have a saved evaluation on a given date —
+// one query instead of one lookup per student (used by the schedule/roster
+// views to badge graded vs pending without an N+1 storm).
+export async function getEvaluatedStudentIdsForDate(
+  studentIds: string[],
+  dateISO: string
+): Promise<Set<string>> {
+  if (studentIds.length === 0) return new Set();
+  const rows = await prisma.evaluation.findMany({
+    where: { studentId: { in: studentIds }, dateISO },
+    select: { studentId: true },
+  });
+  return new Set(rows.map((r) => r.studentId));
+}
+
 export async function upsertEvaluation(
   actorId: string,
   input: UpsertEvaluationInput
@@ -178,6 +216,7 @@ export async function upsertEvaluation(
         attendance: input.attendance,
         notes: input.notes ?? null,
         feedback: input.feedback ?? null,
+        dailyNoteSubmitted: input.dailyNoteSubmitted ?? false,
         total,
       },
       update: {
@@ -187,6 +226,7 @@ export async function upsertEvaluation(
         attendance: input.attendance,
         notes: input.notes ?? null,
         feedback: input.feedback ?? null,
+        dailyNoteSubmitted: input.dailyNoteSubmitted ?? false,
         total,
       },
     });

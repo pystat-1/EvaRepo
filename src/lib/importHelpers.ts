@@ -4,6 +4,7 @@
 // cell accepts MORNING/صباحي/AM", etc. stay consistent across all of them
 // instead of drifting import by import.
 import { prisma } from "./db";
+import { recordAudit, type EntityType } from "./audit";
 import type { Shift } from "./models/students";
 
 export interface ImportResult {
@@ -12,9 +13,49 @@ export interface ImportResult {
   errors: { row: number; message: string }[];
 }
 
+// Every import model function takes this so the CSV-upload action can run
+// it twice: once as a read-only dry run to build a preview (nothing is
+// written — matches the "staging/preview before any DB mutation" pattern
+// standard across bulk-import tooling), and once for real after the admin
+// confirms the preview.
+export interface ImportOptions {
+  commit: boolean;
+}
+
+// Preview payload the action returns after the dry run — carries the raw
+// CSV text back to the browser so the confirm step can resubmit it without
+// re-uploading the file.
+export interface ImportPreview extends ImportResult {
+  raw: string;
+}
+
 export interface ImportActionState {
   result?: ImportResult;
+  preview?: ImportPreview;
   error?: string;
+}
+
+// Records one audit-log row per import *attempt* (not per created/updated
+// record — those already get their own rows from create/update). Answers
+// "who imported what, when, with what result" in one query instead of only
+// reconstructing it from a burst of per-record rows with the same timestamp.
+export async function recordImportAudit(params: {
+  actorId: string;
+  entityType: EntityType;
+  result: ImportResult;
+}): Promise<void> {
+  await recordAudit({
+    actorId: params.actorId,
+    entityType: params.entityType,
+    entityId: `import-${Date.now()}`,
+    action: "import",
+    after: {
+      created: params.result.created,
+      updated: params.result.updated,
+      errorCount: params.result.errors.length,
+      errors: params.result.errors,
+    },
+  });
 }
 
 export function parseShiftCell(value: string | undefined): Shift | undefined {

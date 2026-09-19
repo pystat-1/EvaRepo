@@ -2,6 +2,7 @@
 // sandbox that cannot run `prisma generate` (see the top of src/lib/db.ts
 // for why) — re-check this file once a real client has been generated.
 import { prisma } from "../db";
+import { todayISO } from "../date";
 import { getMaxTotal } from "./rubric";
 
 export interface GroupStat {
@@ -27,7 +28,7 @@ export async function getGroupStats(): Promise<GroupStat[]> {
   const maxTotal = await getMaxTotal();
   const passThreshold = maxTotal * PASS_RATIO;
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayISO();
   const groups = await prisma.group.findMany({
     where: { active: true },
     orderBy: { name: "asc" },

@@ -49,6 +49,7 @@ export interface GradingCenterRow {
   locked: boolean;
   notes: string | null;
   feedback: string | null;
+  dailyNoteSubmitted: boolean;
   studentId: string;
   studentName: string;
   studentCode: string | null;
@@ -116,6 +117,7 @@ export async function listGradingCenter(
     locked: r.locked,
     notes: r.notes,
     feedback: r.feedback,
+    dailyNoteSubmitted: r.dailyNoteSubmitted,
     studentId: r.studentId,
     studentName: r.student.nameAr,
     studentCode: r.student.code,

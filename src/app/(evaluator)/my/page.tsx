@@ -2,10 +2,7 @@ import Link from "next/link";
 import { getSession } from "@/lib/auth";
 import { getScopedStudents } from "@/lib/models/evaluators";
 import { getEvaluationForStudentDate } from "@/lib/models/evaluations";
-
-function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
-}
+import { todayISO } from "@/lib/date";
 
 export default async function MyStudentsPage() {
   const session = await getSession();

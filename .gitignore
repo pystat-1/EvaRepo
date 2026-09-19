@@ -10,3 +10,4 @@ ADMIN_CREDENTIALS.md
 tsconfig.tsbuildinfo
 graphify-out/.graphify_python
 graphify-out/.graphify_root
+.claude

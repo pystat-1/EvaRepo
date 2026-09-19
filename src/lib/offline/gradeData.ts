@@ -2,6 +2,7 @@ import { isDateInScheduledDays } from "@/lib/weekdays";
 import type { RubricSection } from "@/lib/models/rubric";
 import type { Attendance } from "@/lib/models/evaluations";
 import { findOfflineStudent, getOfflineRubricSections, getOfflineEvaluation, getOfflineSchedule, getOutboxEntry } from "./db";
+import { todayISO } from "@/lib/date";
 
 // The subset of a saved (or queued) evaluation the grading form needs to
 // pre-fill its fields — a common shape for both the server's
@@ -10,6 +11,7 @@ export interface ExistingForForm {
   attendance: Attendance;
   notes: string | null;
   feedback: string | null;
+  dailyNoteSubmitted: boolean;
   scores: Record<string, number>;
 }
 
@@ -30,10 +32,6 @@ export type GradeViewFailure = {
 };
 
 export type GradeViewResult = GradeViewData | GradeViewFailure;
-
-function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
-}
 
 // Rebuilds the same "can this evaluator grade this student today, and with
 // what rubric/existing-answers" view the /api/grade/[studentId] route
@@ -65,9 +63,21 @@ export async function loadOfflineGradeData(studentId: string): Promise<GradeView
   const queued = await getOutboxEntry(studentId, dateISO);
   const saved = queued ? undefined : await getOfflineEvaluation(studentId, dateISO);
   const existing: ExistingForForm | null = queued
-    ? { attendance: queued.attendance, notes: queued.notes ?? null, feedback: queued.feedback ?? null, scores: queued.scores }
+    ? {
+        attendance: queued.attendance,
+        notes: queued.notes ?? null,
+        feedback: queued.feedback ?? null,
+        dailyNoteSubmitted: queued.dailyNoteSubmitted ?? false,
+        scores: queued.scores,
+      }
     : saved
-    ? { attendance: saved.attendance, notes: saved.notes, feedback: saved.feedback, scores: saved.scores }
+    ? {
+        attendance: saved.attendance,
+        notes: saved.notes,
+        feedback: saved.feedback,
+        dailyNoteSubmitted: saved.dailyNoteSubmitted,
+        scores: saved.scores,
+      }
     : null;
 
   return {

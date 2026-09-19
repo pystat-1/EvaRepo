@@ -3,11 +3,8 @@ import { requireRole, AuthError } from "@/lib/auth";
 import { getEvaluatorSchedule } from "@/lib/models/evaluators";
 import { listActiveStudentsInGroup, StudentBasic } from "@/lib/models/students";
 import { listRubricSections } from "@/lib/models/rubric";
-import { getEvaluationForStudentDate, EvaluationWithScores } from "@/lib/models/evaluations";
-
-function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
-}
+import { getEvaluationsForStudentsOnDate, EvaluationWithScores } from "@/lib/models/evaluations";
+import { todayISO } from "@/lib/date";
 
 // Bundles everything an evaluator needs to grade offline — their schedule,
 // each non-past stint's roster, the active rubric, and today's already-saved
@@ -35,14 +32,11 @@ export async function GET() {
   const rosters: Record<string, StudentBasic[]> = Object.fromEntries(rosterEntries);
 
   const allStudentIds = Array.from(new Set(rosterEntries.flatMap(([, roster]) => roster.map((st) => st.id))));
-  const evaluationEntries = await Promise.all(
-    allStudentIds.map(async (studentId) => {
-      const ev = await getEvaluationForStudentDate(studentId, dateISO);
-      return ev ? ([`${studentId}:${dateISO}`, ev] as [string, EvaluationWithScores]) : null;
-    })
-  );
+  // One batched query for the whole roster's evaluations, instead of one
+  // request per student (previously N+1 over the network on every import).
+  const evalRows = await getEvaluationsForStudentsOnDate(allStudentIds, dateISO);
   const evaluations: Record<string, EvaluationWithScores> = Object.fromEntries(
-    evaluationEntries.filter((e): e is [string, EvaluationWithScores] => e !== null)
+    evalRows.map((ev) => [`${ev.studentId}:${dateISO}`, ev] as [string, EvaluationWithScores])
   );
 
   const rubricSections = await listRubricSections();

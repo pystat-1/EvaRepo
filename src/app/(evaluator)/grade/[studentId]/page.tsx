@@ -118,6 +118,7 @@ export default function GradeStudentPage() {
     const attendance = String(formData.get("attendance") ?? "present") as Attendance;
     const notes = String(formData.get("notes") ?? "").trim();
     const feedback = String(formData.get("feedback") ?? "").trim();
+    const dailyNoteSubmitted = formData.get("dailyNoteSubmitted") != null;
     const scores: Record<string, number> = {};
     for (const s of sections) {
       const raw = formData.get(`score_${s.id}`);
@@ -131,6 +132,7 @@ export default function GradeStudentPage() {
         attendance,
         notes: notes || undefined,
         feedback: feedback || undefined,
+        dailyNoteSubmitted,
         scores,
         queuedAt: new Date().toISOString(),
       });
@@ -251,6 +253,15 @@ export default function GradeStudentPage() {
         </div>
 
         <div className="card flex flex-col gap-3">
+          <label className="flex items-center gap-2 text-sm font-medium cursor-pointer select-none">
+            <input
+              type="checkbox"
+              name="dailyNoteSubmitted"
+              defaultChecked={existing?.dailyNoteSubmitted ?? false}
+              className="w-4 h-4"
+            />
+            سلّم الطالب الملاحظة اليومية
+          </label>
           <div>
             <label className="block text-sm font-medium mb-1">ملاحظات</label>
             <textarea name="notes" rows={2} className="input" defaultValue={existing?.notes ?? ""} />

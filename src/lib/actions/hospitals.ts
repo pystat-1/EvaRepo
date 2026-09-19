@@ -45,11 +45,17 @@ export async function importHospitalsAction(
   formData: FormData
 ): Promise<ImportActionState> {
   const session = await requireRole("ADMIN");
-  const file = formData.get("file");
-  if (!(file instanceof File) || file.size === 0) {
-    return { error: "الرجاء اختيار ملف CSV" };
+  const phase = String(formData.get("phase") ?? "preview");
+  let text: string;
+  if (phase === "confirm") {
+    text = String(formData.get("raw") ?? "");
+  } else {
+    const file = formData.get("file");
+    if (!(file instanceof File) || file.size === 0) {
+      return { error: "الرجاء اختيار ملف CSV" };
+    }
+    text = await file.text();
   }
-  const text = await file.text();
   const parsed = Papa.parse<Record<string, string>>(text, {
     header: true,
     skipEmptyLines: true,
@@ -63,7 +69,10 @@ export async function importHospitalsAction(
     nameAr: r.nameAr,
     address: r.address,
   }));
-  const result = await importHospitals(session.sub, rows);
+  const result = await importHospitals(session.sub, rows, { commit: phase === "confirm" });
+  if (phase !== "confirm") {
+    return { preview: { ...result, raw: text } };
+  }
   revalidatePath("/hospitals");
   revalidatePath("/setup");
   revalidatePath("/master");

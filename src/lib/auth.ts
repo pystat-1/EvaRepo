@@ -98,11 +98,62 @@ export function verifySession(token: string): SessionPayload | null {
   }
 }
 
+// Development-only login bypass. When EVA_AUTH_BYPASS=1, requests with no
+// valid session fall back to acting as a real account — the first active
+// admin by default, or the first active evaluator when the `eva_dev_role`
+// cookie is set to "EVALUATOR" (see /api/dev/login-as). Lets you test both
+// apps without credentials. Deliberately IGNORED when NODE_ENV ===
+// "production", so it can never make a deployed instance passwordless even
+// if the flag leaks into that env. Flip the env var off to restore login.
+export const DEV_ROLE_COOKIE = "eva_dev_role";
+
+// Cache the impersonated session per role so we don't re-query every call.
+const bypassSessionCache = new Map<"ADMIN" | "EVALUATOR" | "STUDENT", SessionPayload | null>();
+
+async function devBypassSession(role: "ADMIN" | "EVALUATOR" | "STUDENT"): Promise<SessionPayload | null> {
+  if (process.env.EVA_AUTH_BYPASS !== "1" || process.env.NODE_ENV === "production") {
+    return null;
+  }
+  const cached = bypassSessionCache.get(role);
+  if (cached !== undefined) return cached;
+
+  let session: SessionPayload | null = null;
+  if (role === "EVALUATOR") {
+    // Prefer an evaluator that actually has an active assignment, so the
+    // schedule and roster views have something to show.
+    const assignment = await prisma.evaluatorAssignment.findFirst({
+      where: { active: true, account: { active: true, role: "EVALUATOR" } },
+      include: { account: true },
+    });
+    const acct = assignment?.account ?? (await prisma.account.findFirst({ where: { role: "EVALUATOR", active: true } }));
+    if (acct) session = { sub: acct.id, email: acct.email, name: acct.name, role: "EVALUATOR" };
+  } else if (role === "STUDENT") {
+    const acct = await prisma.account.findFirst({ where: { role: "STUDENT", active: true, studentId: { not: null } } });
+    if (acct) session = { sub: acct.id, email: acct.email, name: acct.name, role: "STUDENT", studentId: acct.studentId };
+  } else {
+    const admin = await prisma.account.findFirst({ where: { role: "ADMIN", active: true } });
+    if (admin) session = { sub: admin.id, email: admin.email, name: admin.name, role: "ADMIN" };
+  }
+
+  bypassSessionCache.set(role, session);
+  if (session) {
+    console.warn(`⚠️  EVA_AUTH_BYPASS active — running as ${role} (${session.email}). Do not use in production.`);
+  } else {
+    console.warn(`⚠️  EVA_AUTH_BYPASS is set but no active ${role} account exists to impersonate.`);
+  }
+  return session;
+}
+
 export async function getSession(): Promise<SessionPayload | null> {
   const store = await cookies();
   const token = store.get(SESSION_COOKIE)?.value;
-  if (!token) return null;
-  return verifySession(token);
+  if (token) {
+    const session = verifySession(token);
+    if (session) return session;
+  }
+  const roleCookie = store.get(DEV_ROLE_COOKIE)?.value;
+  const role = roleCookie === "EVALUATOR" ? "EVALUATOR" : roleCookie === "STUDENT" ? "STUDENT" : "ADMIN";
+  return devBypassSession(role);
 }
 
 export async function requireRole(...roles: Role[]): Promise<SessionPayload> {

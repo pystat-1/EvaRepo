@@ -30,6 +30,7 @@ function outboxFormData(entry: OutboxEntry): FormData {
   fd.set("attendance", entry.attendance);
   if (entry.notes) fd.set("notes", entry.notes);
   if (entry.feedback) fd.set("feedback", entry.feedback);
+  if (entry.dailyNoteSubmitted) fd.set("dailyNoteSubmitted", "1");
   for (const [sectionId, value] of Object.entries(entry.scores)) {
     fd.set(`score_${sectionId}`, String(value));
   }

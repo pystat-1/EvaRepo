@@ -3,7 +3,7 @@
 // for why) — re-check this file once a real client has been generated.
 import { prisma } from "../db";
 import { recordAudit } from "../audit";
-import type { ImportResult } from "../importHelpers";
+import { recordImportAudit, type ImportOptions, type ImportResult } from "../importHelpers";
 
 export interface Hospital {
   id: string;
@@ -103,7 +103,8 @@ export async function updateHospital(
 // existing rows by their own natural-language identity column.
 export async function importHospitals(
   actorId: string,
-  rows: Array<{ name: string; nameAr?: string; address?: string; notes?: string }>
+  rows: Array<{ name: string; nameAr?: string; address?: string; notes?: string }>,
+  opts: ImportOptions = { commit: true }
 ): Promise<ImportResult> {
   const result: ImportResult = { created: 0, updated: 0, errors: [] };
 
@@ -116,20 +117,24 @@ export async function importHospitals(
         where: { OR: [{ name: row.name.trim() }, ...(row.nameAr?.trim() ? [{ nameAr: row.nameAr.trim() }] : [])] },
       });
       if (existing) {
-        await updateHospital(actorId, existing.id, {
-          name: row.name.trim(),
-          nameAr: row.nameAr,
-          address: row.address,
-          notes: row.notes,
-        });
+        if (opts.commit) {
+          await updateHospital(actorId, existing.id, {
+            name: row.name.trim(),
+            nameAr: row.nameAr,
+            address: row.address,
+            notes: row.notes,
+          });
+        }
         result.updated++;
       } else {
-        await createHospital(actorId, {
-          name: row.name.trim(),
-          nameAr: row.nameAr,
-          address: row.address,
-          notes: row.notes,
-        });
+        if (opts.commit) {
+          await createHospital(actorId, {
+            name: row.name.trim(),
+            nameAr: row.nameAr,
+            address: row.address,
+            notes: row.notes,
+          });
+        }
         result.created++;
       }
     } catch (err) {
@@ -137,5 +142,8 @@ export async function importHospitals(
     }
   }
 
+  if (opts.commit) {
+    await recordImportAudit({ actorId, entityType: "Hospital", result });
+  }
   return result;
 }

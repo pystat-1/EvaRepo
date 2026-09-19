@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireRole } from "../auth";
 import { upsertEvaluation, Attendance } from "../models/evaluations";
+import { captureGradeToSheet } from "../models/sheetSync";
 import { getScopedGroupIds, canEvaluatorGradeGroupAtHospital } from "../models/evaluators";
 import { getStudent } from "../models/students";
 import { listRubricSections } from "../models/rubric";
@@ -44,6 +45,9 @@ export async function gradeStudentAction(formData: FormData) {
   const attendance = String(formData.get("attendance") ?? "present") as Attendance;
   const notes = String(formData.get("notes") ?? "").trim();
   const feedback = String(formData.get("feedback") ?? "").trim();
+  // Checkbox posts "on"/"1"/"true" when ticked, nothing when not.
+  const dnRaw = formData.get("dailyNoteSubmitted");
+  const dailyNoteSubmitted = dnRaw === "on" || dnRaw === "1" || dnRaw === "true";
 
   await assertEvaluatorCanGrade(session.sub, studentId, dateISO);
 
@@ -61,10 +65,27 @@ export async function gradeStudentAction(formData: FormData) {
     attendance,
     notes: notes || undefined,
     feedback: feedback || undefined,
+    dailyNoteSubmitted,
     scores,
   });
 
+  // Mirror this save to the Google Sheets backup (append-only capture log).
+  // Internally a no-op when the integration isn't configured, and it swallows
+  // its own errors, so a sheet outage never blocks or fails a grade save.
+  await captureGradeToSheet(studentId, dateISO);
+
+  // Keep every grade-displaying view in sync with this save — this same
+  // action is what the offline outbox replays through, so a synced-later
+  // evaluation propagates everywhere too. Path-based revalidation covers all
+  // query variants of a route (e.g. every filter/mode of /grading-center).
   revalidatePath(`/grade/${studentId}`);
-  revalidatePath("/my");
+  revalidatePath(`/grading-center/student/${studentId}`);
   revalidatePath("/grading-center");
+  revalidatePath("/master");
+  revalidatePath("/statistics");
+  revalidatePath("/flags");
+  revalidatePath("/dashboard");
+  revalidatePath("/my");
+  revalidatePath("/schedule");
+  revalidatePath("/history");
 }

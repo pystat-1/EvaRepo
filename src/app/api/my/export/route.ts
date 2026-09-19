@@ -3,12 +3,9 @@ import ExcelJS from "exceljs";
 import { requireRole, AuthError } from "@/lib/auth";
 import { listGradingCenter } from "@/lib/models/gradingCenter";
 import { listRubricSections } from "@/lib/models/rubric";
+import { todayISO } from "@/lib/date";
 
 const ATTENDANCE_LABEL: Record<string, string> = { present: "حاضر", late: "متأخر", absent: "غائب" };
-
-function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
-}
 
 // Lets an evaluator download their own day's grading detail as a real
 // spreadsheet — one row per student, one column per rubric section (not
@@ -49,6 +46,7 @@ export async function GET(req: NextRequest) {
     { header: "الحضور", key: "attendance", width: 10 },
     ...sections.map((s) => ({ header: `${s.labelAr} (${s.maxScore})`, key: `section_${s.id}`, width: 16 })),
     { header: `المجموع (من ${maxTotal})`, key: "total", width: 14 },
+    { header: "الملاحظة اليومية", key: "dailyNote", width: 16 },
     { header: "ملاحظات", key: "notes", width: 24 },
     { header: "التغذية الراجعة", key: "feedback", width: 24 },
     { header: "الحالة", key: "status", width: 10 },
@@ -69,6 +67,7 @@ export async function GET(req: NextRequest) {
       hospital: r.hospitalName ?? "",
       attendance: ATTENDANCE_LABEL[r.attendance] ?? r.attendance,
       total: r.total,
+      dailyNote: r.dailyNoteSubmitted ? "سُلِّمت" : "لم تُسلَّم",
       notes: r.notes ?? "",
       feedback: r.feedback ?? "",
       status: r.locked ? "مقفل" : "مفتوح",

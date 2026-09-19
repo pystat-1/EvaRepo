@@ -4,8 +4,16 @@
 import { prisma } from "../db";
 import { recordAudit } from "../audit";
 import { hashPassword, findAccountByEmail } from "../auth";
-import { isDateInScheduledDays } from "../weekdays";
-import { resolveHospitalId, resolveGroupId, type ImportResult } from "../importHelpers";
+import { isDateInScheduledDays, weekdayCodeOf, WEEKDAYS } from "../weekdays";
+import { todayISO } from "../date";
+import { getTermSettings } from "./termSettings";
+import {
+  resolveHospitalId,
+  resolveGroupId,
+  recordImportAudit,
+  type ImportOptions,
+  type ImportResult,
+} from "../importHelpers";
 
 export interface EvaluatorAccount {
   id: string;
@@ -316,7 +324,8 @@ export async function toggleAssignmentActive(
 // touched by import.
 export async function importEvaluators(
   actorId: string,
-  rows: Array<{ name: string; email: string; password?: string; hospital: string; group?: string }>
+  rows: Array<{ name: string; email: string; password?: string; hospital: string; group?: string }>,
+  opts: ImportOptions = { commit: true }
 ): Promise<ImportResult> {
   const result: ImportResult = { created: 0, updated: 0, errors: [] };
 
@@ -331,11 +340,13 @@ export async function importEvaluators(
 
       const account = await findAccountByEmail(row.email.trim());
       if (account && account.role === "EVALUATOR") {
-        const already = await prisma.evaluatorAssignment.findFirst({
-          where: { accountId: account.id, hospitalId, groupId },
-        });
-        if (!already) {
-          await addAssignment(actorId, account.id, hospitalId, groupId);
+        if (opts.commit) {
+          const already = await prisma.evaluatorAssignment.findFirst({
+            where: { accountId: account.id, hospitalId, groupId },
+          });
+          if (!already) {
+            await addAssignment(actorId, account.id, hospitalId, groupId);
+          }
         }
         result.updated++;
       } else if (account) {
@@ -344,13 +355,15 @@ export async function importEvaluators(
         if (!row.password || row.password.length < 8) {
           throw new Error("Password must be at least 8 characters for a new evaluator");
         }
-        await createEvaluator(actorId, {
-          name: row.name.trim(),
-          email: row.email.trim(),
-          password: row.password,
-          hospitalId,
-          groupId,
-        });
+        if (opts.commit) {
+          await createEvaluator(actorId, {
+            name: row.name.trim(),
+            email: row.email.trim(),
+            password: row.password,
+            hospitalId,
+            groupId,
+          });
+        }
         result.created++;
       }
     } catch (err) {
@@ -358,6 +371,9 @@ export async function importEvaluators(
     }
   }
 
+  if (opts.commit) {
+    await recordImportAudit({ actorId, entityType: "Evaluator", result });
+  }
   return result;
 }
 
@@ -373,7 +389,7 @@ export async function getScopedGroupIds(accountId: string): Promise<string[]> {
     select: { hospitalId: true, groupId: true },
   });
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayISO();
   const groupIds = new Set<string>();
   for (const a of assignments) {
     if (a.groupId) {
@@ -437,7 +453,7 @@ export async function getEvaluatorSchedule(accountId: string): Promise<Evaluator
   });
   if (assignments.length === 0) return [];
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayISO();
   const seen = new Set<string>();
   const stints: EvaluatorStint[] = [];
 
@@ -472,6 +488,121 @@ export async function getEvaluatorSchedule(accountId: string): Promise<Evaluator
   return stints;
 }
 
+// ---- Full calendar schedule (hospital -> group/shift stint -> week -> day) ----
+// Expands the flat stints above into concrete attendance days, laid out the
+// way the paper schedule is: per hospital, each group's stint broken into
+// weeks, each week into its meeting days (with real dates). Powers the
+// evaluator's schedule screen where tapping today's day loads that group.
+
+const SHIFT_LABEL_AR: Record<string, string> = { MORNING: "صباحي", EVENING: "مسائي" };
+const WEEKDAY_AR = new Map<string, string>(WEEKDAYS.map((w) => [w.code, w.labelAr]));
+
+export interface ScheduleDay {
+  date: string;
+  weekdayAr: string;
+  status: "past" | "today" | "future";
+}
+export interface ScheduleWeek {
+  weekIndex: number;
+  days: ScheduleDay[];
+}
+export interface ScheduleStint {
+  blockId: string;
+  groupId: string;
+  groupName: string;
+  shift: string | null;
+  shiftLabel: string | null;
+  studentCount: number;
+  startDate: string;
+  endDate: string;
+  status: "past" | "current" | "future";
+  weeks: ScheduleWeek[];
+}
+export interface ScheduleHospital {
+  hospitalId: string;
+  hospitalName: string;
+  stints: ScheduleStint[];
+}
+export interface EvaluatorCalendar {
+  today: string;
+  hospitals: ScheduleHospital[];
+}
+
+function expandMeetingDates(startISO: string, endISO: string, days: string | null): string[] {
+  const out: string[] = [];
+  const start = new Date(`${startISO}T00:00:00Z`);
+  const end = new Date(`${endISO}T00:00:00Z`);
+  if (isNaN(start.getTime()) || isNaN(end.getTime()) || end < start) return out;
+  let i = 0;
+  for (let d = new Date(start); d <= end && i < 366; d.setUTCDate(d.getUTCDate() + 1), i++) {
+    const iso = d.toISOString().slice(0, 10);
+    if (isDateInScheduledDays(iso, days)) out.push(iso);
+  }
+  return out;
+}
+
+export async function getEvaluatorScheduleCalendar(accountId: string): Promise<EvaluatorCalendar> {
+  const [stints, term] = await Promise.all([getEvaluatorSchedule(accountId), getTermSettings()]);
+  const today = todayISO();
+  const perWeekTerm = term.daysPerWeek && term.daysPerWeek > 0 ? term.daysPerWeek : null;
+
+  const hospitalsMap = new Map<string, ScheduleHospital>();
+
+  for (const s of stints) {
+    const dates = expandMeetingDates(s.startDate, s.endDate, s.daysOfWeek ?? term.weekdays ?? null);
+    const perWeek =
+      perWeekTerm ??
+      ((s.daysOfWeek ? s.daysOfWeek.split(",").filter(Boolean).length : 0) || dates.length || 1);
+
+    const weeksMap = new Map<number, ScheduleDay[]>();
+    dates.forEach((date, idx) => {
+      const weekIndex = Math.floor(idx / perWeek) + 1;
+      if (!weeksMap.has(weekIndex)) weeksMap.set(weekIndex, []);
+      weeksMap.get(weekIndex)!.push({
+        date,
+        weekdayAr: WEEKDAY_AR.get(weekdayCodeOf(date)) ?? date,
+        status: date < today ? "past" : date > today ? "future" : "today",
+      });
+    });
+    const weeks: ScheduleWeek[] = Array.from(weeksMap.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map(([weekIndex, days]) => ({ weekIndex, days }));
+
+    const stint: ScheduleStint = {
+      blockId: s.blockId,
+      groupId: s.groupId,
+      groupName: s.groupName,
+      shift: null,
+      shiftLabel: null,
+      studentCount: s.studentCount,
+      startDate: s.startDate,
+      endDate: s.endDate,
+      status: s.status,
+      weeks,
+    };
+
+    if (!hospitalsMap.has(s.hospitalId)) {
+      hospitalsMap.set(s.hospitalId, { hospitalId: s.hospitalId, hospitalName: s.hospitalName, stints: [] });
+    }
+    hospitalsMap.get(s.hospitalId)!.stints.push(stint);
+  }
+
+  // Fill in each stint's shift from its group (single query for all groups).
+  const groupIds = Array.from(new Set(stints.map((s) => s.groupId)));
+  if (groupIds.length) {
+    const groups = await prisma.group.findMany({ where: { id: { in: groupIds } }, select: { id: true, shift: true } });
+    const shiftById = new Map(groups.map((g) => [g.id, g.shift as string | null]));
+    for (const h of hospitalsMap.values()) {
+      for (const st of h.stints) {
+        st.shift = shiftById.get(st.groupId) ?? null;
+        st.shiftLabel = st.shift ? SHIFT_LABEL_AR[st.shift] ?? null : null;
+      }
+    }
+  }
+
+  return { today, hospitals: Array.from(hospitalsMap.values()) };
+}
+
 export interface ScopedStudent {
   id: string;
   universityNumber: string;
@@ -488,7 +619,7 @@ export interface ScopedStudent {
 export async function getScopedStudents(accountId: string): Promise<ScopedStudent[]> {
   const groupIds = await getScopedGroupIds(accountId);
   if (groupIds.length === 0) return [];
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayISO();
   const rows = await prisma.student.findMany({
     where: { groupId: { in: groupIds }, active: true },
     orderBy: { nameAr: "asc" },

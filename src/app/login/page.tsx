@@ -22,7 +22,10 @@ function GoogleErrorBanner() {
   const googleError = searchParams.get("google_error");
   if (!googleError) return null;
   return (
-    <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-md px-3 py-2 mb-4">
+    <p
+      className="text-sm rounded-md px-3 py-2 mb-4"
+      style={{ color: "var(--red-700)", background: "var(--red-100)" }}
+    >
       {GOOGLE_ERROR_LABEL[googleError] ?? "تعذّر تسجيل الدخول عبر Google"}
     </p>
   );
@@ -32,56 +35,67 @@ export default function LoginPage() {
   const [state, formAction, pending] = useActionState(loginAction, initialState);
 
   return (
-    <div className="flex flex-1 items-center justify-center p-6">
-      <div className="w-full max-w-sm card">
-        <h1 className="text-xl font-bold text-center mb-1" style={{ color: "var(--brand)" }}>
-          Eva — لوحة المدير
-        </h1>
-        <p className="text-sm text-slate-500 text-center mb-6">
-          قاعدة بيانات الطلاب والمجموعات والمستشفيات
-        </p>
-
-        <Suspense fallback={null}>
-          <GoogleErrorBanner />
-        </Suspense>
-
-        <a
-          href="/api/auth/google"
-          className="btn btn-secondary w-full mb-4 flex items-center justify-center gap-2"
-        >
-          الدخول باستخدام Google
-        </a>
-
-        <div className="flex items-center gap-3 mb-4">
-          <div className="flex-1 border-t border-slate-200" />
-          <span className="text-xs text-slate-400">أو</span>
-          <div className="flex-1 border-t border-slate-200" />
+    <div className="flex flex-1 items-center justify-center p-6" style={{ background: "var(--surface)" }}>
+      <div className="w-full max-w-sm">
+        <div className="flex flex-col items-center mb-7">
+          <span
+            className="font-display font-extrabold text-3xl tracking-tight"
+            style={{ color: "var(--brand-dark)" }}
+          >
+            Eva
+          </span>
+          <div className="h-px w-10 my-3" style={{ background: "var(--border-strong)" }} />
+          <p className="text-sm text-center" style={{ color: "var(--ink-muted)" }}>
+            سجلّ التقييم اليومي للممارسة السريرية
+          </p>
         </div>
 
-        <form action={formAction} className="flex flex-col gap-4">
-          <div>
-            <label className="block text-sm font-medium mb-1">البريد الإلكتروني</label>
-            <input name="email" type="email" required className="input" autoComplete="email" />
+        <div className="card">
+          <Suspense fallback={null}>
+            <GoogleErrorBanner />
+          </Suspense>
+
+          <a
+            href="/api/auth/google"
+            className="btn btn-secondary w-full mb-4 flex items-center justify-center gap-2"
+          >
+            الدخول باستخدام Google
+          </a>
+
+          <div className="flex items-center gap-3 mb-4">
+            <div className="flex-1 border-t" style={{ borderColor: "var(--border)" }} />
+            <span className="text-xs" style={{ color: "var(--ink-muted)" }}>أو</span>
+            <div className="flex-1 border-t" style={{ borderColor: "var(--border)" }} />
           </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">كلمة المرور</label>
-            <input
-              name="password"
-              type="password"
-              required
-              className="input"
-              autoComplete="current-password"
-            />
-          </div>
-          {state.error && (
-            <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-md px-3 py-2">
-              {state.error}
-            </p>
-          )}
-          <button type="submit" disabled={pending} className="btn btn-primary w-full">
-            {pending ? "جارٍ الدخول..." : "تسجيل الدخول"}
-          </button>
-        </form>
+
+          <form action={formAction} className="flex flex-col gap-4">
+            <div>
+              <label className="block text-sm font-medium mb-1">البريد الإلكتروني</label>
+              <input name="email" type="email" required className="input" autoComplete="email" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">كلمة المرور</label>
+              <input
+                name="password"
+                type="password"
+                required
+                className="input"
+                autoComplete="current-password"
+              />
+            </div>
+            {state.error && (
+              <p
+                className="text-sm rounded-md px-3 py-2"
+                style={{ color: "var(--red-700)", background: "var(--red-100)" }}
+              >
+                {state.error}
+              </p>
+            )}
+            <button type="submit" disabled={pending} className="btn btn-primary w-full">
+              {pending ? "جارٍ الدخول..." : "تسجيل الدخول"}
+            </button>
+          </form>
+        </div>
       </div>
     </div>
   );

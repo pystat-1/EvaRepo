@@ -18,6 +18,7 @@ export async function createRotationBlockAction(formData: FormData) {
   });
   revalidatePath("/groups");
   revalidatePath("/setup");
+  revalidatePath("/master");
 }
 
 export async function toggleRotationBlockActiveAction(formData: FormData) {
@@ -35,11 +36,17 @@ export async function importRotationBlocksAction(
   formData: FormData
 ): Promise<ImportActionState> {
   const session = await requireRole("ADMIN");
-  const file = formData.get("file");
-  if (!(file instanceof File) || file.size === 0) {
-    return { error: "الرجاء اختيار ملف CSV" };
+  const phase = String(formData.get("phase") ?? "preview");
+  let text: string;
+  if (phase === "confirm") {
+    text = String(formData.get("raw") ?? "");
+  } else {
+    const file = formData.get("file");
+    if (!(file instanceof File) || file.size === 0) {
+      return { error: "الرجاء اختيار ملف CSV" };
+    }
+    text = await file.text();
   }
-  const text = await file.text();
   const parsed = Papa.parse<Record<string, string>>(text, {
     header: true,
     skipEmptyLines: true,
@@ -55,7 +62,10 @@ export async function importRotationBlocksAction(
     endDate: r.endDate,
     daysOfWeek: r.daysOfWeek,
   }));
-  const result = await importRotationBlocks(session.sub, rows);
+  const result = await importRotationBlocks(session.sub, rows, { commit: phase === "confirm" });
+  if (phase !== "confirm") {
+    return { preview: { ...result, raw: text } };
+  }
   revalidatePath("/groups");
   revalidatePath("/setup");
   revalidatePath("/master");

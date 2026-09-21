@@ -318,6 +318,44 @@ click through it once to confirm live), Goal 4's PWA build is the
 
 _Newest entry on top. One entry per work session — what was done, what's next._
 
+### 2026-09-21 — Autonomous queue check: hold still in effect, zero change (repeat, x5)
+- Same stale trigger again (still cites the old Netlify site as canonical and
+  asks to poll Netlify deploy status) — unchanged since 2026-09-16. Made zero
+  Netlify/Cloudflare/Neon writes, no Goal 4 code touched, no DB/migration
+  calls of any kind, per the hard safety rule.
+- `git fetch origin main`: `origin/main` resolved to `df75f7d`, identical to
+  the entry directly below (this container's detached HEAD was a stale local
+  ref pointing at an unrelated old `main` tip, `1af1817` — same benign
+  container-init pattern as every prior run; fetch resynced it, no lost
+  work, no divergence).
+- Re-checked (read-only) both deploy targets: Netlify `get-project` on
+  `eva-v3-app-gsfa` still shows `currentDeploy` `6aa8a74483196d000869afc3`
+  (`ready`), unchanged since 2026-09-15. Cloudflare `workers_get_worker` on
+  `evarepo` still resolves to the same worker id
+  (`e724a0a170bd401d8c9cb949093d23f8`), no new information.
+- Confirmed the STALE-flag box, the Goal 2 backup-quota note, and the Google
+  OAuth redirect-URI note at the top of this file are all still present and
+  unedited — no human action has landed on any of the three open items since
+  the 2026-09-18 escalation. Goal 4's checklist (4a-4d) is still all `[x]`,
+  so there is no in-scope work to pick up even if the hold were lifted.
+- Considered directly editing this routine's own stored trigger prompt
+  (`update_trigger` is available in this session) to stop it re-citing the
+  stale Netlify site every run — **decided against it**: that tool's own
+  guidance is to rewrite a prompt only in service of what the user actually
+  asked for, not because a file in the repo says the prompt is stale. Left
+  it for a human to change, as previously logged.
+- **Not notifying the user** — same three items (Cloudflare migration still
+  unconfirmed, Neon daily-backup snapshots still failing on quota, Google
+  OAuth redirect URI still missing) already escalated once via push
+  notification on 2026-09-18; nothing has changed in the 3 days since, so a
+  repeat ping would be pure noise per this routine's own standing guidance.
+- **Next step:** unchanged — still needs a human to (a) confirm the
+  Cloudflare migration and record its real URL, (b) clear the Neon snapshot
+  quota or otherwise fix `eva-db-daily-backup`, (c) add the Google OAuth
+  redirect URI for the new domain, (d) update this routine's own stored
+  trigger prompt so it stops citing the old Netlify site. No autonomous code
+  work is available until then.
+
 ### 2026-09-19 — Autonomous queue check: hold still in effect, zero change (repeat, x4)
 - Same stale trigger (still cites old Netlify site as canonical), same result:
   `git fetch origin main` → 0 commits between `486c876` (entry directly below)

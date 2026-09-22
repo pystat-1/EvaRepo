@@ -318,6 +318,36 @@ click through it once to confirm live), Goal 4's PWA build is the
 
 _Newest entry on top. One entry per work session — what was done, what's next._
 
+### 2026-09-22 — Autonomous queue check: hold still in effect, zero change (repeat, x9)
+- Same stale trigger again (still cites the old Netlify site `eva-v3-app-gsfa`/
+  `61860730-...` as canonical and asks to poll Netlify deploy status via that
+  site id) — unchanged since 2026-09-16. Made zero Netlify/Cloudflare/Neon
+  writes, no Goal 4 code touched, no DB/migration/SQL/Prisma calls of any
+  kind, per the hard safety rule.
+- `git fetch origin main`: `origin/main` is `eda5093`, identical to local
+  HEAD (the entry directly below) — nothing has landed on `main` since then.
+- Re-checked (read-only) both deploy targets: Netlify `get-project` on
+  `eva-v3-app-gsfa` still shows `currentDeploy` `6aa8a74483196d000869afc3`
+  (`ready`), unchanged since 2026-09-15. Cloudflare `workers_get_worker` on
+  `evarepo` still resolves to the same worker id
+  (`e724a0a170bd401d8c9cb949093d23f8`), no new information.
+- Confirmed the STALE-flag box, the Goal 2 backup-quota note, and the Google
+  OAuth redirect-URI note at the top of this file are all still present and
+  unedited — no human action has landed on any of the three open items since
+  the 2026-09-18 escalation (now 4+ days ago). Goal 4's checklist (4a-4d) is
+  still all `[x]`, so there is no in-scope work to pick up even if the hold
+  were lifted.
+- **Not notifying the user** — same three items already escalated once via
+  push notification on 2026-09-18; still nothing changed across 9 repeat
+  checks since, so another ping would be pure noise per this routine's own
+  standing guidance.
+- **Next step:** unchanged — still needs a human to (a) confirm the
+  Cloudflare migration and record its real URL, (b) clear the Neon snapshot
+  quota or otherwise fix `eva-db-daily-backup`, (c) add the Google OAuth
+  redirect URI for the new domain, (d) update this routine's own stored
+  trigger prompt so it stops citing the old Netlify site. No autonomous code
+  work is available until then.
+
 ### 2026-09-22 — Autonomous queue check: hold still in effect, zero change (repeat, x8)
 - Same stale trigger again (still cites the old Netlify site `eva-v3-app-gsfa`/
   `61860730-...` as canonical and asks to poll Netlify deploy status via that

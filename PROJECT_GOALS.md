@@ -318,6 +318,36 @@ click through it once to confirm live), Goal 4's PWA build is the
 
 _Newest entry on top. One entry per work session — what was done, what's next._
 
+### 2026-09-24 — Autonomous queue check: hold still in effect, zero change (repeat, x18)
+- Same stored trigger prompt as every prior repeat: still cites the old
+  Netlify site (`eva-v3-app-gsfa`/`61860730-...`) as canonical, still says
+  nothing about the Cloudflare migration, still hasn't been corrected or
+  paused since the x17 run flagged that directly. Made zero
+  Netlify/Cloudflare/Neon writes, touched no Goal 4 code, called no
+  Neon/database MCP tool of any kind, per the hard safety rule.
+- `git fetch origin main`: `origin/main` was `cc58eb7` (repeat x17, already
+  pushed) — nothing has landed on `main` from a human since then. Goal 4's
+  checklist (4a-4d) is still all `[x]`, unchanged.
+- Re-checked (read-only) both deploy targets: Netlify `get-project` on
+  `eva-v3-app-gsfa` still shows `currentDeploy` `6aa8a74483196d000869afc3`
+  (`ready`), unchanged since 2026-09-15. Cloudflare `workers_get_worker` on
+  `evarepo` still resolves to the same worker id
+  (`e724a0a170bd401d8c9cb949093d23f8`), no new information.
+- The three open items (Cloudflare migration confirmation, Neon backup-quota
+  fix, Google OAuth redirect URI) are all still unresolved, now 6 days past
+  the 2026-09-18 escalation.
+- **Not notifying the user** — the x17 run already sent a notification about
+  this exact no-op streak and recommended pausing/fixing the routine; nothing
+  has changed since then, so a second ping this soon would be a duplicate.
+  Will hold silent until either something actually changes or the streak
+  grows enough to warrant a fresh escalation (not just +1 repeat).
+- **Next step:** unchanged — needs a human to (a) confirm the Cloudflare
+  migration and record its real URL, (b) clear the Neon snapshot quota, (c)
+  add the Google OAuth redirect URI for the new domain, (d) update or pause
+  this routine's own stored trigger prompt so it stops citing the old
+  Netlify site and re-running against a fully-complete Goal 4. No autonomous
+  code work is available until then.
+
 ### 2026-09-24 — Autonomous queue check: hold still in effect, zero change (repeat, x17) — flagging the streak itself this time
 - This run's stored trigger prompt again cited the old Netlify site
   (`eva-v3-app-gsfa`/`61860730-...`) as canonical, still not corrected since

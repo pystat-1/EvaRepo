@@ -318,6 +318,34 @@ click through it once to confirm live), Goal 4's PWA build is the
 
 _Newest entry on top. One entry per work session — what was done, what's next._
 
+### 2026-09-26 — Autonomous queue check: hold still in effect, zero change (repeat, x26)
+
+- This run's stored trigger prompt again cited the old Netlify site
+  (`eva-v3-app-gsfa`/`61860730-...`) as canonical, still says nothing about
+  the Cloudflare migration — unchanged since 2026-09-16 (now 10 days). Made
+  zero Netlify/Cloudflare/Neon writes, touched no Goal 4 code, called no
+  Neon/database MCP tool of any kind, per the hard safety rule.
+- `git fetch origin main`: `origin/main` is `2a9fe5d` (the x25 commit),
+  identical to local HEAD — nothing has landed on `main` from a human since
+  then. Goal 4's checklist (4a-4d) is still all `[x]` — already fully
+  complete, so there is no in-scope Goal 4 work to pick up.
+- Re-checked (read-only) both deploy targets: Netlify `get-project` on
+  `eva-v3-app-gsfa` still shows `currentDeploy` `6aa8a74483196d000869afc3`
+  (`ready`), unchanged since 2026-09-15. Cloudflare `workers_get_worker` on
+  `evarepo` still resolves to the same worker id
+  (`e724a0a170bd401d8c9cb949093d23f8`), no new information.
+- The three open items (Cloudflare migration confirmation, Neon
+  backup-quota fix, Google OAuth redirect URI) are all still unresolved.
+- **Not notifying the user** — the x25 run just re-escalated this exact
+  streak; one more identical repeat right after does not add new
+  information and would be a duplicate ping.
+- **Next step:** unchanged — needs a human to (a) confirm the Cloudflare
+  migration and record its real URL, (b) clear the Neon snapshot quota,
+  (c) add the Google OAuth redirect URI for the new domain, (d) update or
+  pause this routine's own stored trigger prompt so it stops citing the
+  old Netlify site and re-running against a fully-complete Goal 4. No
+  autonomous code work is available until then.
+
 ### 2026-09-26 — Autonomous queue check: hold still in effect, zero change (repeat, x25) — re-flagging the streak
 
 - This run's stored trigger prompt again cited the old Netlify site

@@ -3,17 +3,16 @@
 **Read this first in every new session.** Keep it short and current. Update facts in place and do not append status spam.
 
 ## Current state
-- **Active phase:** Phase 1 — Planning (awaiting user approval of `docs/PHASE_1_PLAN.md`)
-- **Active big goal:** Big Goal 1 — unified Course Setup wizard + rotation matrix + announced schedule (`docs/COURSE_SETUP_PLAN.md`, awaiting matrix design choice)
-- **Active big goal:** Big Goal 2 — Evaluator app: shared evaluations, whole-course offline import, PWA, Excel (`docs/EVALUATOR_APP_PLAN.md`, FINAL plan, not implemented; build order S1–S9 then E1–E10)
-- **Active big goal:** Big Goal 3 — Grading Center rebuilt from scratch (`docs/GRADING_CENTER_PLAN.md`, PLAN, not implemented; build order G-1…G-10). Overall order: S1–S9 → E1–E5 → G-1…G-10 → E6–E10
-- **Plan:** rebuild ("Eva v4") from scratch in 4 phases: 1 Planning → 2 UI (simple) → 3 Database + data engine → 4 Deployment
-- **Existing code:** Eva v3 (Next.js 16 + Prisma + Neon Postgres) is still in the repo as the reference implementation until the rebuild location is decided
+- **Master plan:** `docs/FINAL_PLAN.md` (FINAL, 2026-09-28) consolidates everything and wins on conflicts. Awaiting user approval; nothing implemented.
+- **Roadmap:** Phase 1 Planning ✅ → Phase 2 simple UI (U1–U6) → Phase 3 Database + engine (D1–D10) → Phase 4 Deployment (P1–P8)
+- **Goal specs:** Course Setup (`COURSE_SETUP_PLAN.md`), Evaluator App (`EVALUATOR_APP_PLAN.md`), Grading Center (`GRADING_CENTER_PLAN.md`), Database (`DATABASE_DESIGN.md`)
+- **Existing code:** Eva v3 (Next.js 16 + Prisma + Neon Postgres, deployed via Cloudflare Workers/OpenNext) is the base; tag `v3-final` before Phase 2
 
 ## Memory map
 | File | What it holds |
 |------|---------------|
 | `docs/MEMORY.md` | This hub: state, key facts, decisions |
+| `docs/FINAL_PLAN.md` | **Master plan**: product, decisions, modules, DB summary, tech, design, roadmap U/D/P steps, risks, open questions |
 | `docs/PHASE_1_PLAN.md` | Goals, roles, sections, workflows, business rules, open questions |
 | `docs/COURSE_SETUP_PLAN.md` | Big Goal 1: 8-step setup wizard, 10 matrix designs, publish flow, schema changes, build order S1–S9 |
 | `docs/EVALUATOR_APP_PLAN.md` | Big Goal 2 FINAL: rulebook, data model, API, offline, reminders, design, risk register C1–C13 / P1–P19, build order E1–E10 |
@@ -49,4 +48,5 @@
 | 2026-09-27 | Do not implement yet — plan only | User instruction |
 | 2026-09-28 | Grading Center rebuilt from scratch, not constrained by v3 structure | User instruction |
 | 2026-09-28 | Rubric snapshot modeled as a `RubricVersion` table (course → one version; sections belong to a version) | Design refinement in DATABASE_DESIGN.md |
-| — | Open items: `PHASE_1_PLAN.md` §10, `COURSE_SETUP_PLAN.md` §10, `GRADING_CENTER_PLAN.md` questions (final grade formula!) | Awaiting user |
+| 2026-09-28 | Final master plan written; defaults adopted: Cairo font + Phosphor icons, Cloudflare Workers hosting, evolve current repo | FINAL_PLAN.md §3 |
+| — | Open items: `FINAL_PLAN.md` §12 (final grade formula!, v3 data migration, hosting, Google Sign-In, icons, cell colors) | Awaiting user |

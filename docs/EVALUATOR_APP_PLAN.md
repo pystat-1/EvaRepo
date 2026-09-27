@@ -1,320 +1,422 @@
-# Big Goal 2: Evaluator App (Shared Evaluations, Offline, PWA)
+# Big Goal 2: Evaluator App · FINAL PLAN
 
-> **Status:** PLAN, waiting for approval
-> **Date:** 2026-09-27
-> **Depends on:** Big Goal 1 (`COURSE_SETUP_PLAN.md`), because the matrix is the schedule the evaluator app imports. The engine below works on today's `RotationBlock` data, so it can be built in parallel and picks up `courseId`/holidays when Goal 1 lands.
-> **Structure:** Part A analysis → Part B plan → Part C attack (mistakes and vulnerabilities found) → Part D fixes folded into the final design → Part E build order.
-
----
-
-# Part A: Analysis of the idea
-
-## A.1 What you asked for, restated
-
-| # | Requirement | Meaning |
-|---|---|---|
-| R1 | **Shared evaluations** | A hospital has several evaluators. All of them can import the same group. When one of them *takes* a student, the others see that this student is being evaluated or has been evaluated by that evaluator. |
-| R2 | **Import group from the matrix** | The evaluator does not search for students. The app shows the groups the matrix schedules them for on that date, and they import the roster in one tap. |
-| R3 | **Linked to the evaluator account, never lost** | Every evaluation carries the evaluator's identity permanently. No save is ever silently dropped or overwritten. |
-| R4 | **Day export to Excel** | Download the day's evaluations as an `.xlsx` file. |
-| R5 | **Import the whole course schedule once** | One import at the start of the course gives the phone everything it needs for the entire course. |
-| R6 | **Offline evaluation** | Grade with no signal. Grades sync automatically later. |
-| R7 | **Installable PWA** | Installed on the evaluator's phone like an app. |
-| R8 | **Feeds the Grading Center** | Every evaluation lands in the same tables the (future, rebuilt) Grading Center reads. |
-| R9 | **Simple and effective UI** | Designed with ui-ux-pro-max, design-taste-frontend-v1 and impeccable. |
-
-## A.2 What already exists in v3 (read from the code)
-
-| Capability | Where | State |
-|---|---|---|
-| Scoped roster, today only | `/my`, `getScopedStudents` | Works; flat list with no "who is grading whom" |
-| Schedule list + roster per stint | `/schedule`, `getEvaluatorSchedule` | Works |
-| Grade form, online then offline fallback | `grade/[studentId]/page.tsx` | Works online; offline only if the page is already open (see C1) |
-| Offline bundle (schedule, rosters, rubric, today's evaluations) | `/api/schedule/offline-bundle`, `lib/offline/db.ts` | Works, but holds today only and is not tied to an account |
-| Outbox + replay through a Server Action | `lib/offline/sync.ts` | Works, with serious gaps (C2, C3, C8) |
-| Excel export of the day | `/api/my/export` | Online only |
-| PWA manifest + service worker | `manifest.ts`, `public/sw.js` | Installable; caches static assets only |
-| One evaluation per student per day | `Evaluation @@unique([studentId, dateISO])` | Yes, but a second evaluator **silently overwrites** the first (C4) |
-
-**Conclusion:** the pieces exist but they are not trustworthy enough for "never lose a grade", and shared evaluation does not exist. The plan below reuses the good parts (IndexedDB layer, `upsertEvaluation` transaction, scope checks, `exceljs`) and replaces the fragile ones.
+> **Status:** FINAL. Decisions confirmed by the user on 2026-09-27. Not implemented yet.
+> **Depends on:** Big Goal 1, the Course Setup matrix (`COURSE_SETUP_PLAN.md`). The evaluator app imports its schedule from the published matrix. The server engine (E1–E5) can be built first on the current `RotationBlock` data, because the matrix writes the same tables.
+> **Stack:** free and open-source only. Existing Next.js + Prisma + Neon + Cloudflare setup. New packages: `@phosphor-icons/react` (MIT) and `@fontsource/ibm-plex-sans-arabic` (OFL). Web Push uses self-generated VAPID keys, with no paid service.
 
 ---
 
-# Part B: The plan
+## 0. Confirmed decisions
 
-## B.1 Core concept: who owns an evaluation
+| # | Topic | Decision |
+|---|---|---|
+| D1 | **Two evaluators grade the same student on the same day** | Both grades are kept. A **conflict flag** appears to **both evaluators** and to the **admin**. The admin decides **which grade to approve**. |
+| D2 | **Shared view** | Shows **only which student is taken by which evaluator**. Colleagues never see each other's scores, notes or totals. |
+| D3 | **Late window** | An evaluation may be submitted or synced up to **7 days** after its date, **with reminders** during that period. |
+| D4 | **Editing** | An evaluator can edit their own saved evaluation **until the admin locks it**. |
+| D5 | **Study type** | Study type = **shift (Morning / Evening)** (from Goal 1). |
+| D6 | **Ownership** | Every evaluation, and every attempt to save one, is permanently linked to the evaluator's account. |
 
-For **one student on one day** there is exactly **one owning evaluator**:
+---
 
-1. Evaluator A taps a free student → A **takes** them. The student now shows "قيد التقييم لدى A" (being evaluated by A) to everyone.
-2. A saves → the student shows "قيّمه A ✓ 13.5/15" (evaluated by A) to everyone in the shared view.
-3. Evaluator B sees this, can open A's evaluation **read-only**, and cannot overwrite it.
-4. If A leaves without finishing, B can **take over** (confirmation plus a reason). This is audited, and A is informed.
-5. If both graded the same student while offline and could not see each other, **both submissions are kept**. The first one to reach the server becomes the evaluation, and the second is stored as a **conflict** for the admin to resolve in the Grading Center. Nothing is thrown away.
+## 1. What the evaluator app does
 
-## B.2 Data model changes (additive migration)
+1. **Import the course schedule once.** The evaluator downloads their whole course from the published matrix: stints, attendance dates, rosters and rubric. It refreshes itself when online.
+2. **Today.** Shows the groups the matrix schedules for this evaluator today → **import group** → roster.
+3. **Take a student.** The student is marked "taken by me", and colleagues at the same hospital see it.
+4. **Grade.** Attendance, rubric scores, optional notes and feedback. Works **fully offline**. Drafts autosave.
+5. **Sync automatically** when the connection returns. Every save is confirmed or explained.
+6. **Reminders** for unsynced and missing evaluations, until the 7-day window closes.
+7. **Download the day as Excel:** my evaluations only, available online or offline.
+8. **Install** on the phone as a PWA (Android and iPhone).
+9. Everything lands in the tables the **Grading Center** reads.
+
+---
+
+## 2. The rulebook
+
+### 2.1 Life of one student-day
+```
+                 take                 save
+   ┌───────┐  ───────►  ┌───────┐  ───────►  ┌────────┐   admin lock   ┌────────┐
+   │ FREE  │            │ TAKEN │            │ SAVED  │ ─────────────► │ LOCKED │
+   └───────┘  ◄───────  └───────┘            └────────┘                └────────┘
+               release /     │  take-over         │ ▲
+               end of day    │  (unsaved only,    │ │ admin approves one grade
+                             │   reason, audited) │ │
+                             ▼                    ▼ │
+                       new evaluator     second evaluator's save arrives
+                                         ──► ┌──────────┐
+                                             │ DISPUTED │  flag to both evaluators + admin
+                                             └──────────┘
+```
+
+### 2.2 Taking a student and the shared view
+- Tapping a free student **takes** them. Online, this happens on the server at once (first tap wins). Offline, it is a provisional local mark that is sent on the next sync.
+- **Shared view** (colleagues at the same hospital and group, that day) shows only:
+  `متاح` (available) · `مأخوذ لدى د. سرى` (taken by Dr. Sura) · `⚠ تعارض` (conflict).
+  **No scores, totals, notes or feedback of other evaluators are ever sent to the phone.**
+- **Online:** a student taken by someone else cannot be opened for grading. **Take-over** is allowed only if the other evaluator has **not saved** yet. It needs a reason, and it is audited, with the original evaluator notified in the app.
+- A take that is never saved **expires at the end of the day**.
+
+### 2.3 Conflicts (D1)
+- A conflict can only happen when the take could not be enforced: both evaluators were **offline**, or both saved at the same moment.
+- When the second evaluator's save reaches the server:
+  1. **Both** submissions are stored permanently.
+  2. The student-day becomes **DISPUTED**.
+  3. A conflict flag appears:
+     - **to both evaluators** (on the student row, on Today, and in Sync): "⚠ تعارض مع د. X — بانتظار قرار الإدارة" (conflict with Dr. X, awaiting the admin's decision). Neither sees the other's grades.
+     - **to the admin**: in the **Review Inbox** with a nav badge, showing both grades side by side (attendance, every section, total, notes, evaluator, device time, received time).
+- **While disputed:** the evaluation is **frozen**. Neither evaluator can edit it, and it is **excluded from statistics and at-risk flags** until the admin decides.
+- **The admin approves one grade** (optionally with a note). The approved grade becomes the evaluation, and its evaluator becomes the owner. The other grade stays in the journal as `not approved`. Both evaluators see the outcome. Audited.
+- **Late arrivals:** if a third evaluator's save, or a stale queued save, arrives after the decision, a **new conflict** opens against the approved grade. Nothing is applied silently.
+
+### 2.4 The 7-day window and reminders (D3)
+- The window is measured in **Baghdad time**. An evaluation dated `D` can be submitted or synced from `D` up to the end of `D + 7`.
+- **Reminders** go to the evaluator for two kinds of items:
+  - **Unsynced:** saved on the phone but not yet on the server. Only the phone knows about these.
+  - **Missing:** students scheduled with this evaluator on a date in the window who have no evaluation from anyone. The server knows about these.
+- **Reminder schedule:** evening of day 0, then day 3, day 5, and day 6 ("last day tomorrow"). On day 7 the window closes.
+- **After day 7:** the evaluator can no longer submit. A late sync is **not discarded**. It is stored as `late` and appears in the admin's Review Inbox, where the admin may **accept** it (audited) or leave it rejected.
+- The admin sees **overdue** items (still missing on day 7) per evaluator.
+
+### 2.5 Editing and locking (D4)
+- An evaluator can edit **their own** saved evaluation any time **until the admin locks it**. Every edit is a new journal entry, so the full history is kept.
+- **Admin lock scopes:** one evaluation · a group-day · a group-week · a whole course. **Unlock** is admin-only and audited.
+- An edit that arrives after a lock (for example, queued offline) is stored as `rejected: locked` and shown to the evaluator and the admin.
+- Evaluators can **never** edit another evaluator's evaluation.
+
+### 2.6 Server checks on every save (online and offline replay are identical)
+1. **Session:** valid and not revoked, account active, role EVALUATOR.
+2. **Idempotency:** a repeated `clientSubmissionId` returns the original result and does nothing else.
+3. **Scope:** the student is in the evaluator's assignments. The course is **published**. The group is scheduled at the evaluator's hospital on that date. The date is not a holiday.
+4. **Window:** `D` ≤ today (Baghdad) and today ≤ `D + 7`. Otherwise the save is stored as `late`.
+5. **Scores:** every active section of the course's rubric version is present, each a finite number, 0 ≤ score ≤ max, in 0.5 steps. Absent forces all scores to 0.
+6. **State:**
+   - free → apply
+   - own and not locked → apply edit
+   - locked → `rejected: locked`
+   - someone else's, or disputed → `conflict`
+7. **One transaction** writes the journal row, the evaluation, its scores and any conflict record. Audit and flag recompute follow; disputed evaluations are skipped.
+
+---
+
+## 3. Data model (additive migration; existing data untouched)
 
 ```prisma
-// Every save from every device, append-only. Never updated, never deleted.
-// This is the "never lost" guarantee: even rejected or conflicting saves live here.
+enum EvaluationStatus { ACTIVE DISPUTED }
+
+model Evaluation {                       // existing, + fields; @@unique([studentId, dateISO]) kept
+  status           EvaluationStatus @default(ACTIVE)
+  courseId         String?
+  rubricVersion    Int?
+  lastSubmissionId String?
+  lockedAt         DateTime?
+  lockedById       String?
+}
+
+// Append-only journal: every save attempt from every device. Never updated or deleted.
 model EvaluationSubmission {
   id                 String   @id @default(cuid())
-  clientSubmissionId String   @unique        // idempotency key generated on the phone
+  clientSubmissionId String   @unique            // idempotency key made on the phone
   studentId          String
   dateISO            String
-  evaluatorId        String                  // from the server session, never from the client
+  evaluatorId        String                     // from the server session only
   sessionId          String?
-  payload            Json                    // attendance, scores, notes, feedback, rubricVersion
-  deviceTime         DateTime                // phone clock at save time
+  payload            Json                       // attendance, scores, notes, feedback, rubricVersion
+  deviceTime         DateTime
   receivedAt         DateTime @default(now())
-  source             String                  // "online" | "offline_sync"
+  source             String                     // "online" | "offline_sync"
   appVersion         String?
-  outcome            String                  // "applied" | "duplicate" | "conflict" | "rejected"
-  reason             String?
-  evaluationId       String?                 // the Evaluation it was applied to / conflicts with
+  outcome            String                     // applied | duplicate | conflict | late | rejected
+  reason             String?                    // e.g. "locked", "out_of_scope", "not_scheduled"
+  evaluationId       String?
   @@index([studentId, dateISO])
   @@index([evaluatorId, receivedAt])
   @@index([outcome])
 }
 
-// Who is currently evaluating whom (advisory lock + shared view).
-model EvaluationClaim {
-  id           String   @id @default(cuid())
-  studentId    String
-  dateISO      String
-  evaluatorId  String
-  status       String   // "active" | "released" | "completed" | "taken_over"
-  claimedAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  @@unique([studentId, dateISO])            // one claim per student-day; history lives in AuditLog
+// A dispute between two or more submissions for one student-day.
+model EvaluationConflict {
+  id                  String    @id @default(cuid())
+  studentId           String
+  dateISO             String
+  status              String    // "open" | "resolved"
+  submissionIds       String[]  // every competing submission
+  chosenSubmissionId  String?
+  resolvedById        String?
+  resolvedAt          DateTime?
+  note                String?
+  createdAt           DateTime  @default(now())
+  @@index([status])
+  @@index([studentId, dateISO])
 }
 
-// Server-side sessions: instant revoke, account-active check, long offline-friendly life.
+// "Taken by" marks for the shared view.
+model EvaluationClaim {
+  id          String   @id @default(cuid())
+  studentId   String
+  dateISO     String
+  evaluatorId String
+  status      String   // active | released | completed | taken_over | expired
+  reason      String?  // take-over reason
+  claimedAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  @@unique([studentId, dateISO])            // history kept in AuditLog
+}
+
+// Server-side sessions: instant revoke, active-account check, long offline-friendly life.
 model Session {
   id          String    @id @default(cuid())
   accountId   String
   deviceLabel String?
   createdAt   DateTime  @default(now())
   lastSeenAt  DateTime  @default(now())
-  expiresAt   DateTime
+  expiresAt   DateTime                 // evaluators: 14 days, sliding
   revokedAt   DateTime?
   @@index([accountId])
 }
 
-model Evaluation {            // + new fields, existing unique key unchanged
-  courseId         String?
-  rubricVersion    Int?
-  lastSubmissionId String?
-  syncedLate       Boolean  @default(false)   // arrived more than 24h after deviceTime
+// Free Web Push (VAPID) for reminders when the app is closed.
+model PushSubscription {
+  id        String   @id @default(cuid())
+  accountId String
+  sessionId String
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+}
+
+model ReminderLog {                      // prevents sending the same reminder twice
+  id        String   @id @default(cuid())
+  accountId String
+  kind      String   // "missing" | "window_closing"
+  dateISO   String
+  stage     Int      // 0, 3, 5, 6
+  sentAt    DateTime @default(now())
+  @@unique([accountId, kind, dateISO, stage])
 }
 ```
 
-## B.3 One write path: versioned JSON API (replaces the Server Action)
+**From Goal 1 (required):** `Course.status = PUBLISHED`, `courseId` on blocks and assignments, holidays, and the **rubric snapshot per published course** (`rubricVersion`). Rubric edits then apply only from a new version, so phones that are offline are never invalidated.
 
-All evaluator reads and writes go through `/api/ev/v1/*`. Online saves and offline replays use **the same endpoint**, so there is one code path to secure and test.
+---
+
+## 4. API: one versioned JSON path (no Server Actions in the evaluator app)
 
 | Method + path | Purpose |
 |---|---|
-| `GET  /api/ev/v1/me` | Account, active assignments, app-config (timezone, grace days) |
-| `GET  /api/ev/v1/bundle?courseId=` | **Whole-course import**: my published stints from the matrix, every attendance date (holidays removed), rosters, rubric snapshot, my existing evaluations; returns `bundleVersion` |
-| `GET  /api/ev/v1/bundle/version?courseId=` | Cheap check ("is my offline copy stale?") |
-| `GET  /api/ev/v1/day?date=&groupId=` | **Shared view**: for each student, `free / claimed by X / evaluated by X (total) / conflict` |
-| `POST /api/ev/v1/claims` · `DELETE …/claims/:id` · `POST …/claims/:id/takeover` | Take, release and take over a student |
-| `POST /api/ev/v1/submissions` | Save an evaluation (idempotent by `clientSubmissionId`) → `{ outcome, evaluation }` |
-| `GET  /api/ev/v1/export?date=&scope=mine\|group` | Server Excel (online) |
+| `GET  /api/ev/v1/me` | Account, assignments, server Baghdad date, window days, app config |
+| `GET  /api/ev/v1/bundle?courseId=` | Whole-course import: stints, attendance dates (holidays removed), rosters (name, university number, group only), rubric version, **my** evaluations; returns `bundleVersion` |
+| `GET  /api/ev/v1/bundle/version?courseId=` | Cheap staleness check |
+| `GET  /api/ev/v1/day?date=&groupId=` | Shared view: per student `free / taken by <name> / conflict` + **my own** status. No other evaluator's grades. |
+| `POST /api/ev/v1/claims` · `DELETE /claims/:id` · `POST /claims/:id/takeover` | Take, release, take over (unsaved only, reason required) |
+| `POST /api/ev/v1/submissions` | Save (idempotent) → `{ outcome, reason?, evaluation? }` |
+| `GET  /api/ev/v1/attention` | My missing evaluations in the window, open conflicts, rejected or late items, days left |
+| `POST /api/ev/v1/push/subscribe` · `DELETE …/push/subscribe` | Reminder notifications on or off |
+| `GET  /api/ev/v1/export?date=` | Server Excel, my evaluations only |
 
-**Server checks on every submission** (identical online and offline):
-1. The session is valid, not revoked, the account is active, and the role is EVALUATOR.
-2. `clientSubmissionId` has been seen before → return the original result (`duplicate`) and do nothing else.
-3. The student is in scope and the group is scheduled at my hospital on `dateISO`. The course is published and the date is not a holiday.
-4. The date window: `dateISO` ≤ today (Baghdad time) and ≥ today − **7 grace days** (so an offline save made on the day still syncs later). Anything outside the window is rejected but still stored.
-5. Scores: every active rubric section is present, each is a finite number with 0 ≤ s ≤ max, in 0.5 steps. Absent means every score is forced to 0.
-6. Ownership: no evaluation yet → apply. Mine → apply as an update. Someone else's → `conflict`, and the existing evaluation is left unchanged.
-7. The submission row and the evaluation upsert commit in **one transaction**. Audit and flags follow.
+Every POST/DELETE requires a JSON body and a matching `Origin` header (CSRF), plus the SameSite=Lax session cookie. The scope is always derived from the session; the client never sends a hospital ID.
 
-## B.4 Offline architecture
+**Admin (new, minimal, until the Grading Center rebuild):**
 
-```
-┌─────────── Phone (installed PWA) ───────────────────────────────┐
-│  App shell /e  (precached HTML + JS, works with zero signal)    │
-│   ├─ IndexedDB "eva-ev-<accountId>"                             │
-│   │   bundle · rosters · rubric · evaluations · drafts          │
-│   │   outbox (clientSubmissionId, accountId, deviceTime …)      │
-│   │   claimsLocal (provisional "taken" marks)                   │
-│   ├─ Sync runner (one per device via Web Locks)                 │
-│   │   on: open · online · every 30 s when visible · "Sync now"  │
-│   └─ Service worker: shell + static chunks cached per version   │
-└──────────────────────────────┬──────────────────────────────────┘
-                               │ JSON /api/ev/v1/* (cookie session)
-┌──────────────────────────────▼──────────────────────────────────┐
-│ Server: session check → idempotency → scope/schedule → validate │
-│ → ownership → txn(Submission + Evaluation + Scores) → audit/flags│
-└─────────────────────────────────────────────────────────────────┘
-```
-
-- **The app shell is a single client-rendered route `/e`** with in-app navigation (no server round-trip between screens). The service worker precaches it, so the app **opens and navigates fully offline**. This is the fix for C1.
-- **Import once per course:** "استيراد جدول الدورة" downloads the whole course bundle (a few hundred KB for ~15 groups × 20 students). Afterwards the app checks `bundle/version` whenever it is online and refreshes silently if the admin changed the matrix or rosters.
-- **Drafts autosave** on every tap, so a phone call or a killed tab never loses a half-filled form.
-- **Outbox** entries are only removed after the server confirms `applied | duplicate | conflict | rejected`. Rejected and conflict entries stay visible in the Sync screen with the reason, and are also stored on the server.
-- **Storage persistence:** call `navigator.storage.persist()` on import. Show a warning if the browser refuses and the app is not installed.
-
-## B.5 Excel export
-
-- **Online:** server file (`exceljs`, already installed), RTL sheet, one column per rubric section, total, attendance, notes, evaluator, sync status. Scope: *my evaluations* (default) or *whole group today (shared)*.
-- **Offline:** the same file generated **on the phone** from IndexedDB (lazy-loaded `exceljs`, loaded only when the button is tapped). Unsynced rows are marked "بانتظار المزامنة" (awaiting sync). This file also acts as a **manual backup** of anything not synced yet.
-
-## B.6 PWA install
-
-- The manifest points to `start_url: /e`, with `id`, maskable icons, and shortcuts ("اليوم", "المزامنة").
-- **Android/Chrome:** an "تثبيت التطبيق" (install the app) button driven by `beforeinstallprompt`.
-- **iPhone/Safari:** an illustrated three-step sheet (Share → Add to Home Screen → Add), because iOS has no install prompt.
-- `sw.js` is served with `Cache-Control: no-cache` so updates are detected. A new version waits and shows "تحديث متاح" (update available). It **never activates in the middle of grading**.
-
-## B.7 Front-end design (from the three skills)
-
-**Scene** (impeccable's theme test): *a nurse clinical instructor standing in a hospital ward corridor under bright fluorescent light, phone in one hand, patchy signal, grading 8–20 students between clinical duties, often interrupted.* This means a **light theme**, high contrast, big thumb-reachable controls, zero decorative motion, and a status that can be read at a glance.
-
-**Design dials** (design-taste-v1, adapted to "simple and effective" as the skill allows): `DESIGN_VARIANCE 2 · MOTION_INTENSITY 2 · VISUAL_DENSITY 5`. The skill's default Framer/magnetic/perpetual-motion arsenal is **not used**: it conflicts with the brief, with low-end phones, and with offline bundle size.
-
-| Area | Decision | Source rule |
-|---|---|---|
-| Color | **Restrained**: keep the existing brand `#1a5276` as the single accent (≤10% of the surface); cool neutrals tinted slightly toward the brand hue; OKLCH tokens | impeccable identity preservation + color strategy; taste-v1 "max 1 accent" |
-| Status colors | available / in progress / done / conflict / pending sync, **each with an icon + text**, never color alone, all ≥4.5:1 | ui-ux `color-not-only`, `color-contrast` |
-| Type | **IBM Plex Sans Arabic** (Arabic + Latin, free OFL, self-hosted via `@fontsource`, so it works offline); tabular numerals for scores | taste-v1 bans Inter/serif on dashboards; ui-ux `number-tabular`, 16px base |
-| Icons | **Phosphor** (`@phosphor-icons/react`, MIT), one stroke weight; **no emoji** | taste-v1 icon rule; ui-ux `no-emoji-icons` |
-| Touch | Every target ≥48px, 8px gaps, primary action in the bottom thumb zone, `touch-action: manipulation` | ui-ux §2 |
-| Layout | Lists with dividers, **no cards inside cards**, no side-stripe borders, single column, `min-h-dvh`, safe-area insets | impeccable bans; taste-v1 viewport rule |
-| Motion | 150–200 ms opacity/transform only, press feedback `scale(.98)`, full `prefers-reduced-motion` support | ui-ux §7; impeccable reduced-motion |
-| Feedback | Save → inline check + short vibration (Android) + "التالي" (next student); errors next to the field, with a recovery step | ui-ux §8 |
-| States | Skeleton lists, helpful empty states ("لا مجموعات مجدولة اليوم — القادم: الثلاثاء 14/10، مستشفى اليرموك"), offline banner | taste-v1 Rule 5 |
-
-**Navigation:** a bottom bar with 4 items, icon + label: **اليوم** (Today) · **مشترك** (Shared) · **جدولي** (My schedule) · **المزامنة** (Sync, with a pending-count badge).
-
-**Screens (RTL wireframes):**
-
-```
-① اليوم — Today                         ② المجموعة — Group roster
-┌──────────────────────────────┐        ┌──────────────────────────────┐
-│ الأحد 12 تشرين الأول  ● متصل  │        │ ‹ مجموعة B · مستشفى اليرموك   │
-│ ──────────────────────────── │        │ ███████░░░  12/18 مُقيَّم      │
-│ مجموعة B · اليرموك            │        │ [الكل][متاح 4][قيد 2][منتهٍ 12]│
-│ 12/18 مُقيَّم   [ فتح ›]       │        │ ──────────────────────────── │
-│ ──────────────────────────── │        │ ○ علي حسن كاظم   2201347  متاح │
-│ مجموعة D · اليرموك            │        │ ◔ زينب فاضل      2201355       │
-│ لم تُستورد   [ استيراد ↓ ]    │        │   قيد التقييم لدى د. سرى       │
-│                              │        │ ✓ حيدر عباس      2201362       │
-│                              │        │   د. سرى · 13.5/15             │
-│                              │        │ ✓ مريم صالح      2201370  أنت  │
-│                              │        │ ──────────────────────────── │
-│ [اليوم][مشترك][جدولي][مزامنة²]│        │ [ ↓ تنزيل Excel اليوم ]        │
-└──────────────────────────────┘        └──────────────────────────────┘
-
-③ التقييم — Grade sheet                 ④ مشترك — Shared evaluations
-┌──────────────────────────────┐        ┌──────────────────────────────┐
-│ ‹ علي حسن كاظم · 2201347      │        │ اليرموك · اليوم · قبل 20 ث     │
-│ الحضور                        │        │ [كل المجموعات ▾]               │
-│ [ حاضر ][ متأخر ][ غائب ]      │        │ د. سرى الموسوي — 7 طلاب        │
-│ الملاحظة اليومية      /5      │        │   حيدر عباس        13.5 ✓     │
-│      [ − ]   4   [ + ]        │        │   زينب فاضل        قيد التقييم │
-│ المناقشة والتغذية الراجعة  /7   │        │ أنت — 5 طلاب                   │
-│      [ − ]  5.5  [ + ]        │        │   مريم صالح        14 ✓        │
-│ الموقف والتواصل   [0][½][1]   │        │ ⚠ تعارض: أحمد جواد (راجِع)     │
-│ الانتظام          [0][½][1]   │        │                              │
-│ المظهر            [0][½][1]   │        │                              │
-│ + إضافة ملاحظة / تغذية راجعة   │        │                              │
-│ ──────────────────────────── │        │                              │
-│ المجموع 12.5/15  [ حفظ والتالي ]│        │                              │
-└──────────────────────────────┘        └──────────────────────────────┘
-```
-
-- **Grade-sheet input:** sections with max ≤ 1 use three chips (0, ½, 1). Larger sections use a −/+ stepper (0.5 steps) with a tappable number that opens the numeric keypad. Choosing "غائب" (absent) greys out the scores and sets them to 0.
-- **جدولي (My schedule):** weeks from the matrix with dates, hospital and group, plus **one** "استيراد جدول الدورة للعمل دون اتصال" (import the course schedule for offline work) button showing the last import time and size.
-- **المزامنة (Sync):** pending list, errors with a recovery action ("افتح وأعد الحفظ" = open and save again), conflicts, "زامن الآن" (sync now), storage-persistence status, and the install guide.
+| Page / action | Purpose |
+|---|---|
+| `/review` **Review Inbox** (nav badge) | Open conflicts (side-by-side comparison → approve one), late submissions (accept / leave rejected), rejected items (information), overdue missing evaluations per evaluator |
+| Lock / unlock | Per evaluation, group-day, group-week, course |
+| Sessions | See each evaluator's devices, **revoke** a device |
 
 ---
 
-# Part C: Attack on the plan and the current code
+## 5. Offline architecture
 
-Everything below was found by reading the code or by stress-testing Part B. Severity: 🔴 critical (can lose, corrupt or misattribute grades) · 🟠 high · 🟡 medium.
+```
+┌──────────── Phone (installed PWA) ───────────────────────────────┐
+│ App shell /e — client-rendered, precached, navigates offline     │
+│  IndexedDB  "eva-ev-<accountId>"  (one database per account)     │
+│   bundle · rosters · rubric · myEvaluations · drafts             │
+│   outbox (clientSubmissionId, accountId, deviceTime, payload)    │
+│   localClaims · attention cache                                  │
+│  Sync runner — single instance per device (Web Locks)            │
+│   triggers: app open · online · every 30 s while visible ·       │
+│             "زامن الآن" · Android Periodic Background Sync        │
+│  Service worker — shell + chunks cached as one versioned set;    │
+│   update applies only on user tap, never mid-grading             │
+└───────────────────────────────┬──────────────────────────────────┘
+                                │ /api/ev/v1/*  (session cookie)
+┌───────────────────────────────▼──────────────────────────────────┐
+│ session → idempotency → scope/schedule → window → validate →     │
+│ state rules → txn(journal + evaluation + scores + conflict)      │
+│ → audit → flags (skip DISPUTED) → reminders cron                 │
+└──────────────────────────────────────────────────────────────────┘
+```
 
-## C.1 Problems in the existing v3 evaluator code (verified in source)
+- **The shell `/e`** replaces `/my`, `/schedule` and `/grade/*`, which redirect to it. The app opens and moves between screens with zero signal.
+- **Outbox entries** are deleted only after the server answers `applied`, `duplicate`, `conflict`, `late` or `rejected`. Every non-applied answer stays visible in **Sync** with its reason and next step.
+- **401 during sync** shows "سجّل الدخول للمزامنة" (log in to sync), never "offline". The outbox survives re-login because it is keyed per account.
+- **Logout** warns about unsynced items, and wipes local data only after they are synced (or after explicit confirmation plus an Excel backup).
+- **Storage safety:** `navigator.storage.persist()` on import. A warning appears if persistence is refused and the app is not installed.
+- **Bundle refresh:** `bundleVersion` is checked whenever online, and the refresh is silent. It is split per group, so only changed rosters download.
 
-| # | Sev | Finding | Evidence | Consequence |
-|---|---|---|---|---|
-| C1 | 🔴 | **Offline navigation is broken.** When offline, `sw.js` answers every page navigation with `offline.html`, and the grade page HTML is never cached. | `public/sw.js` navigate handler; no page caching | Offline grading only works if the grade page happened to be open already. Opening the app or moving to another student offline shows the "offline" page. *(Found by reading the code; the E9 test will confirm it in a browser.)* |
-| C2 | 🔴 | **Offline replay calls a Server Action.** Server Action IDs change on every deploy. | `sync.ts` → `gradeStudentAction` | After any deploy, queued grades from an older app version fail and get stuck as "errors" |
-| C3 | 🔴 | **The outbox is not tied to an account.** Its key is `studentId:dateISO` with no `accountId`. Logout does not clear offline data. | `offline/db.ts`, `logoutAction` | On a shared phone, evaluator A's queued grades are replayed **as evaluator B**, and A's roster remains visible to B |
-| C4 | 🔴 | **A second evaluator silently overwrites the first.** The upsert on `(studentId, dateISO)` replaces `evaluatorId` and all scores. | `upsertEvaluation` `update:` branch | In a shared hospital, B's save erases A's grade from the live record (only the audit JSON keeps it) |
-| C5 | 🟠 | **The server accepts any `dateISO`** that is a scheduled day, including future or months-old days. | `gradeStudentAction` reads `dateISO` from the form; no window check | Backdating or pre-grading by editing the request |
-| C6 | 🟠 | **NaN scores pass validation.** `Number("abc")` is NaN, and NaN fails both `< 0` and `> max`, so it is accepted. | `upsertEvaluation` range check | `total` becomes NaN. Either it is stored (Postgres floats accept NaN), which corrupts statistics and flags, or the save fails with an unclear database error |
-| C7 | 🟠 | **A deactivated evaluator keeps access for up to 12 h.** `requireRole` trusts the JWT and never checks `account.active`. | `lib/auth.ts` | Revoking a lost phone or a dismissed evaluator is not immediate |
-| C8 | 🟠 | **An expired session looks like "offline" forever.** A 401 during sync is thrown as a `TypeError`, so sync "stops offline" with no prompt to log in. | `sync.ts` `checkStillValid` | Grades sit unsynced for days while the evaluator believes they are pending normally |
-| C9 | 🟠 | **No idempotency.** A lost response followed by a retry or double tap resubmits. | No request key anywhere | Duplicate audit entries today. Under the new ownership rule it would become a **self-conflict**. |
-| C10 | 🟡 | **"Today" is computed in UTC** (`toISOString().slice(0,10)` in 13 places). Iraq is UTC+3. | grep | Between 00:00 and 03:00 local, "today" is yesterday. Phone and server can disagree. |
-| C11 | 🟡 | **The offline bundle is today-only**, and "today" is fixed at import time. | `offline-bundle/route.ts` | A bundle imported on Sunday has no Tuesday context, so the roster shows stale "not graded" states |
-| C12 | 🟡 | **Excel export needs the network.** | `/api/my/export` | No end-of-day file in a hospital without signal |
-| C13 | 🟡 | **Browser storage can be evicted.** There is no `navigator.storage.persist()` call. Safari may clear site data of non-installed web apps after ~7 days without use. | none | An unsynced outbox could be wiped |
+---
 
-## C.2 Attacks on this plan (Part B), and how the design answers them
+## 6. Reminders (free, three layers)
 
-| # | Sev | Attack: "what if…" | Answer built into the design |
+| Layer | Covers | Works when | Tech |
 |---|---|---|---|
-| P1 | 🔴 | Two evaluators, both offline, take and grade the same student | Claims are advisory. The server applies the first submission and stores the second as `conflict`. Both evaluators see a ⚠ badge after sync, and the admin resolves it in the Grading Center. **Nothing is discarded.** |
-| P2 | 🟠 | An evaluator takes a student and then goes home | Take-over with confirmation and a reason (audited). Claims auto-expire at the end of the day. A *saved* evaluation can never be taken over, only an unsaved claim. |
-| P3 | 🔴 | A phone is lost or stolen with the course roster on it | The bundle holds only name, university number and group (no email or phone). The admin revokes the device's `Session`, so it can never sync again. Logout wipes local data after warning about unsynced items. **Accepted residual risk:** local data on a lost phone cannot be wiped remotely. An optional app PIN is listed as future work. |
-| P4 | 🟠 | The admin changes the matrix or moves a student after the evaluator imported | `bundleVersion` is checked whenever online, with a silent refresh. A save for a student no longer in scope is `rejected` but **stored**, shown with the reason, and visible to the admin. |
-| P5 | 🟠 | The rubric changes mid-course while phones are offline | The rubric is **snapshotted per published course** (`rubricVersion`). Edits apply only from a new version with an effective date. A submission is validated against the version it was made with. This removes the "stuck forever" rubric error the current code has. |
-| P6 | 🟠 | A new deploy breaks the cached app shell (the HTML points to chunks that no longer exist) | The service worker caches shell + chunks as **one versioned set**. The new version downloads completely before it is offered, and activates only when the user taps "تحديث" (update) with no unsaved draft. Old chunks are kept until then. |
-| P7 | 🟠 | The phone clock is wrong or deliberately changed to backdate | The server validates `dateISO` against its own Baghdad date with a 7-day grace window. It stores `deviceTime` and `receivedAt`, and marks `syncedLate` or clock-skew cases for the Grading Center to show. |
-| P8 | 🟡 | Two open tabs sync at the same time | Web Locks ensure a single sync runner, and idempotency makes any double send harmless. |
-| P9 | 🔴 | An evaluator reads another hospital's evaluations through the shared view | `/day` derives the scope from the server session only: groups in my assignments, at my hospital, on that date. The client never sends a hospital ID. An automated test asserts no cross-hospital leakage (like the existing phase-2 smoke test). |
-| P10 | 🟠 | CSRF against the new JSON endpoints | A SameSite=Lax cookie (already set), plus JSON-only bodies and an `Origin` header check on every POST/DELETE. |
-| P11 | 🟡 | Polling overloads the free Neon database | Poll only while the screen is visible, every 30 s, backing off to 2 min when idle. The endpoint is small, indexed and uses a `since` cursor. That is roughly 40 req/min for 20 active evaluators, which is well within limits. |
-| P12 | 🟠 | The session expires during a long offline shift | Evaluator sessions last **14 days, sliding**, and are server-side, so they are revocable. When sync gets a 401, it shows a **"سجّل الدخول للمزامنة"** (log in to sync) banner and never pretends to be offline. The outbox survives the login because it is keyed by account. |
-| P13 | 🟡 | The college actually wants **two evaluators per student per day** (for example, averaged) | This plan assumes one owner per student-day. **Question Q1 below.** Changing it later touches only the ownership rule (step 6). The submissions journal already keeps every evaluator's input. |
-| P14 | 🟡 | Excel/CSV formula injection through names or notes (`=HYPERLINK…`) | `exceljs` writes plain strings, not formulas. For any CSV path, prefix `'` to cells starting with `= + - @`. |
-| P15 | 🟡 | A large bundle on slow 3G | A gzip JSON bundle of about 200–400 KB. Import shows progress and can be resumed. Rosters are split per group so a refresh fetches only what changed. |
+| **In-app** | Unsynced + missing + conflicts, with "باقي N أيام" (N days left) | App open | Banner on Today, badge on Sync |
+| **App icon badge** | Count of unsynced + missing | Installed, app closed (Android, iOS 16.4+ installed) | Badging API |
+| **Push notification** | Missing evaluations and the window closing (server knows these) | App closed; Android; iOS 16.4+ **installed** PWA | Web Push with VAPID from a **Cloudflare Cron Trigger** (daily at 18:00 Baghdad), `ReminderLog` de-duplication |
+| **Local check** | Unsynced items (only the phone knows) | Android installed PWA, when the browser allows | Periodic Background Sync (best effort) |
+
+- **Lock-screen privacy:** notifications never contain student names. Example: "لديك 4 تقييمات لم تُرسل — باقي يومان" (you have 4 evaluations not sent — 2 days left).
+- The push library must be **WebCrypto-based** so it runs on Cloudflare Workers. This is verified in step E8, and if no library works there, the plan falls back to in-app reminders plus the badge only.
 
 ---
 
-# Part D: Final decisions (fixes folded in)
+## 7. Excel export (my evaluations only)
 
-1. **Evaluator app = offline-first shell at `/e`.** The old `/my`, `/schedule` and `/grade/*` routes redirect to it. *(fixes C1, C11)*
-2. **One versioned JSON write path** with idempotency keys, used for both online saves and offline replay. The evaluator app no longer calls Server Actions. *(C2, C9)*
-3. **Append-only `EvaluationSubmission` journal** in the same transaction as the evaluation. *(R3, C4, P1)*
-4. **Ownership rule:** the first applied save owns the student-day; others go to `conflict`. Take-over applies to unsaved claims only. *(C4, P1, P2)*
-5. **Offline storage per account** (`eva-ev-<accountId>`). Outbox entries carry `accountId` and are replayed only by that account. Logout wipes after an unsynced-items warning. *(C3)*
-6. **Server-side sessions,** with an `active` check on every request, instant revoke, and 14-day sliding sessions for evaluators. *(C7, C8, P12)*
-7. **Strict validation:** finite numbers, 0.5 steps, all sections present, absent means 0, date window of Baghdad today − 7 to Baghdad today, course published, not a holiday. *(C5, C6, P7)*
-8. **A single `todayBaghdad()` helper** replaces all 13 UTC date computations. *(C10)*
-9. **Rubric snapshot per published course.** *(P5)*
-10. **Versioned service worker,** update only on the user's tap, `storage.persist()`, and an install guide for iOS and Android. *(P6, C13, R7)*
-11. **Offline Excel** generated on the phone, which doubles as a manual backup. *(C12, R4)*
-12. **Free stack only:** everything is open source (MIT/OFL) on the existing Neon + Cloudflare setup. New packages are `@phosphor-icons/react` (MIT) and `@fontsource/ibm-plex-sans-arabic` (OFL). No paid push or realtime service; polling is enough.
+- **Online:** server file with `exceljs` (already installed). RTL sheet with one column per rubric section, plus total, attendance, notes, feedback, and a status column (saved / disputed / locked).
+- **Offline:** the same file generated on the phone from IndexedDB (`exceljs` loaded only on tap). Unsynced rows are marked "بانتظار المزامنة" (awaiting sync). This file doubles as a **manual backup**.
+- Cells are written as plain strings. Any CSV path escapes cells starting with `= + - @`, to prevent formula injection.
 
 ---
 
-# Part E: Build order
+## 8. PWA install and updates
 
-Each step is shippable, type-checked, and verified before the next one starts.
+- **Manifest:** `start_url: /e`, `id`, `scope`, maskable icons, shortcuts (اليوم / المزامنة), `dir: rtl`, `lang: ar`.
+- **Android/Chrome:** an "تثبيت التطبيق" (install the app) button (`beforeinstallprompt`).
+- **iPhone/Safari:** a three-step illustrated guide (Share → Add to Home Screen → Add), shown once and reachable from Sync.
+- **Updates:** `sw.js` is served `no-cache`. The new version downloads completely in the background, then shows "تحديث متاح" (update available). It applies on tap, and never while a draft is open.
+
+---
+
+## 9. Front-end design
+
+**Scene:** *a nurse clinical instructor in a hospital corridor under fluorescent light, phone in one hand, patchy signal, grading 8–20 students between duties, often interrupted.* This gives a light theme, high contrast, big thumb-zone controls, status readable at a glance, and no decorative motion.
+
+| Area | Decision |
+|---|---|
+| Dials (design-taste-v1, adapted to "simple and effective") | Variance 2 · Motion 2 · Density 5. No Framer, magnetic or perpetual effects. |
+| Color (impeccable: restrained, keep identity) | Existing brand `#1a5276` as the only accent (≤10%). Cool neutrals slightly tinted toward it. OKLCH tokens. |
+| Status | Available · Taken by X · In progress (mine) · Saved · Awaiting sync · Conflict · Locked. Each has an **icon + text**, and every color pair is ≥4.5:1. |
+| Type | IBM Plex Sans Arabic, self-hosted so it works offline. 16px base, tabular numerals for scores. |
+| Icons | Phosphor, one stroke weight. No emoji. |
+| Touch (ui-ux-pro-max) | Targets ≥48px, 8px gaps, primary action at the bottom, `touch-action: manipulation`, safe-area insets, `min-h-dvh`. |
+| Layout | Single column, lists with dividers, no nested cards, no side-stripe borders. |
+| Motion | 150–200 ms opacity/transform, press `scale(.98)`, full `prefers-reduced-motion`. |
+| States | Skeletons, helpful empty states, offline banner, inline errors with a recovery action. |
+
+**Bottom navigation (4):** اليوم (Today) · مشترك (Shared) · جدولي (My schedule) · المزامنة (Sync, badge).
+
+```
+① اليوم — Today                          ② المجموعة — Roster (mine + shared status)
+┌──────────────────────────────┐         ┌──────────────────────────────┐
+│ الأحد 12 تشرين الأول   ● متصل │         │ ‹ مجموعة B · مستشفى اليرموك   │
+│ ⚠ 3 تقييمات ناقصة — باقي 4 أيام│         │ ███████░░░  أنجزت 7 من 18     │
+│ ⚠ تعارض واحد بانتظار الإدارة   │         │ [الكل][متاح][مأخوذ][لي]         │
+│ ──────────────────────────── │         │ ──────────────────────────── │
+│ مجموعة B · اليرموك            │         │ ○ علي حسن كاظم   2201347  متاح │
+│ أنجزت 7   [ فتح ›]             │         │ ◔ زينب فاضل      2201355       │
+│ ──────────────────────────── │         │   مأخوذ لدى د. سرى             │
+│ مجموعة D · اليرموك            │         │ ✓ مريم صالح      2201370       │
+│ لم تُستورد   [ استيراد ↓ ]    │         │   لي · محفوظ                   │
+│                              │         │ ⚠ أحمد جواد      2201381       │
+│                              │         │   تعارض مع د. سرى — للإدارة    │
+│ [اليوم][مشترك][جدولي][مزامنة³]│         │ [ ↓ تنزيل Excel تقييماتي ]     │
+└──────────────────────────────┘         └──────────────────────────────┘
+
+③ التقييم — Grade sheet                  ④ مشترك — Shared (who took whom)
+┌──────────────────────────────┐         ┌──────────────────────────────┐
+│ ‹ علي حسن كاظم · 2201347      │         │ اليرموك · اليوم · قبل 20 ث     │
+│ الحضور                        │         │ [كل المجموعات ▾]               │
+│ [ حاضر ][ متأخر ][ غائب ]      │         │ د. سرى الموسوي — 6 طلاب        │
+│ الملاحظة اليومية      /5      │         │   زينب فاضل · حيدر عباس · …    │
+│      [ − ]   4   [ + ]        │         │ د. علي الربيعي — 4 طلاب        │
+│ المناقشة والتغذية الراجعة  /7   │         │   نور حسين · كرار سعد · …      │
+│      [ − ]  5.5  [ + ]        │         │ أنت — 7 طلاب                   │
+│ الموقف والتواصل   [0][½][1]   │         │ متاح — 1 طالب                  │
+│ الانتظام          [0][½][1]   │         │   علي حسن كاظم                 │
+│ المظهر            [0][½][1]   │         │                              │
+│ + ملاحظة / تغذية راجعة         │         │ (لا درجات — من أخذ من فقط)     │
+│ المجموع 12.5/15 [ حفظ والتالي ]│         │                              │
+└──────────────────────────────┘         └──────────────────────────────┘
+```
+
+- **Grade sheet input:** sections with max ≤ 1 use chips (0, ½, 1); larger ones use a −/+ stepper (0.5 steps) with a tappable number for the keypad. "غائب" (absent) greys out the scores and sets them to 0. Saving gives an inline check, a short vibration (Android), then the next free student.
+- **جدولي (My schedule):** the course weeks from the matrix (dates, hospital, group) and one "استيراد جدول الدورة" (import the course schedule) button showing the last import time and size.
+- **المزامنة (Sync):** pending items, and results that need action (conflict / late / rejected, each with its reason). It also holds "زامن الآن" (sync now), reminder on/off, storage status and the install guide.
+
+---
+
+## 10. Risk register: attack findings and how the final plan closes them
+
+**Existing v3 defects (verified in source; each is fixed by this plan):**
+
+| # | Defect | Fix |
+|---|---|---|
+| C1 | Offline navigation shows `offline.html`; the grade page is never cached (found by reading the code, to be confirmed in E7) | Precached shell `/e` (§5) |
+| C2 | Offline replay calls a Server Action whose ID changes on every deploy | Versioned JSON API (§4) |
+| C3 | Outbox not tied to an account; logout keeps data, so grades replay as another evaluator | Per-account database + `accountId` on entries + logout wipe (§5) |
+| C4 | A second evaluator's save silently overwrites the first | Journal + DISPUTED + admin decision (§2.3) |
+| C5 | Server accepts any scheduled `dateISO` (backdating or grading ahead) | 7-day Baghdad window (§2.4) |
+| C6 | Non-numeric (NaN) scores pass validation | Finite, 0.5-step, all-sections check (§2.6) |
+| C7 | Deactivated account keeps access up to 12 h | Server sessions + active check + revoke (§3) |
+| C8 | Expired session during sync looks like "offline" forever | Explicit 401 state (§5) |
+| C9 | No idempotency (retries and double taps) | `clientSubmissionId` (§2.6) |
+| C10 | "Today" computed in UTC (13 places); Iraq is UTC+3 | One `todayBaghdad()` helper |
+| C11 | Offline bundle is today-only | Whole-course bundle (§4) |
+| C12 | Excel export needs the network | On-device Excel (§7) |
+| C13 | Browser may evict unsynced data | `storage.persist()` + install + reminders (§5, §6) |
+
+**Attacks on the design itself:**
+
+| # | Attack | Answer |
+|---|---|---|
+| P1 | Both evaluators grade the same student offline | Both kept, DISPUTED, flag to both + admin, admin approves one (§2.3) |
+| P2 | An evaluator takes a student and leaves | Take-over of unsaved takes, with reason and audit; auto-expiry at end of day |
+| P3 | Lost or stolen phone holding rosters | Minimal data (name, university number, group); admin revokes the device session; no names in notifications. **Residual:** local data can't be wiped remotely (optional app PIN is future work). |
+| P4 | Matrix or roster changes after import | `bundleVersion` auto-refresh; out-of-scope saves stored as `rejected` with a reason |
+| P5 | Rubric edited while phones are offline | Rubric versioned per published course |
+| P6 | Deploy breaks the cached shell | Versioned service worker set; update on tap only |
+| P7 | Phone clock changed to backdate | Server date is authoritative; `deviceTime` vs `receivedAt` stored and shown to the admin |
+| P8 | Two tabs sync at once | Web Locks + idempotency |
+| P9 | Shared view leaks another hospital's data, or colleagues' grades | Server-derived scope; `/day` returns names/status only; automated leakage test |
+| P10 | CSRF on the JSON API | Origin check + JSON-only + SameSite=Lax |
+| P11 | Polling overloads the free Neon database | 30 s only while visible, backoff when idle, small indexed endpoint |
+| P12 | Session expires during a long offline shift | 14-day sliding evaluator sessions, revocable |
+| P13 | Admin approves A, then a stale queued save from B arrives | Opens a **new** conflict; nothing applied silently (§2.3) |
+| P14 | Evaluator edits while disputed | Frozen until the admin decides (§2.3) |
+| P15 | Disputed grade distorts statistics or at-risk flags | Excluded until resolved (§2.3) |
+| P16 | Save arrives after day 7 | Stored as `late`; admin may accept (§2.4) |
+| P17 | Edit arrives after the admin locked | Stored as `rejected: locked`, shown to both (§2.5) |
+| P18 | Notification spam, or duplicate reminders | `ReminderLog` unique per stage; at most 4 reminders per date |
+| P19 | Formula injection in exports | Plain strings; CSV escaping (§7) |
+
+---
+
+## 11. Build order
+
+Each step is shippable and verified before the next one starts. Order after Goal 1: **S1–S9 (matrix) → E1–E10**. E1–E5 may start before the matrix is finished.
 
 | Step | Deliverable | Verification |
 |---|---|---|
-| **E1** | Migration: `EvaluationSubmission`, `EvaluationClaim`, `Session`, `Evaluation` fields; `todayBaghdad()`; validation fixes (NaN, date window, all sections) | Unit tests: validation, date window, idempotency |
-| **E2** | Server sessions + `active` check + revoke; evaluator 14-day sliding session | Test: deactivated account → 401 immediately |
-| **E3** | `/api/ev/v1/submissions` with the ownership rule + journal in one transaction; admin/grading-center reads unchanged | Tests: concurrent A/B same student → one applied, one conflict, both stored; replay the same key → `duplicate` |
-| **E4** | Claims + `/day` shared view with server-derived scope | Test: no cross-hospital leakage; take-over audited |
-| **E5** | Course bundle + version endpoint (reads the matrix / `RotationBlock`) | Test: a matrix change bumps the version |
-| **E6** | App shell `/e`: design tokens, font, icons, bottom nav, screens ①–④ + Sync, drafts autosave | Playwright at 375 px, RTL, contrast check |
-| **E7** | Offline layer: per-account IndexedDB, outbox, Web-Locks sync runner, 401 handling, versioned service worker, `storage.persist()` | Playwright **offline mode**: open the app cold offline → grade 3 students → go online → all 3 applied |
-| **E8** | Excel (server + on-device), PWA install flow (Android prompt + iOS sheet), manifest update | Manual check on Android Chrome + iOS Safari |
-| **E9** | Redirect old evaluator routes; end-to-end smoke: two evaluators, same group, shared view, conflict, export | Full scripted run against a seeded DB |
+| **E1** | Migration (§3); `todayBaghdad()`; validation fixes (NaN, 0.5 steps, all sections, window) | Unit tests |
+| **E2** | Server sessions: active check, revoke, 14-day sliding for evaluators; admin Sessions page | Deactivated account gets 401 immediately |
+| **E3** | `POST /submissions`: idempotency, state rules, journal + conflict in one transaction; flags skip DISPUTED | Concurrent A/B → DISPUTED with both stored; same key → `duplicate`; lock → `rejected` |
+| **E4** | Claims, take-over, `/day` shared view (names/status only), `/attention` | Cross-hospital and colleague-grade leakage tests |
+| **E5** | Admin **Review Inbox**: conflicts (approve one), late (accept), rejected, overdue; lock/unlock scopes | Approve B → evaluation = B, audit written, both evaluators see the outcome |
+| **E6** | Course bundle + version (reads the published matrix) | A matrix edit bumps the version |
+| **E7** | App shell `/e`: tokens, font, icons, nav, screens ①–④ + Sync + drafts; per-account IndexedDB; outbox; Web-Locks sync; 401 state; versioned service worker; `storage.persist()` | Playwright offline test: open cold offline → grade 3 students → reconnect → all applied; 375 px RTL + contrast check |
+| **E8** | Reminders: in-app, badge, Web Push (VAPID, Cloudflare Cron), Periodic Sync, `ReminderLog` | Seeded missing items → day-3 / 5 / 6 reminders fire once each |
+| **E9** | Excel (server + on-device), install flow (Android prompt + iOS guide), manifest | Manual check on Android Chrome + iPhone Safari |
+| **E10** | Redirect old evaluator routes; end-to-end run: two evaluators, same group, offline conflict → admin approves → lock → late edit rejected | Full scripted run on a seeded DB |
 
 ---
 
-## Questions (defaults will be used if you don't answer)
+## 12. Not in this goal (later)
 
-1. **One or two evaluators per student per day?** Default: **one owner per student-day**; a second save becomes a conflict for the admin.
-2. **What colleagues can see in the shared view:** status and name only, or also the total and read-only details? Default: **name + status + total, details read-only.**
-3. **Offline grace window:** how many days after the evaluation date may an offline save still sync? Default: **7 days.**
-4. **Can an evaluator edit their own saved evaluation later?** Default: **yes, until the admin locks it** (every edit is kept in the journal).
+- **Grading Center rebuild.** It will absorb the Review Inbox and show `deviceTime`, `receivedAt`, and the journal history per evaluation.
+- Optional app PIN / biometric lock for lost-phone protection.
+- Student-facing view of approved grades (the existing `/me` keeps working and shows only ACTIVE evaluations).

@@ -18,19 +18,16 @@
 // No binaryTargets: the Neon driver adapter (src/lib/db.ts) means Prisma
 // never spawns its native query engine binary, which also wouldn't run in
 // the Cloudflare Workers runtime this app is deployed to.
-// binaryTargets: the Neon driver adapter (src/lib/db.ts) means Prisma
-// never opens its own DB connection, but Prisma Client still shells out to
-// the native Query Engine binary to compile/execute queries — it is NOT
-// engine-less just because a driver adapter is in use (that would need the
-// separate `queryCompiler` preview feature). Cloudflare's workerd runtime
-// resolves to the "debian-openssl-1.1.x" engine target, which differs from
-// whatever the build machine's own OS defaults to ("debian-openssl-3.0.x"
-// on GitHub Actions' ubuntu-latest runner) — without both listed, `prisma
-// generate` only produces the build machine's target and the deployed
-// Worker's PrismaClient can't find a matching engine binary at runtime.
+// Cloudflare Workers runs in a V8 isolate, not a Linux process — it cannot
+// execute a native Query Engine binary (.so.node) at all, no matter which
+// binaryTarget is bundled. `queryCompiler` (paired with `driverAdapters`)
+// is what actually makes Prisma Client engine-less: queries are compiled
+// to SQL in plain TypeScript instead of shelling out to a native/WASM
+// engine, which is what the Neon driver adapter in src/lib/db.ts needs to
+// truly work on Workers.
 generator client {
-  provider      = "prisma-client-js"
-  binaryTargets = ["native", "debian-openssl-1.1.x"]
+  provider        = "prisma-client-js"
+  previewFeatures = ["queryCompiler", "driverAdapters"]
 }
 
 datasource db {

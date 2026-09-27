@@ -19,3 +19,14 @@ export function todayISO(date: Date = new Date()): string {
     day: "2-digit",
   }).format(date);
 }
+
+// Pure calendar-day arithmetic on "YYYY-MM-DD" strings, shared by the
+// attendance-date expander (COURSE_SETUP_PLAN.md) and the evaluator app's
+// submission window (EVALUATOR_APP_PLAN.md §2.4) — both need "N days after
+// this date" without caring about time-of-day or timezone at all, since the
+// dates are already plain calendar days by the time they get here.
+export function addDaysISO(dateISO: string, days: number): string {
+  const d = new Date(`${dateISO}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}

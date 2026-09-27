@@ -15,9 +15,6 @@
 //   `prisma generate` could not run there. Now that the app is deploying
 //   to Vercel + Neon, `provider` below is "postgresql" for real.
 
-// No binaryTargets: the Neon driver adapter (src/lib/db.ts) means Prisma
-// never spawns its native query engine binary, which also wouldn't run in
-// the Cloudflare Workers runtime this app is deployed to.
 // Cloudflare Workers runs in a V8 isolate, not a Linux process — it cannot
 // execute a native Query Engine binary (.so.node) at all, no matter which
 // binaryTarget is bundled. `queryCompiler` (paired with `driverAdapters`)
@@ -177,6 +174,7 @@ model Account {
   auditLogs    AuditLog[]
   assignments  EvaluatorAssignment[]
   evaluations  Evaluation[]
+  sessions     Session[]
 
   @@index([studentId])
   @@map("accounts")
@@ -381,6 +379,17 @@ model Evaluation {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  // EVALUATOR_APP_PLAN.md §3. `locked` above stays the source of truth for
+  // the existing simple lock check; lockedAt/lockedById are metadata for
+  // the admin lock scopes (per-evaluation/group-day/group-week/course)
+  // built in E5. Existing rows default to ACTIVE/null — untouched.
+  status           EvaluationStatus @default(ACTIVE)
+  courseId         String?
+  rubricVersion    Int?
+  lastSubmissionId String?
+  lockedAt         DateTime?
+  lockedById       String?
+
   scores EvaluationScore[]
 
   @@unique([studentId, dateISO])
@@ -389,6 +398,121 @@ model Evaluation {
   @@index([evaluatorId])
   @@index([dateISO])
   @@map("evaluations")
+}
+
+enum EvaluationStatus {
+  ACTIVE
+  DISPUTED
+}
+
+// Append-only journal: every save attempt from every device, online or
+// replayed from an offline outbox. Never updated or deleted — this is what
+// lets a conflict show both competing grades side by side and lets an
+// admin see deviceTime vs receivedAt for a suspiciously backdated save.
+model EvaluationSubmission {
+  id                 String   @id @default(cuid())
+  clientSubmissionId String   @unique
+  studentId          String
+  dateISO            String
+  evaluatorId        String
+  sessionId          String?
+  payload            Json
+  deviceTime         DateTime
+  receivedAt         DateTime @default(now())
+  source             String // "online" | "offline_sync"
+  appVersion         String?
+  outcome            String // "applied" | "duplicate" | "conflict" | "late" | "rejected"
+  reason             String?
+  evaluationId       String?
+
+  @@index([studentId, dateISO])
+  @@index([evaluatorId, receivedAt])
+  @@index([outcome])
+  @@map("evaluation_submissions")
+}
+
+// A dispute between two or more submissions for one student-day (plan
+// §2.3): while open, the evaluation is frozen and excluded from
+// statistics/at-risk flags until an admin approves one submission.
+model EvaluationConflict {
+  id                 String    @id @default(cuid())
+  studentId          String
+  dateISO            String
+  status             String // "open" | "resolved"
+  submissionIds      String[]
+  chosenSubmissionId String?
+  resolvedById       String?
+  resolvedAt         DateTime?
+  note               String?
+  createdAt          DateTime  @default(now())
+
+  @@index([status])
+  @@index([studentId, dateISO])
+  @@map("evaluation_conflicts")
+}
+
+// "Taken by" marks for the shared view (plan §2.2) — history of takes,
+// releases and take-overs is kept in AuditLog, not here; this row is only
+// ever the current state for one student-day.
+model EvaluationClaim {
+  id          String   @id @default(cuid())
+  studentId   String
+  dateISO     String
+  evaluatorId String
+  status      String // "active" | "released" | "completed" | "taken_over" | "expired"
+  reason      String?
+  claimedAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([studentId, dateISO])
+  @@map("evaluation_claims")
+}
+
+// Server-side sessions (plan §3): lets a deactivated evaluator account be
+// cut off immediately (401 on next request) instead of the old JWT-only
+// approach staying valid until it expires up to 12h later (defect C7), and
+// lets an admin revoke one specific device (defect P3/P12).
+model Session {
+  id          String    @id @default(cuid())
+  accountId   String
+  account     Account   @relation(fields: [accountId], references: [id])
+  deviceLabel String?
+  createdAt   DateTime  @default(now())
+  lastSeenAt  DateTime  @default(now())
+  expiresAt   DateTime
+  revokedAt   DateTime?
+
+  @@index([accountId])
+  @@map("sessions")
+}
+
+// Free Web Push (VAPID) subscriptions for reminders when the evaluator app
+// is closed (plan §6) — no paid push service.
+model PushSubscription {
+  id        String   @id @default(cuid())
+  accountId String
+  sessionId String
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+
+  @@index([accountId])
+  @@map("push_subscriptions")
+}
+
+// Prevents the reminder cron from sending the same reminder twice for the
+// same evaluator/date/stage (plan §2.4, §6).
+model ReminderLog {
+  id        String   @id @default(cuid())
+  accountId String
+  kind      String // "missing" | "window_closing"
+  dateISO   String
+  stage     Int // 0, 3, 5, 6
+  sentAt    DateTime @default(now())
+
+  @@unique([accountId, kind, dateISO, stage])
+  @@map("reminder_logs")
 }
 
 model EvaluationScore {

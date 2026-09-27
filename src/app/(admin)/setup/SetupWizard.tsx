@@ -28,6 +28,7 @@ import { createRotationBlockAction } from "@/lib/actions/rotationBlocks";
 import { generateScheduleAction, clearAutoScheduleAction } from "@/lib/actions/scheduleEngine";
 import type { GenerateResult } from "@/lib/models/scheduleEngine";
 import { WEEKDAYS } from "@/lib/weekdays";
+import { todayISO as todayISOUtil, addDaysISO } from "@/lib/date";
 
 const STATUS_LABEL: Record<string, string> = { DRAFT: "مسودة", PUBLISHED: "منشورة", ARCHIVED: "مؤرشفة" };
 
@@ -725,17 +726,18 @@ function RotationStep({ data }: { data: SetupData }) {
 
   // Read the clock once (lazy state init) rather than during render, so the
   // "today" marker and empty-state window stay stable across re-renders.
-  const [now] = useState(() => Date.now());
-  const todayISO = new Date(now).toISOString().slice(0, 10);
-  let windowStart = todayISO;
-  let windowEnd = new Date(now + 14 * 86400000).toISOString().slice(0, 10);
+  // Baghdad-local, not UTC (EVALUATOR_APP_PLAN.md defect C10) — this marker
+  // is what an admin in Iraq reads as "today" on the timeline.
+  const [today] = useState(() => todayISOUtil());
+  let windowStart = today;
+  let windowEnd = addDaysISO(today, 14);
   if (blocks.length > 0) {
     windowStart = blocks.reduce((min, b) => (b.startDate < min ? b.startDate : min), blocks[0].startDate);
     windowEnd = blocks.reduce((max, b) => (b.endDate > max ? b.endDate : max), blocks[0].endDate);
   }
   const totalDays = Math.max(1, daysBetween(windowStart, windowEnd) + 1);
   const todayOffsetPct =
-    todayISO >= windowStart && todayISO <= windowEnd ? (daysBetween(windowStart, todayISO) / totalDays) * 100 : null;
+    today >= windowStart && today <= windowEnd ? (daysBetween(windowStart, today) / totalDays) * 100 : null;
 
   const blocksByGroup = new Map<string, RotationBlockWithGroup[]>();
   for (const b of blocks) {
@@ -831,7 +833,7 @@ function RotationStep({ data }: { data: SetupData }) {
                     <div
                       className="absolute top-0 bottom-0 w-px bg-red-400"
                       style={{ left: `${todayOffsetPct}%` }}
-                      title={`اليوم: ${todayISO}`}
+                      title={`اليوم: ${today}`}
                     />
                   )}
                   {blocksByGroup.get(g.id)!.map((b) => {

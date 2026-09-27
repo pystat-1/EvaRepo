@@ -6,6 +6,8 @@ import { recordAudit } from "../audit";
 import { listRubricSections } from "./rubric";
 import { recomputeFlagsForStudent } from "./flags";
 import { getScheduledRotationForDate } from "./rotationBlocks";
+import { todayISO } from "../date";
+import { isWithinSubmissionWindow, normalizeScoresForAttendance, validateScores } from "../evaluator/validation";
 
 export type Attendance = "present" | "absent" | "late";
 
@@ -183,17 +185,17 @@ export async function upsertEvaluation(
   actorId: string,
   input: UpsertEvaluationInput
 ): Promise<EvaluationWithScores> {
-  const sections = await listRubricSections();
-  const sectionById = new Map(sections.map((s) => [s.id, s]));
-  let total = 0;
-  for (const [sectionId, score] of Object.entries(input.scores)) {
-    const section = sectionById.get(sectionId);
-    if (!section) throw new Error("Unknown rubric section");
-    if (score < 0 || score > section.maxScore) {
-      throw new Error(`الدرجة في "${section.labelAr}" يجب أن تكون بين 0 و ${section.maxScore}`);
-    }
-    total += score;
+  // EVALUATOR_APP_PLAN.md C5: an evaluation can only be saved for a date
+  // within the 7-day Baghdad window (backdating/grading-ahead were both
+  // previously accepted with no check at all).
+  if (!isWithinSubmissionWindow(input.dateISO, todayISO())) {
+    throw new Error("لا يمكن حفظ تقييم لهذا التاريخ — تجاوز المدة المسموحة (7 أيام)");
   }
+
+  const sections = await listRubricSections();
+  const scores = normalizeScoresForAttendance(input.attendance, input.scores, sections);
+  validateScores(scores, sections);
+  const total = Object.values(scores).reduce((sum, score) => sum + score, 0);
 
   const { groupId, hospitalId } = await getStudentGroupHospital(input.studentId, input.dateISO);
   const existing = await getEvaluationForStudentDate(input.studentId, input.dateISO);
@@ -232,9 +234,9 @@ export async function upsertEvaluation(
     });
 
     await tx.evaluationScore.deleteMany({ where: { evaluationId: evaluation.id } });
-    if (Object.keys(input.scores).length > 0) {
+    if (Object.keys(scores).length > 0) {
       await tx.evaluationScore.createMany({
-        data: Object.entries(input.scores).map(([rubricSectionId, score]) => ({
+        data: Object.entries(scores).map(([rubricSectionId, score]) => ({
           evaluationId: evaluation.id,
           rubricSectionId,
           score,

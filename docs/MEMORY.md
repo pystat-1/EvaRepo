@@ -18,6 +18,7 @@
 | `docs/COURSE_SETUP_PLAN.md` | Big Goal 1: 8-step setup wizard, 10 matrix designs, publish flow, schema changes, build order S1–S9 |
 | `docs/EVALUATOR_APP_PLAN.md` | Big Goal 2 FINAL: rulebook, data model, API, offline, reminders, design, risk register C1–C13 / P1–P19, build order E1–E10 |
 | `docs/GRADING_CENTER_PLAN.md` | Big Goal 3: rotation-view grid (hospital→week→day), cell popover, journaled admin actions, zero-loss layers, free tool choices, attack G1–G25, build order G-1…G-10 |
+| `docs/DATABASE_DESIGN.md` | Target database: 28 tables in 5 areas, mermaid ER diagram, DB-level guards. Interactive map: https://claude.ai/artifact/CS3HFH23NKoKt58aFkJTP8 |
 | `PROJECT_GOALS.md` | v3's historical goals and session log (legacy, reference only) |
 | `prisma/schema.prisma` | v3 data model (reference for Phase 3) |
 
@@ -47,4 +48,5 @@
 | 2026-09-27 | Conflicts → admin approves one; shared view = who-took-whom only; 7-day window + reminders; edit until admin lock | Decided by user |
 | 2026-09-27 | Do not implement yet — plan only | User instruction |
 | 2026-09-28 | Grading Center rebuilt from scratch, not constrained by v3 structure | User instruction |
+| 2026-09-28 | Rubric snapshot modeled as a `RubricVersion` table (course → one version; sections belong to a version) | Design refinement in DATABASE_DESIGN.md |
 | — | Open items: `PHASE_1_PLAN.md` §10, `COURSE_SETUP_PLAN.md` §10, `GRADING_CENTER_PLAN.md` questions (final grade formula!) | Awaiting user |

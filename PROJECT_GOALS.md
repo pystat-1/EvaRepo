@@ -318,6 +318,39 @@ click through it once to confirm live), Goal 4's PWA build is the
 
 _Newest entry on top. One entry per work session — what was done, what's next._
 
+### 2026-09-27 — Autonomous queue check: hold still in effect, zero change (repeat, x29)
+
+- This run's stored trigger prompt again cited the old Netlify site
+  (`eva-v3-app-gsfa`/`61860730-...`) as canonical, still says nothing about
+  the Cloudflare migration — unchanged since 2026-09-16 (now 11 days). Made
+  zero Netlify/Cloudflare/Neon writes, touched no Goal 4 code, called no
+  Neon/database MCP tool of any kind, per the hard safety rule.
+- Container started in detached HEAD again (same benign stale-local-ref
+  pattern as every prior run). `git fetch origin main` resolved to `570ec01`
+  (the x28 commit) with zero divergence in either direction (`git log
+  HEAD..origin/main` and `origin/main..HEAD` both empty) — nothing has
+  landed on `main` from a human since the x28 entry. Ran `git checkout main
+  && git merge --ff-only origin/main` to get back on the branch before
+  committing; no data or commits at risk. Goal 4's checklist (4a-4d) is
+  still all `[x]` — already fully complete, so there is no in-scope Goal 4
+  work to pick up.
+- Re-checked (read-only) both deploy targets: Netlify `get-project` on
+  `eva-v3-app-gsfa` still shows `currentDeploy` `6aa8a74483196d000869afc3`
+  (`ready`), unchanged since 2026-09-15. Cloudflare `workers_get_worker` on
+  `evarepo` still resolves to the same worker id
+  (`e724a0a170bd401d8c9cb949093d23f8`), no new information.
+- The three open items (Cloudflare migration confirmation, Neon
+  backup-quota fix, Google OAuth redirect URI) are all still unresolved.
+- **Not notifying the user** — no change since the x28 check; this is one
+  more repeat of the same held state (streak escalations already sent at
+  x17 and x25), not new information.
+- **Next step:** unchanged — needs a human to (a) confirm the Cloudflare
+  migration and record its real URL, (b) clear the Neon snapshot quota,
+  (c) add the Google OAuth redirect URI for the new domain, (d) update or
+  pause this routine's own stored trigger prompt so it stops citing the
+  old Netlify site and re-running against a fully-complete Goal 4. No
+  autonomous code work is available until then.
+
 ### 2026-09-27 — Autonomous queue check: hold still in effect, zero change (repeat, x28)
 
 - This run's stored trigger prompt again cited the old Netlify site

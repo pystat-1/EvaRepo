@@ -38,6 +38,15 @@ enum Shift {
   EVENING
 }
 
+// See COURSE_SETUP_PLAN.md §7. A course starts as a private draft the
+// wizard is still filling in, becomes visible to evaluators and gradable
+// once published, and is read-only once archived.
+enum CourseStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
 // A concrete year/course intake — e.g. year=2026, number=1 is "the first
 // course of 2026". Students and groups are scoped to one of these; the
 // student code (see Student.code) is derived from it.
@@ -50,11 +59,89 @@ model Course {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // COURSE_SETUP_PLAN.md §7/§8: wizard + publish state. Existing rows are
+  // backfilled to PUBLISHED by the migration so they keep working exactly
+  // as before this feature existed.
+  status          CourseStatus @default(DRAFT)
+  startDate       String? // "YYYY-MM-DD", the course's week-1 anchor day
+  weekCount       Int?
+  setupStep       Int          @default(1) // wizard resume point, 1..8
+  scheduleVersion Int          @default(0) // bumped on every publish
+
   students Student[]
   groups   Group[]
 
+  studyTypes         CourseStudyType[]
+  hospitals          CourseHospital[]
+  attendancePatterns CourseAttendancePattern[]
+  holidays           CourseHoliday[]
+  evaluatorAssignments EvaluatorAssignment[]
+  rotationBlocks       RotationBlock[]
+
   @@unique([year, number])
   @@map("courses")
+}
+
+// Which study types take part in a given course (wizard step 3).
+model CourseStudyType {
+  id          String    @id @default(cuid())
+  courseId    String
+  course      Course    @relation(fields: [courseId], references: [id])
+  studyTypeId String
+  studyType   StudyType @relation(fields: [studyTypeId], references: [id])
+  createdAt   DateTime  @default(now())
+
+  @@unique([courseId, studyTypeId])
+  @@map("course_study_types")
+}
+
+// Which hospitals take part in a given course (wizard step 4), with an
+// optional cap on how many groups can be there at once — the input the
+// rotation generator and conflict checker use to flag overloaded hospitals.
+model CourseHospital {
+  id         String   @id @default(cuid())
+  courseId   String
+  course     Course   @relation(fields: [courseId], references: [id])
+  hospitalId String
+  hospital   Hospital @relation(fields: [hospitalId], references: [id])
+  capacity   Int?
+  createdAt  DateTime @default(now())
+
+  @@unique([courseId, hospitalId])
+  @@map("course_hospitals")
+}
+
+// Wizard step 7: which weekdays count as attendance days, optionally
+// narrowed to one shift and/or study type (multiple rows per course cover
+// "morning attends SUN+TUE, evening attends MON+WED" etc). A row with both
+// shift and studyTypeId null is the course-wide default.
+model CourseAttendancePattern {
+  id          String     @id @default(cuid())
+  courseId    String
+  course      Course     @relation(fields: [courseId], references: [id])
+  shift       Shift?
+  studyTypeId String?
+  studyType   StudyType? @relation(fields: [studyTypeId], references: [id])
+  daysOfWeek  String // comma-separated weekday codes, e.g. "SUN,TUE"
+  createdAt   DateTime   @default(now())
+
+  @@map("course_attendance_patterns")
+}
+
+// Wizard step 7: dates excluded from attendance regardless of weekday
+// pattern (public holidays, exam days, …). The attendance-date expander
+// removes these before handing dates to the rotation generator and the
+// grading-day check.
+model CourseHoliday {
+  id        String   @id @default(cuid())
+  courseId  String
+  course    Course   @relation(fields: [courseId], references: [id])
+  dateISO   String // "YYYY-MM-DD"
+  label     String?
+  createdAt DateTime @default(now())
+
+  @@unique([courseId, dateISO])
+  @@map("course_holidays")
 }
 
 model Account {
@@ -102,12 +189,18 @@ model EvaluatorAssignment {
   hospital   Hospital @relation(fields: [hospitalId], references: [id])
   groupId    String?
   group      Group?   @relation(fields: [groupId], references: [id])
+  // COURSE_SETUP_PLAN.md §5/§8: which course this assignment is scoped to.
+  // Null means "legacy/global" — every course, current and future — which
+  // is how all assignments made before this column existed keep working.
+  courseId   String?
+  course     Course?  @relation(fields: [courseId], references: [id])
   active     Boolean  @default(true)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
   @@index([accountId])
   @@index([hospitalId])
+  @@index([courseId])
   @@map("evaluator_assignments")
 }
 
@@ -125,6 +218,9 @@ model StudyType {
   students  Student[]
   groups    Group[]
 
+  courseLinks        CourseStudyType[]
+  attendancePatterns CourseAttendancePattern[]
+
   @@map("study_types")
 }
 
@@ -139,6 +235,7 @@ model Hospital {
   updatedAt DateTime @updatedAt
   assignments    EvaluatorAssignment[]
   rotationBlocks RotationBlock[]
+  courseLinks    CourseHospital[]
 
   @@map("hospitals")
 }
@@ -180,12 +277,20 @@ model RotationBlock {
   // Which of the two weekly attendance days this block covers, e.g. "SUN,TUE".
   daysOfWeek String?
   notes      String?
+  // COURSE_SETUP_PLAN.md §8: which course/week this block belongs to when
+  // it was written by the setup wizard's rotation step. Null on blocks
+  // created before this column existed (or by hand outside the wizard) —
+  // they keep working exactly as now, just outside the wizard's matrix.
+  courseId   String?
+  course     Course?  @relation(fields: [courseId], references: [id])
+  weekIndex  Int?
   active     Boolean  @default(true)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
   @@index([groupId])
   @@index([hospitalId])
+  @@index([courseId])
   @@map("rotation_blocks")
 }
 

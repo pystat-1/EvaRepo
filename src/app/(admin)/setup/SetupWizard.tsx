@@ -9,10 +9,18 @@ import type { StudentWithRelations } from "@/lib/models/students";
 import type { EvaluatorWithAssignments } from "@/lib/models/evaluators";
 import type { RotationBlockWithGroup } from "@/lib/models/rotationBlocks";
 import type { TermSettings } from "@/lib/models/termSettings";
+import type { CourseHospitalRow } from "@/lib/models/courseSetup";
 import { saveWeeksAction, saveDaysAction } from "@/lib/actions/termSettings";
 import { createHospitalAction } from "@/lib/actions/hospitals";
 import { createStudyTypeAction } from "@/lib/actions/studyTypes";
 import { createCourseAction } from "@/lib/actions/courses";
+import {
+  createOrResumeCourseDraftAction,
+  resumeCourseDraftAction,
+  saveCourseDatesAction,
+  setCourseStudyTypesAction,
+  setCourseHospitalsAction,
+} from "@/lib/actions/courseSetup";
 import { createStudentAction } from "@/lib/actions/students";
 import { createGroupAction } from "@/lib/actions/groups";
 import { createEvaluatorAction } from "@/lib/actions/evaluators";
@@ -20,6 +28,8 @@ import { createRotationBlockAction } from "@/lib/actions/rotationBlocks";
 import { generateScheduleAction, clearAutoScheduleAction } from "@/lib/actions/scheduleEngine";
 import type { GenerateResult } from "@/lib/models/scheduleEngine";
 import { WEEKDAYS } from "@/lib/weekdays";
+
+const STATUS_LABEL: Record<string, string> = { DRAFT: "مسودة", PUBLISHED: "منشورة", ARCHIVED: "مؤرشفة" };
 
 const SHIFT_LABEL: Record<string, string> = { MORNING: "صباحي", EVENING: "مسائي" };
 
@@ -46,16 +56,41 @@ export interface SetupData {
   blocks: RotationBlockWithGroup[];
 }
 
+// COURSE_SETUP_PLAN.md §4: the selected course draft and what's already
+// been recorded for it in the new per-course tables. `selected` is
+// undefined until the admin picks or creates one in the "course" step.
+export interface SetupCourseData {
+  selected: Course | undefined;
+  studyTypeIds: string[];
+  hospitals: CourseHospitalRow[];
+}
+
 interface StepDef {
   key: string;
   label: string;
-  done: (d: SetupData) => boolean;
+  done: (d: SetupData, c: SetupCourseData) => boolean;
+  requiresCourse?: boolean;
 }
 
-// The seven-step course-setup flow, in the order the user walks it. Steps
-// are free-navigation: `done` drives the progress indicator but never gates
-// access, so an admin can jump back to edit any earlier step.
+// The course-setup flow, in the order the user walks it. Steps are
+// free-navigation: `done` drives the progress indicator but never gates
+// access, so an admin can jump back to edit any earlier step. The first
+// three steps are per-course (COURSE_SETUP_PLAN.md §4 steps 2-4); the rest
+// are still the pre-existing global flow, scoped per-course in a later pass.
 const STEPS: StepDef[] = [
+  { key: "course", label: "الدورة", done: (_d, c) => c.selected != null },
+  {
+    key: "course-studytypes",
+    label: "أنواع الدراسة للدورة",
+    done: (_d, c) => c.studyTypeIds.length > 0,
+    requiresCourse: true,
+  },
+  {
+    key: "course-hospitals",
+    label: "مستشفيات الدورة",
+    done: (_d, c) => c.hospitals.length > 0,
+    requiresCourse: true,
+  },
   { key: "weeks", label: "عدد الأسابيع", done: (d) => d.term.weeksCount != null },
   { key: "days", label: "أيام الأسبوع", done: (d) => d.term.daysPerWeek != null },
   { key: "hospitals", label: "المستشفيات", done: (d) => d.hospitals.some((h) => h.active) },
@@ -73,9 +108,9 @@ const STEPS: StepDef[] = [
   { key: "rotation", label: "جدول الدوران", done: (d) => d.blocks.length > 0 },
 ];
 
-export default function SetupWizard({ data }: { data: SetupData }) {
+export default function SetupWizard({ data, course }: { data: SetupData; course: SetupCourseData }) {
   const [active, setActive] = useState(0);
-  const doneCount = STEPS.filter((s) => s.done(data)).length;
+  const doneCount = STEPS.filter((s) => s.done(data, course)).length;
   const step = STEPS[active];
 
   return (
@@ -108,14 +143,16 @@ export default function SetupWizard({ data }: { data: SetupData }) {
       {/* Stepper */}
       <ol className="flex flex-wrap gap-2">
         {STEPS.map((s, i) => {
-          const done = s.done(data);
+          const done = s.done(data, course);
           const isActive = i === active;
+          const locked = s.requiresCourse && course.selected == null;
           return (
             <li key={s.key}>
               <button
                 type="button"
+                disabled={locked}
                 onClick={() => setActive(i)}
-                className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition"
+                className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition disabled:opacity-40 disabled:cursor-not-allowed"
                 style={{
                   borderColor: isActive ? "#2563eb" : "var(--border, #e2e8f0)",
                   background: isActive ? "#eff6ff" : done ? "#f0fdf4" : "var(--surface-raised, #fff)",
@@ -136,7 +173,7 @@ export default function SetupWizard({ data }: { data: SetupData }) {
 
       {/* Active step panel */}
       <div className="card">
-        <StepPanel stepKey={step.key} data={data} />
+        <StepPanel stepKey={step.key} data={data} course={course} />
       </div>
 
       {/* Prev / next */}
@@ -162,8 +199,14 @@ export default function SetupWizard({ data }: { data: SetupData }) {
   );
 }
 
-function StepPanel({ stepKey, data }: { stepKey: string; data: SetupData }) {
+function StepPanel({ stepKey, data, course }: { stepKey: string; data: SetupData; course: SetupCourseData }) {
   switch (stepKey) {
+    case "course":
+      return <CourseStep data={data} course={course} />;
+    case "course-studytypes":
+      return <CourseStudyTypesStep data={data} course={course} />;
+    case "course-hospitals":
+      return <CourseHospitalsStep data={data} course={course} />;
     case "weeks":
       return <WeeksStep data={data} />;
     case "days":
@@ -188,6 +231,169 @@ function StepHeader({ title, hint }: { title: string; hint: string }) {
     <div className="mb-4">
       <h2 className="font-semibold text-lg">{title}</h2>
       <p className="text-sm text-slate-500 mt-0.5">{hint}</p>
+    </div>
+  );
+}
+
+function CourseStep({ data, course }: { data: SetupData; course: SetupCourseData }) {
+  const selected = course.selected;
+  return (
+    <div className="flex flex-col gap-5">
+      <StepHeader
+        title="الدورة"
+        hint="اختر السنة والدورة لإعدادها، أو استأنف مسودة موجودة. باقي الخطوات تُحفظ لهذه الدورة تحديداً."
+      />
+      <form action={createOrResumeCourseDraftAction} className="flex flex-wrap items-end gap-2">
+        <input name="year" type="number" required min={2000} placeholder="السنة" className="input w-28" />
+        <select name="number" required className="input">
+          <option value="1">دورة ١</option>
+          <option value="2">دورة ٢</option>
+        </select>
+        <input name="label" placeholder="تسمية (اختياري)" className="input" />
+        <button type="submit" className="btn btn-primary">
+          إنشاء / استئناف
+        </button>
+      </form>
+
+      {selected && (
+        <div className="rounded-lg border p-3 flex items-center justify-between" style={{ borderColor: "#16a34a", background: "#f0fdf4" }}>
+          <div className="text-sm">
+            <span className="font-semibold">
+              {selected.label ?? `${selected.year}-${selected.number}`}
+            </span>{" "}
+            <span className="badge badge-gray">{STATUS_LABEL[selected.status] ?? selected.status}</span>
+          </div>
+          <span className="text-xs text-slate-500">محدَّدة الآن</span>
+        </div>
+      )}
+
+      {selected && (
+        <div>
+          <h3 className="text-sm font-semibold text-slate-600 mb-2">تاريخ البداية وعدد الأسابيع</h3>
+          <form action={saveCourseDatesAction} className="flex flex-wrap items-end gap-2">
+            <input type="hidden" name="courseId" value={selected.id} />
+            <label className="flex flex-col gap-1 text-sm">
+              <span>تاريخ البداية</span>
+              <input name="startDate" type="date" defaultValue={selected.startDate ?? ""} className="input" />
+            </label>
+            <label className="flex flex-col gap-1 text-sm">
+              <span>عدد الأسابيع</span>
+              <input name="weekCount" type="number" min={1} max={52} defaultValue={selected.weekCount ?? ""} className="input w-28" />
+            </label>
+            <button type="submit" className="btn btn-secondary">
+              حفظ
+            </button>
+          </form>
+        </div>
+      )}
+
+      {data.courses.length > 0 && (
+        <div>
+          <h3 className="text-sm font-semibold text-slate-600 mb-2">دورات موجودة</h3>
+          <div className="flex flex-col gap-1.5">
+            {data.courses.map((c) => (
+              <form key={c.id} action={resumeCourseDraftAction} className="flex items-center justify-between border border-slate-100 rounded-lg px-3 py-2 text-sm">
+                <input type="hidden" name="courseId" value={c.id} />
+                <span>
+                  {c.label ?? `${c.year}-${c.number}`}{" "}
+                  <span className="text-xs text-slate-400">({STATUS_LABEL[c.status] ?? c.status})</span>
+                </span>
+                <button type="submit" className="btn btn-secondary text-xs">
+                  {selected?.id === c.id ? "محدَّدة" : "فتح"}
+                </button>
+              </form>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CourseStudyTypesStep({ data, course }: { data: SetupData; course: SetupCourseData }) {
+  if (!course.selected) return <p className="text-center text-slate-400 py-6">اختر دورة أولاً في خطوة «الدورة».</p>;
+  const active = data.studyTypes.filter((s) => s.active);
+  return (
+    <div>
+      <StepHeader title="أنواع الدراسة للدورة" hint="حدّد أنواع الدراسة المشاركة في هذه الدورة." />
+      <form action={createStudyTypeAction} className="flex flex-wrap items-end gap-2 mb-4">
+        <input name="name" required placeholder="الاسم (إنجليزي)" className="input" />
+        <input name="nameAr" placeholder="الاسم (عربي)" className="input" />
+        <input name="code" required maxLength={4} placeholder="الرمز (N)" className="input uppercase w-24" />
+        <button type="submit" className="btn btn-secondary">
+          إضافة نوع جديد
+        </button>
+      </form>
+      <form action={setCourseStudyTypesAction} className="flex flex-col gap-3">
+        <input type="hidden" name="courseId" value={course.selected.id} />
+        <div className="flex flex-wrap gap-2">
+          {active.map((st) => (
+            <label
+              key={st.id}
+              className="flex items-center gap-1.5 text-sm bg-slate-50 border border-slate-200 rounded-md px-2.5 py-1.5 cursor-pointer"
+            >
+              <input
+                type="checkbox"
+                name="studyTypeIds"
+                value={st.id}
+                defaultChecked={course.studyTypeIds.includes(st.id)}
+              />
+              {st.nameAr ?? st.name} {st.code ? `(${st.code})` : ""}
+            </label>
+          ))}
+        </div>
+        <button type="submit" className="btn btn-primary self-start">
+          حفظ
+        </button>
+      </form>
+    </div>
+  );
+}
+
+function CourseHospitalsStep({ data, course }: { data: SetupData; course: SetupCourseData }) {
+  if (!course.selected) return <p className="text-center text-slate-400 py-6">اختر دورة أولاً في خطوة «الدورة».</p>;
+  const active = data.hospitals.filter((h) => h.active);
+  const capacityByHospitalId = new Map(course.hospitals.map((h) => [h.hospitalId, h.capacity]));
+  const selectedIds = new Set(course.hospitals.map((h) => h.hospitalId));
+  return (
+    <div>
+      <StepHeader
+        title="مستشفيات الدورة"
+        hint="حدّد المستشفيات المشاركة في هذه الدورة، مع سعة اختيارية (أقصى عدد مجموعات في آن واحد)."
+      />
+      <form action={createHospitalAction} className="flex flex-wrap items-end gap-2 mb-4">
+        <input name="name" required placeholder="اسم المستشفى" className="input" />
+        <input name="nameAr" placeholder="الاسم (عربي)" className="input" />
+        <button type="submit" className="btn btn-secondary">
+          إضافة مستشفى جديد
+        </button>
+      </form>
+      <form action={setCourseHospitalsAction} className="flex flex-col gap-2">
+        <input type="hidden" name="courseId" value={course.selected.id} />
+        {active.map((h) => (
+          <label
+            key={h.id}
+            className="flex items-center justify-between gap-2 border border-slate-100 rounded-lg px-3 py-2 text-sm"
+          >
+            <span className="flex items-center gap-2">
+              <input type="checkbox" name="hospitalIds" value={h.id} defaultChecked={selectedIds.has(h.id)} />
+              {h.name}
+            </span>
+            <input
+              name={`capacity_${h.id}`}
+              type="number"
+              min={1}
+              placeholder="سعة — بلا حد"
+              defaultValue={capacityByHospitalId.get(h.id) ?? ""}
+              className="input w-32"
+            />
+          </label>
+        ))}
+        {active.length === 0 && <p className="text-center text-slate-400 py-4">أضف مستشفى أولاً</p>}
+        <button type="submit" className="btn btn-primary self-start mt-2">
+          حفظ
+        </button>
+      </form>
     </div>
   );
 }

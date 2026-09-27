@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test": "vitest run",
     "seed": "tsx scripts/seed.ts",
     "postinstall": "prisma generate",
     "db:migrate": "prisma migrate deploy",
@@ -43,6 +44,7 @@
     "tailwindcss": "^4",
     "tsx": "^4.23.13",
     "typescript": "^5",
+    "vitest": "^5.0.2",
     "wrangler": "^4.132.0"
   }
 }

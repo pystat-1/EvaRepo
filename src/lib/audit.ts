@@ -15,7 +15,11 @@ export type EntityType =
   | "StudentAccount"
   | "Course"
   | "RotationBlock"
-  | "TermSettings";
+  | "TermSettings"
+  | "CourseStudyType"
+  | "CourseHospital"
+  | "CourseAttendancePattern"
+  | "CourseHoliday";
 export type AuditAction = "create" | "update" | "deactivate" | "reactivate" | "delete" | "import";
 
 export async function recordAudit(params: {

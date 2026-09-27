@@ -60,6 +60,7 @@ erDiagram
   EvaluationSubmission }o--|| Student : ""
   EvaluationSubmission }o--|| Account : "evaluator"
   EvaluationSubmission }o--o| Session : ""
+  EvaluationSubmission }o--o| Evaluation : "applied to"
   EvaluationConflict }o--|| Student : ""
   EvaluationConflict }o--o| EvaluationSubmission : "chosen"
   EvaluationConflict }o--o| Account : "resolved by"

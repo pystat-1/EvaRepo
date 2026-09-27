@@ -17,18 +17,16 @@
 // as "I/O on behalf of a different request", crashing every request past
 // the first with a 500. Fetch-mode queries are stateless, so there's no
 // connection lifetime to violate.
-// "@prisma/client/wasm" (not the default "@prisma/client", and not
-// "@prisma/client/edge" — Prisma explicitly rejects combining `/edge` with
-// an `adapter`) is the entrypoint whose export map is meant for exactly
-// this combination: a driver adapter running on a `workerd`-class
-// runtime. It resolves to a WASM query engine, which — unlike a native
-// .so.node binary — a V8 isolate (Cloudflare Workers) can actually
-// execute. The default "@prisma/client" entrypoint resolves to the
-// native-engine runtime regardless of which adapter is passed to
-// `new PrismaClient({ adapter })`, because Next.js's own build step
-// resolves this import using Node conditions before OpenNext's
-// Cloudflare-specific bundling pass ever runs.
-import { PrismaClient } from "@prisma/client/wasm";
+// Default import, deliberately NOT "/edge" (rejects `adapter` outright)
+// or "/wasm" (its ESM build is missing a file in this Prisma version).
+// What actually makes this resolve correctly at runtime is
+// `serverExternalPackages` in next.config.ts, which keeps Next.js from
+// bundling/resolving this import at its own build time (using generic
+// Node conditions) — instead it's resolved later, when OpenNext's
+// Cloudflare-specific bundling pass runs with `workerd` conditions active,
+// letting the generated client's own conditional exports pick its WASM
+// engine (which a V8 isolate can execute, unlike a native .so.node binary).
+import { PrismaClient } from "@prisma/client";
 import { PrismaNeon } from "@prisma/adapter-neon";
 import { neonConfig } from "@neondatabase/serverless";
 

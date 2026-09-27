@@ -55,7 +55,6 @@ const DEFAULT_IMPLICIT_CAPACITY = 1;
 
 export function checkConflicts(input: CheckConflictsInput): Conflict[] {
   const conflicts: Conflict[] = [];
-  const hospitalsById = new Map(input.hospitals.map((h) => [h.id, h]));
 
   const blocksByGroupWeek = new Map<string, ConflictCheckerBlock[]>();
   const blocksByHospitalWeek = new Map<string, ConflictCheckerBlock[]>();

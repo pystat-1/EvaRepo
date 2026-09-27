@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { signSession, SESSION_COOKIE } from "@/lib/auth";
+import {
+  signSession,
+  signEvaluatorSession,
+  createEvaluatorSession,
+  deviceLabelFromUserAgent,
+  SESSION_COOKIE,
+  EVALUATOR_SESSION_TTL_DAYS,
+} from "@/lib/auth";
 
 const STATE_COOKIE = "google_oauth_state";
 
@@ -97,24 +104,49 @@ export async function GET(req: NextRequest) {
     return loginRedirect(req, "account_inactive");
   }
 
-  const token = signSession({
-    sub: account.id,
-    email: account.email,
-    name: account.name,
-    role: account.role,
-    studentId: account.studentId ?? undefined,
-  });
-
   const destination =
     account.role === "ADMIN" ? "/dashboard" : account.role === "EVALUATOR" ? "/my" : "/me";
   const res = NextResponse.redirect(new URL(destination, req.nextUrl.origin));
-  res.cookies.set(SESSION_COOKIE, token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: 60 * 60 * 12,
-  });
+
+  // EVALUATOR_APP_PLAN.md §3/E2: same server-side session as the password
+  // login path (auth.ts's getSession()) — Google Sign-In must not be a way
+  // to skip the deactivation/revoke check.
+  if (account.role === "EVALUATOR") {
+    const { id: sessionId } = await createEvaluatorSession(
+      account.id,
+      deviceLabelFromUserAgent(req.headers.get("user-agent"))
+    );
+    const token = signEvaluatorSession({
+      sub: account.id,
+      email: account.email,
+      name: account.name,
+      role: account.role,
+      sid: sessionId,
+    });
+    res.cookies.set(SESSION_COOKIE, token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+      maxAge: 60 * 60 * 24 * EVALUATOR_SESSION_TTL_DAYS,
+    });
+  } else {
+    const token = signSession({
+      sub: account.id,
+      email: account.email,
+      name: account.name,
+      role: account.role,
+      studentId: account.studentId ?? undefined,
+    });
+    res.cookies.set(SESSION_COOKIE, token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+      maxAge: 60 * 60 * 12,
+    });
+  }
+
   res.cookies.delete(STATE_COOKIE);
   return res;
 }

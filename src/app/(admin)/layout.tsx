@@ -18,6 +18,7 @@ const NAV = [
   { href: "/rubric", label: "معيار التقييم" },
   { href: "/statistics", label: "الإحصائيات" },
   { href: "/flags", label: "التنبيهات" },
+  { href: "/sessions", label: "جلسات المقيّمين" },
   { href: "/student-accounts", label: "حسابات الطلاب" },
   { href: "/audit-log", label: "سجل التغييرات" },
 ];

@@ -19,7 +19,8 @@ export type EntityType =
   | "CourseStudyType"
   | "CourseHospital"
   | "CourseAttendancePattern"
-  | "CourseHoliday";
+  | "CourseHoliday"
+  | "Session";
 export type AuditAction = "create" | "update" | "deactivate" | "reactivate" | "delete" | "import";
 
 export async function recordAudit(params: {

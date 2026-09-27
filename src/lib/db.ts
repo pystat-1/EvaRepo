@@ -17,7 +17,16 @@
 // as "I/O on behalf of a different request", crashing every request past
 // the first with a 500. Fetch-mode queries are stateless, so there's no
 // connection lifetime to violate.
-import { PrismaClient } from "@prisma/client";
+// "@prisma/client/edge" (not the default "@prisma/client") is what actually
+// avoids a native/WASM engine binary at runtime: its export map resolves to
+// a lightweight runtime that, combined with the `queryCompiler` preview
+// feature (see prisma/schema.prisma), compiles queries in plain JS instead
+// of delegating to any engine — required on Cloudflare Workers, whose V8
+// isolate cannot execute a native .so.node binary at all. The default
+// "@prisma/client" entrypoint still resolves to the native-engine runtime
+// even with a driver adapter configured, which is a Node-only assumption
+// that doesn't hold on Workers.
+import { PrismaClient } from "@prisma/client/edge";
 import { PrismaNeon } from "@prisma/adapter-neon";
 import { neonConfig } from "@neondatabase/serverless";
 

@@ -90,7 +90,14 @@ export async function listGradingCenter(
   const [rawRows, total, maxTotal] = await Promise.all([
     prisma.evaluation.findMany({
       where,
-      orderBy: [{ dateISO: "desc" }, { createdAt: "desc" }],
+      // Group → student (alphabetical) → date, so each student's days read
+      // together instead of being scattered across a date-sorted log.
+      orderBy: [
+        { student: { group: { name: "asc" } } },
+        { student: { nameAr: "asc" } },
+        { dateISO: "asc" },
+        { createdAt: "asc" },
+      ],
       skip: (page - 1) * pageSize,
       take: pageSize,
       include: {

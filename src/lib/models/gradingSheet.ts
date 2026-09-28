@@ -30,6 +30,10 @@ export interface SheetCell {
   attendance: "present" | "late" | "absent";
   total: number;
   dailyNoteSubmitted: boolean;
+  locked: boolean;
+  evaluatorName: string | null;
+  notes: string | null;
+  feedback: string | null;
   // Aligned to the criteria array: score per criterion, or null when that
   // criterion wasn't scored on this evaluation.
   scores: (number | null)[];
@@ -71,6 +75,11 @@ export interface GradingSheetFilters {
 }
 
 const SHIFT_LABEL: Record<string, string> = { MORNING: "صباحي", EVENING: "مسائي" };
+
+// Arabic-aware ordering, done here rather than trusting the database's
+// collation (which sorts Arabic by raw code point and splits alef/hamza
+// forms). `numeric` keeps "المجموعة 2" before "المجموعة 10".
+const collator = new Intl.Collator("ar", { numeric: true, sensitivity: "base" });
 
 // Enumerate the calendar dates a rotation block actually meets on: every day
 // in [start, end] whose weekday is in the block's attendance-day pattern
@@ -148,6 +157,10 @@ export async function getGradingSheet(filters: GradingSheetFilters = {}): Promis
           attendance: true,
           total: true,
           dailyNoteSubmitted: true,
+          locked: true,
+          notes: true,
+          feedback: true,
+          evaluator: { select: { name: true } },
           scores: { select: { rubricSectionId: true, score: true } },
         },
       })
@@ -185,7 +198,9 @@ export async function getGradingSheet(filters: GradingSheetFilters = {}): Promis
       });
     }
 
-    const roster = studentsByGroup.get(g.id) ?? [];
+    const roster = (studentsByGroup.get(g.id) ?? [])
+      .slice()
+      .sort((a, b) => collator.compare(a.nameAr, b.nameAr) || a.universityNumber.localeCompare(b.universityNumber));
     const sheetStudents: SheetStudent[] = roster.map((s) => ({
       id: s.id,
       name: s.nameAr,
@@ -202,6 +217,10 @@ export async function getGradingSheet(filters: GradingSheetFilters = {}): Promis
           attendance: e.attendance as "present" | "late" | "absent",
           total: e.total,
           dailyNoteSubmitted: e.dailyNoteSubmitted,
+          locked: e.locked,
+          evaluatorName: e.evaluator?.name ?? null,
+          notes: e.notes,
+          feedback: e.feedback,
           scores,
         };
       }),
@@ -228,8 +247,11 @@ export async function getGradingSheet(filters: GradingSheetFilters = {}): Promis
   }
 
   const studyTypes: SheetStudyType[] = Array.from(byStudyType.entries())
-    .map(([name, groups]) => ({ name, groups }))
-    .sort((a, b) => a.name.localeCompare(b.name, "ar"));
+    .map(([name, groups]) => ({
+      name,
+      groups: groups.slice().sort((a, b) => collator.compare(a.name, b.name)),
+    }))
+    .sort((a, b) => collator.compare(a.name, b.name));
 
   return { studyTypes, criteria, maxTotal };
 }

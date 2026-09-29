@@ -6,6 +6,10 @@ import { loginAction, LoginState } from "@/lib/actions/auth";
 
 const initialState: LoginState = {};
 
+// Google Sign-In is hidden until GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET are
+// set on the Worker and the redirect URI is registered. Flip to true then.
+const GOOGLE_SIGN_IN_ENABLED = false;
+
 const GOOGLE_ERROR_LABEL: Record<string, string> = {
   invalid_state: "انتهت صلاحية طلب الدخول — حاول مرة أخرى",
   not_configured: "تسجيل الدخول عبر Google غير مُفعّل حاليًا",
@@ -55,18 +59,22 @@ export default function LoginPage() {
             <GoogleErrorBanner />
           </Suspense>
 
-          <a
-            href="/api/auth/google"
-            className="btn btn-secondary w-full mb-4 flex items-center justify-center gap-2"
-          >
-            الدخول باستخدام Google
-          </a>
+          {GOOGLE_SIGN_IN_ENABLED && (
+            <>
+              <a
+                href="/api/auth/google"
+                className="btn btn-secondary w-full mb-4 flex items-center justify-center gap-2"
+              >
+                الدخول باستخدام Google
+              </a>
 
-          <div className="flex items-center gap-3 mb-4">
-            <div className="flex-1 border-t" style={{ borderColor: "var(--border)" }} />
-            <span className="text-xs" style={{ color: "var(--ink-muted)" }}>أو</span>
-            <div className="flex-1 border-t" style={{ borderColor: "var(--border)" }} />
-          </div>
+              <div className="flex items-center gap-3 mb-4">
+                <div className="flex-1 border-t" style={{ borderColor: "var(--border)" }} />
+                <span className="text-xs" style={{ color: "var(--ink-muted)" }}>أو</span>
+                <div className="flex-1 border-t" style={{ borderColor: "var(--border)" }} />
+              </div>
+            </>
+          )}
 
           <form action={formAction} className="flex flex-col gap-4">
             <div>

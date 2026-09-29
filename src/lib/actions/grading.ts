@@ -18,7 +18,7 @@ import { getScheduledRotationForDate } from "../models/rotationBlocks";
 // their group is actually scheduled at that evaluator's assigned hospital
 // — not any day within their group scope, and not a hospital they aren't
 // assigned to even if the group happens to be there.
-async function assertEvaluatorCanGrade(accountId: string, studentId: string, dateISO: string) {
+export async function assertEvaluatorCanGrade(accountId: string, studentId: string, dateISO: string) {
   const student = await getStudent(studentId);
   if (!student || !student.groupId) throw new Error("الطالب غير موجود أو غير مرتبط بمجموعة");
   const scopedGroupIds = await getScopedGroupIds(accountId);
@@ -48,12 +48,26 @@ export async function gradeStudentAction(formData: FormData) {
   // Checkbox posts "on"/"1"/"true" when ticked, nothing when not.
   const dnRaw = formData.get("dailyNoteSubmitted");
   const dailyNoteSubmitted = dnRaw === "on" || dnRaw === "1" || dnRaw === "true";
+  // Tri-state daily note from the grading form: "1" handed in, "0" not
+  // handed in, "" not recorded. Older offline entries only carry the
+  // checkbox above, so it stays the fallback.
+  const dnState = formData.get("dailyNote");
+  const dailyNote =
+    dnState === "1" ? true : dnState === "0" ? false : dnState === "" ? null : undefined;
 
   await assertEvaluatorCanGrade(session.sub, studentId, dateISO);
 
   const sections = await listRubricSections();
   const scores: Record<string, number> = {};
+  const itemScores: Record<string, number> = {};
   for (const section of sections) {
+    if (section.items.length > 0) {
+      for (const item of section.items) {
+        const raw = formData.get(`item_${item.id}`);
+        itemScores[item.id] = raw === null || raw === "" ? 0 : Number(raw);
+      }
+      continue;
+    }
     const raw = formData.get(`score_${section.id}`);
     scores[section.id] = raw === null || raw === "" ? 0 : Number(raw);
   }
@@ -66,7 +80,9 @@ export async function gradeStudentAction(formData: FormData) {
     notes: notes || undefined,
     feedback: feedback || undefined,
     dailyNoteSubmitted,
+    dailyNote,
     scores,
+    itemScores,
   });
 
   // Mirror this save to the Google Sheets backup (append-only capture log).
@@ -88,4 +104,7 @@ export async function gradeStudentAction(formData: FormData) {
   revalidatePath("/my");
   revalidatePath("/schedule");
   revalidatePath("/history");
+  revalidatePath("/attendance");
+  revalidatePath("/daily-note");
+  revalidatePath("/attendance-log");
 }

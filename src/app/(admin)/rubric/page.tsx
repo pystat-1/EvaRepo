@@ -54,7 +54,19 @@ export default async function RubricPage() {
             {sections.map((s) => (
               <tr key={s.id}>
                 <td>{s.sortOrder}</td>
-                <td>{s.labelAr}</td>
+                <td>
+                  <div>{s.labelAr}</div>
+                  {s.items.length > 0 && (
+                    <ul className="mt-1 text-xs flex flex-wrap gap-x-3 gap-y-0.5" style={{ color: "var(--ink-muted)" }}>
+                      {s.items.map((item) => (
+                        <li key={item.id}>
+                          {item.labelAr} ({item.maxScore}
+                          {item.kind === "check" ? " · اختيار" : ""})
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </td>
                 <td>{s.maxScore}</td>
                 <td>
                   <span className={`badge ${s.active ? "badge-green" : "badge-gray"}`}>

@@ -18,6 +18,7 @@ const ENTITY_LABELS: Record<string, string> = {
   Evaluation: "تقييم",
   RubricSection: "بند تقييم",
   StudentAccount: "حساب طالب",
+  AttendanceRecord: "حضور يومي",
 };
 
 export default async function AuditLogPage() {

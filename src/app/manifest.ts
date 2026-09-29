@@ -24,6 +24,7 @@ export default function manifest(): MetadataRoute.Manifest {
       { src: "/icon-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
     ],
     shortcuts: [
+      { name: "الحضور والتقييم", short_name: "الحضور", url: "/attendance" },
       { name: "طلابي", short_name: "طلابي", url: "/my" },
       { name: "جدولي", short_name: "جدولي", url: "/schedule" },
       { name: "لوحة المدير", short_name: "المدير", url: "/dashboard" },

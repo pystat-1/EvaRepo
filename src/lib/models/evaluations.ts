@@ -7,7 +7,13 @@ import { listRubricSections } from "./rubric";
 import { recomputeFlagsForStudent } from "./flags";
 import { getScheduledRotationForDate } from "./rotationBlocks";
 import { todayISO } from "../date";
-import { isWithinSubmissionWindow, normalizeScoresForAttendance, validateScores } from "../evaluator/validation";
+import {
+  applyItemScores,
+  isWithinSubmissionWindow,
+  normalizeScoresForAttendance,
+  round2,
+  validateScores,
+} from "../evaluator/validation";
 
 export type Attendance = "present" | "absent" | "late";
 
@@ -22,6 +28,8 @@ export interface Evaluation {
   notes: string | null;
   feedback: string | null;
   dailyNoteSubmitted: boolean;
+  // rubricItemId -> score, for sections broken into items (empty if none)
+  itemScores: Record<string, number>;
   total: number;
   locked: boolean;
   createdAt: string;
@@ -44,6 +52,7 @@ function serialize(row: {
   notes: string | null;
   feedback: string | null;
   dailyNoteSubmitted: boolean;
+  itemScores?: unknown;
   total: number;
   locked: boolean;
   createdAt: Date;
@@ -60,11 +69,21 @@ function serialize(row: {
     notes: row.notes,
     feedback: row.feedback,
     dailyNoteSubmitted: row.dailyNoteSubmitted,
+    itemScores: parseItemScores(row.itemScores),
     total: row.total,
     locked: row.locked,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
+}
+
+function parseItemScores(value: unknown): Record<string, number> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const out: Record<string, number> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof v === "number" && Number.isFinite(v)) out[k] = v;
+  }
+  return out;
 }
 
 // Resolves the student's group's hospital for a given date off the
@@ -155,7 +174,11 @@ export interface UpsertEvaluationInput {
   notes?: string;
   feedback?: string;
   dailyNoteSubmitted?: boolean;
-  scores: Record<string, number>; // rubricSectionId -> score
+  // Tri-state daily-note status for the attendance record (null = not
+  // recorded). When omitted, it is derived from dailyNoteSubmitted.
+  dailyNote?: boolean | null;
+  scores: Record<string, number>; // rubricSectionId -> score (sections without items)
+  itemScores?: Record<string, number>; // rubricItemId -> score
 }
 
 // The Tier 0 fix from the data-integrity roadmap, applied structurally: the
@@ -193,9 +216,15 @@ export async function upsertEvaluation(
   }
 
   const sections = await listRubricSections();
-  const scores = normalizeScoresForAttendance(input.attendance, input.scores, sections);
+  const absent = input.attendance === "absent";
+  const fromItems = applyItemScores(input.scores, absent ? {} : input.itemScores ?? {}, sections);
+  const scores = normalizeScoresForAttendance(input.attendance, fromItems.scores, sections);
+  const itemScores = fromItems.itemScores;
   validateScores(scores, sections);
-  const total = Object.values(scores).reduce((sum, score) => sum + score, 0);
+  const total = round2(Object.values(scores).reduce((sum, score) => sum + score, 0));
+  const dailyNote =
+    input.dailyNote !== undefined ? input.dailyNote : input.dailyNoteSubmitted ? true : null;
+  const dailyNoteSubmitted = !absent && dailyNote === true;
 
   const { groupId, hospitalId } = await getStudentGroupHospital(input.studentId, input.dateISO);
   const existing = await getEvaluationForStudentDate(input.studentId, input.dateISO);
@@ -218,7 +247,8 @@ export async function upsertEvaluation(
         attendance: input.attendance,
         notes: input.notes ?? null,
         feedback: input.feedback ?? null,
-        dailyNoteSubmitted: input.dailyNoteSubmitted ?? false,
+        dailyNoteSubmitted,
+        itemScores,
         total,
       },
       update: {
@@ -228,8 +258,47 @@ export async function upsertEvaluation(
         attendance: input.attendance,
         notes: input.notes ?? null,
         feedback: input.feedback ?? null,
-        dailyNoteSubmitted: input.dailyNoteSubmitted ?? false,
+        dailyNoteSubmitted,
+        itemScores,
         total,
+      },
+    });
+
+    // Keep the day's attendance record (الحضور / الديلي نوت screens) in
+    // step with what the grading form saved. The marked time only moves
+    // when the attendance status actually changes.
+    const record = await tx.attendanceRecord.findUnique({
+      where: { studentId_dateISO: { studentId: input.studentId, dateISO: input.dateISO } },
+    });
+    const now = new Date();
+    const statusChanged = !record || record.status !== input.attendance;
+    const noteValue = absent ? null : dailyNote;
+    const noteChanged = !record || record.dailyNote !== noteValue;
+    await tx.attendanceRecord.upsert({
+      where: { studentId_dateISO: { studentId: input.studentId, dateISO: input.dateISO } },
+      create: {
+        studentId: input.studentId,
+        dateISO: input.dateISO,
+        groupId,
+        hospitalId,
+        status: input.attendance,
+        markedAt: now,
+        markedById: actorId,
+        dailyNote: noteValue,
+        dailyNoteAt: noteValue === null ? null : now,
+        dailyNoteById: noteValue === null ? null : actorId,
+      },
+      update: {
+        groupId,
+        hospitalId,
+        ...(statusChanged ? { status: input.attendance, markedAt: now, markedById: actorId } : {}),
+        ...(noteChanged
+          ? {
+              dailyNote: noteValue,
+              dailyNoteAt: noteValue === null ? null : now,
+              dailyNoteById: noteValue === null ? null : actorId,
+            }
+          : {}),
       },
     });
 

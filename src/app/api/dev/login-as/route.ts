@@ -15,7 +15,7 @@ export async function GET(req: NextRequest) {
 
   const roleParam = req.nextUrl.searchParams.get("role")?.toUpperCase();
   const role = roleParam === "EVALUATOR" ? "EVALUATOR" : roleParam === "STUDENT" ? "STUDENT" : "ADMIN";
-  const dest = role === "EVALUATOR" ? "/my" : role === "STUDENT" ? "/me" : "/dashboard";
+  const dest = role === "EVALUATOR" ? "/attendance" : role === "STUDENT" ? "/me" : "/dashboard";
   const res = NextResponse.redirect(new URL(dest, req.nextUrl.origin));
   res.cookies.set(DEV_ROLE_COOKIE, role, { httpOnly: true, sameSite: "lax", path: "/" });
   return res;

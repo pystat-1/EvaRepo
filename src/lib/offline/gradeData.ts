@@ -12,17 +12,30 @@ export interface ExistingForForm {
   notes: string | null;
   feedback: string | null;
   dailyNoteSubmitted: boolean;
+  // Tri-state when known (null = not recorded); older data only has the
+  // boolean above.
+  dailyNote?: boolean | null;
   scores: Record<string, number>;
+  itemScores?: Record<string, number>;
+}
+
+// Today's attendance record from the الحضور / الديلي نوت screens, used to
+// pre-fill a student who hasn't been graded yet.
+export interface DayRecordForForm {
+  attendance: Attendance;
+  dailyNote: boolean | null;
 }
 
 export interface GradeViewData {
   ok: true;
   dateISO: string;
   student: { nameAr: string; nameEn: string | null; universityNumber: string };
+  groupId?: string;
   hospitalName: string;
   sections: RubricSection[];
   maxTotal: number;
   existing: ExistingForForm | null;
+  record?: DayRecordForForm | null;
 }
 
 export type GradeViewFailure = {
@@ -54,7 +67,8 @@ export async function loadOfflineGradeData(studentId: string): Promise<GradeView
   );
   if (!stint) return { ok: false, reason: "not_scheduled" };
 
-  const sections = (await getOfflineRubricSections()) ?? [];
+  // Bundles imported before rubric items existed have no `items` field.
+  const sections = ((await getOfflineRubricSections()) ?? []).map((s) => ({ ...s, items: s.items ?? [] }));
   const maxTotal = sections.reduce((sum, s) => sum + s.maxScore, 0);
 
   // A not-yet-synced local save takes priority over the last-known server
@@ -68,7 +82,9 @@ export async function loadOfflineGradeData(studentId: string): Promise<GradeView
         notes: queued.notes ?? null,
         feedback: queued.feedback ?? null,
         dailyNoteSubmitted: queued.dailyNoteSubmitted ?? false,
+        dailyNote: queued.dailyNote,
         scores: queued.scores,
+        itemScores: queued.itemScores,
       }
     : saved
     ? {
@@ -77,6 +93,7 @@ export async function loadOfflineGradeData(studentId: string): Promise<GradeView
         feedback: saved.feedback,
         dailyNoteSubmitted: saved.dailyNoteSubmitted,
         scores: saved.scores,
+        itemScores: saved.itemScores,
       }
     : null;
 
@@ -84,6 +101,7 @@ export async function loadOfflineGradeData(studentId: string): Promise<GradeView
     ok: true,
     dateISO,
     student: { nameAr: found.student.nameAr, nameEn: found.student.nameEn, universityNumber: found.student.universityNumber },
+    groupId: found.groupId,
     hospitalName: stint.hospitalName,
     sections,
     maxTotal,

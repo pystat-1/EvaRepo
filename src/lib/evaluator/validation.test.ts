@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isWithinSubmissionWindow, normalizeScoresForAttendance, validateScores } from "./validation";
+import { applyItemScores, isWithinSubmissionWindow, normalizeScoresForAttendance, validateScores } from "./validation";
 
 const sections = [
   { id: "s1", labelAr: "الانتظام", maxScore: 1 },
@@ -7,7 +7,7 @@ const sections = [
 ];
 
 describe("validateScores", () => {
-  it("accepts scores that are complete, in range, and on 0.5 steps", () => {
+  it("accepts scores that are complete, in range, and on 0.01 steps", () => {
     expect(() => validateScores({ s1: 1, s2: 5.5 }, sections)).not.toThrow();
   });
 
@@ -35,8 +35,56 @@ describe("validateScores", () => {
     expect(() => validateScores({ s1: -1, s2: 5 }, sections)).toThrow(/بين 0 و 1/);
   });
 
-  it("rejects a score off the 0.5 step", () => {
-    expect(() => validateScores({ s1: 1, s2: 5.3 }, sections)).toThrow(/0\.5/);
+  it("accepts quarter and cent steps", () => {
+    expect(() => validateScores({ s1: 0.75, s2: 5.35 }, sections)).not.toThrow();
+  });
+
+  it("rejects a score with more than two decimals", () => {
+    expect(() => validateScores({ s1: 1, s2: 5.333 }, sections)).toThrow(/منزلتين/);
+  });
+});
+
+describe("applyItemScores", () => {
+  const withItems = [
+    {
+      id: "att",
+      labelAr: "الموقف والتواصل",
+      maxScore: 1,
+      items: [
+        { id: "i1", labelAr: "الطاقم الطبي", maxScore: 0.25, kind: "check" as const },
+        { id: "i2", labelAr: "الطالب", maxScore: 0.25, kind: "check" as const },
+        { id: "i3", labelAr: "المعلم", maxScore: 0.25, kind: "check" as const },
+        { id: "i4", labelAr: "المريض", maxScore: 0.25, kind: "check" as const },
+      ],
+    },
+    {
+      id: "disc",
+      labelAr: "المناقشة",
+      maxScore: 7,
+      items: [
+        { id: "g", labelAr: "مناقشة جماعية", maxScore: 3.5, kind: "number" as const },
+        { id: "c", labelAr: "مناقشة الحالة", maxScore: 3.5, kind: "number" as const },
+      ],
+    },
+    { id: "plain", labelAr: "بند بلا فقرات", maxScore: 2 },
+  ];
+
+  it("sums items into their section and keeps plain sections as sent", () => {
+    const out = applyItemScores({ plain: 1.5 }, { i1: 0.25, i2: 0.25, i3: 0.25, g: 3.25, c: 2.1 }, withItems);
+    expect(out.scores).toEqual({ plain: 1.5, att: 0.75, disc: 5.35 });
+    expect(out.itemScores).toEqual({ i1: 0.25, i2: 0.25, i3: 0.25, i4: 0, g: 3.25, c: 2.1 });
+  });
+
+  it("rejects a check item that is neither 0 nor its max", () => {
+    expect(() => applyItemScores({}, { i1: 0.1 }, withItems)).toThrow(/إما 0/);
+  });
+
+  it("rejects a number item above its max", () => {
+    expect(() => applyItemScores({}, { g: 4 }, withItems)).toThrow(/بين 0 و 3.5/);
+  });
+
+  it("rejects NaN item scores", () => {
+    expect(() => applyItemScores({}, { c: NaN }, withItems)).toThrow(/غير صالحة/);
   });
 });
 

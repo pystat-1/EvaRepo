@@ -8,6 +8,15 @@ import { OfflineSyncStatus } from "./offline-sync-status";
 // the admin dashboard, built mobile-first per §2.3. The app is now
 // installable and opens offline (Goal 4 Phase 4a); offline data/grading
 // work continues in Phase 4b onward.
+const NAV = [
+  { href: "/attendance", label: "الحضور والتقييم" },
+  { href: "/daily-note", label: "تسليم الديلي نوت" },
+  { href: "/attendance-log", label: "سجل الحضور" },
+  { href: "/schedule", label: "جدولي" },
+  { href: "/my", label: "طلابي" },
+  { href: "/history", label: "التقييمات السابقة" },
+];
+
 export default async function EvaluatorLayout({ children }: { children: React.ReactNode }) {
   const session = await getSession();
   if (!session || session.role !== "EVALUATOR") {
@@ -36,28 +45,17 @@ export default async function EvaluatorLayout({ children }: { children: React.Re
             </button>
           </form>
         </div>
-        <nav className="mx-auto w-full max-w-lg sm:max-w-2xl lg:max-w-4xl px-4 sm:px-6 flex gap-4">
-          <Link
-            href="/my"
-            className="pb-2.5 pt-1 text-[13.5px] font-semibold border-b-2"
-            style={{ color: "var(--ink-muted)", borderColor: "transparent" }}
-          >
-            طلابي
-          </Link>
-          <Link
-            href="/schedule"
-            className="pb-2.5 pt-1 text-[13.5px] font-semibold border-b-2"
-            style={{ color: "var(--ink-muted)", borderColor: "transparent" }}
-          >
-            جدولي
-          </Link>
-          <Link
-            href="/history"
-            className="pb-2.5 pt-1 text-[13.5px] font-semibold border-b-2"
-            style={{ color: "var(--ink-muted)", borderColor: "transparent" }}
-          >
-            التقييمات السابقة
-          </Link>
+        <nav className="mx-auto w-full max-w-lg sm:max-w-2xl lg:max-w-4xl px-4 sm:px-6 flex gap-4 overflow-x-auto whitespace-nowrap">
+          {NAV.map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              className="pb-2.5 pt-1 text-[13.5px] font-semibold border-b-2 shrink-0"
+              style={{ color: "var(--ink-muted)", borderColor: "transparent" }}
+            >
+              {item.label}
+            </Link>
+          ))}
         </nav>
       </header>
       <main className="mx-auto w-full max-w-lg sm:max-w-2xl lg:max-w-4xl flex-1 px-4 sm:px-6 py-6 flex flex-col gap-4">

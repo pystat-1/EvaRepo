@@ -105,7 +105,7 @@ export async function GET(req: NextRequest) {
   }
 
   const destination =
-    account.role === "ADMIN" ? "/dashboard" : account.role === "EVALUATOR" ? "/my" : "/me";
+    account.role === "ADMIN" ? "/dashboard" : account.role === "EVALUATOR" ? "/attendance" : "/me";
   const res = NextResponse.redirect(new URL(destination, req.nextUrl.origin));
 
   // EVALUATOR_APP_PLAN.md §3/E2: same server-side session as the password

@@ -81,7 +81,7 @@ export async function loginAction(_prev: LoginState, formData: FormData): Promis
   }
 
   if (account.role === "ADMIN") redirect("/dashboard");
-  if (account.role === "EVALUATOR") redirect("/my");
+  if (account.role === "EVALUATOR") redirect("/attendance");
   if (account.role === "STUDENT") redirect("/me");
   redirect("/dashboard");
 }

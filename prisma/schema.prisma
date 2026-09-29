@@ -346,6 +346,7 @@ model RubricSection {
   updatedAt  DateTime @updatedAt
 
   scores EvaluationScore[]
+  items  RubricItem[]
 
   @@map("rubric_sections")
 }
@@ -374,6 +375,10 @@ model Evaluation {
   // day — tracked separately from the rubric scores so it shows in the
   // end-of-day export and follow-up, and defaults false for absent days.
   dailyNoteSubmitted Boolean @default(false)
+  // Per-item scores (rubricItemId -> score) for sections that are broken
+  // into items (فقرات). Each section's EvaluationScore is the sum of its
+  // items, so everything that reads section scores keeps working as-is.
+  itemScores  Json?
   total       Float    @default(0)
   locked      Boolean  @default(false)
   createdAt   DateTime @default(now())
@@ -593,4 +598,51 @@ model TermSettings {
   updatedAt   DateTime @updatedAt
 
   @@map("term_settings")
+}
+
+// The items (فقرات) inside a rubric section, e.g. "الموقف والتواصل" =
+// staff / student / teacher / patient, 0.25 each. kind "check" is all or
+// nothing (0 or maxScore); kind "number" takes any value 0..maxScore in
+// 0.01 steps. A section with no active items is graded as one number.
+model RubricItem {
+  id        String        @id @default(cuid())
+  sectionId String
+  section   RubricSection @relation(fields: [sectionId], references: [id])
+  key       String        @unique // stable code, e.g. "gdisc"
+  labelAr   String
+  labelEn   String?
+  maxScore  Float
+  kind      String        @default("number") // "check" | "number"
+  sortOrder Int           @default(0)
+  active    Boolean       @default(true)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  @@index([sectionId])
+  @@map("rubric_items")
+}
+
+// One row per student per day: attendance as marked on the الحضور screen
+// (with the time it was marked) and whether the daily note was handed in.
+// Marking attendance does not by itself create an Evaluation, so a present
+// student stays "not graded yet"; an absent mark also writes a zero
+// Evaluation so absences keep reaching the grading center and flags.
+model AttendanceRecord {
+  id            String    @id @default(cuid())
+  studentId     String
+  dateISO       String // "YYYY-MM-DD"
+  groupId       String?
+  hospitalId    String?
+  status        String // "present" | "late" | "absent"
+  markedAt      DateTime  @default(now())
+  markedById    String
+  dailyNote     Boolean? // null = not recorded yet
+  dailyNoteAt   DateTime?
+  dailyNoteById String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([studentId, dateISO])
+  @@index([groupId, dateISO])
+  @@map("attendance_records")
 }

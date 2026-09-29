@@ -6,6 +6,7 @@ import { listRubricSections, getMaxTotal } from "@/lib/models/rubric";
 import { getEvaluationForStudentDate } from "@/lib/models/evaluations";
 import { getScheduledRotationForDate } from "@/lib/models/rotationBlocks";
 import { todayISO } from "@/lib/date";
+import { getAttendanceRecord } from "@/lib/models/attendance";
 
 // JSON twin of the grading page's server-side data fetch (same checks, same
 // order, as src/app/(evaluator)/grade/[studentId]/page.tsx and
@@ -48,15 +49,20 @@ export async function GET(_req: Request, { params }: { params: Promise<{ student
 
   const sections = await listRubricSections();
   const maxTotal = await getMaxTotal();
-  const existing = await getEvaluationForStudentDate(studentId, dateISO);
+  const [existing, record] = await Promise.all([
+    getEvaluationForStudentDate(studentId, dateISO),
+    getAttendanceRecord(studentId, dateISO),
+  ]);
 
   return NextResponse.json({
     ok: true,
     dateISO,
     student: { nameAr: student.nameAr, nameEn: student.nameEn, universityNumber: student.universityNumber },
+    groupId: student.groupId,
     hospitalName: scheduled.hospitalName,
     sections,
     maxTotal,
-    existing: existing ?? null,
+    existing: existing ? { ...existing, dailyNote: record ? record.dailyNote : undefined } : null,
+    record: record ? { attendance: record.status, dailyNote: record.dailyNote } : null,
   });
 }

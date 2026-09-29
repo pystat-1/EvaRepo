@@ -31,8 +31,12 @@ function outboxFormData(entry: OutboxEntry): FormData {
   if (entry.notes) fd.set("notes", entry.notes);
   if (entry.feedback) fd.set("feedback", entry.feedback);
   if (entry.dailyNoteSubmitted) fd.set("dailyNoteSubmitted", "1");
+  if (entry.dailyNote !== undefined) fd.set("dailyNote", entry.dailyNote === null ? "" : entry.dailyNote ? "1" : "0");
   for (const [sectionId, value] of Object.entries(entry.scores)) {
     fd.set(`score_${sectionId}`, String(value));
+  }
+  for (const [itemId, value] of Object.entries(entry.itemScores ?? {})) {
+    fd.set(`item_${itemId}`, String(value));
   }
   return fd;
 }
@@ -54,9 +58,16 @@ async function checkStillValid(entry: OutboxEntry): Promise<{ ok: true } | { ok:
   if (!body.ok) {
     return { ok: false, message: SCOPE_ERROR_MESSAGES[body.reason] ?? "تعذّر التحقق من هذا التقييم — راجعه يدويًا." };
   }
-  const currentSectionIds = body.sections.map((s) => s.id);
+  // A section with items is scored through its items; one without items
+  // needs its own score. Either way, anything the evaluator never saw
+  // offline means the rubric changed under them.
   const queuedSectionIds = new Set(Object.keys(entry.scores));
-  const missing = currentSectionIds.filter((id) => !queuedSectionIds.has(id));
+  const queuedItemIds = new Set(Object.keys(entry.itemScores ?? {}));
+  const missing = body.sections.filter((s) =>
+    (s.items ?? []).length > 0
+      ? s.items.some((i) => !queuedItemIds.has(i.id))
+      : !queuedSectionIds.has(s.id)
+  );
   if (missing.length > 0) {
     return {
       ok: false,

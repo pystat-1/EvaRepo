@@ -30,3 +30,13 @@ export function addDaysISO(dateISO: string, days: number): string {
   d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
 }
+
+// "08:42 ص" style clock time in Baghdad, for attendance marks.
+export function formatTimeBaghdad(iso: string | null): string {
+  if (!iso) return "";
+  return new Date(iso).toLocaleTimeString("ar-IQ-u-nu-latn", {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: APP_TIME_ZONE,
+  });
+}

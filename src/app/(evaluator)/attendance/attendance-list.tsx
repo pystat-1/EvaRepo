@@ -14,7 +14,15 @@ const BUTTONS: Array<{ value: Attendance; label: string; short: string; color: s
   { value: "absent", label: "غائب", short: "✗", color: "var(--red-700)" },
 ];
 
-export function AttendanceList({ rows: initialRows, maxTotal }: { rows: DayRosterRow[]; maxTotal: number }) {
+export function AttendanceList({
+  rows: initialRows,
+  maxTotal,
+  readOnly = false,
+}: {
+  rows: DayRosterRow[];
+  maxTotal: number;
+  readOnly?: boolean;
+}) {
   const router = useRouter();
   const [rows, setRows] = useState(initialRows);
   const [query, setQuery] = useState("");
@@ -23,7 +31,7 @@ export function AttendanceList({ rows: initialRows, maxTotal }: { rows: DayRoste
   const [, startTransition] = useTransition();
 
   function mark(row: DayRosterRow, status: Attendance) {
-    if (row.locked || row.attendance === status) return;
+    if (readOnly || row.locked || row.attendance === status) return;
     const previous = rows;
     setError(null);
     setPendingId(row.id);
@@ -125,7 +133,7 @@ export function AttendanceList({ rows: initialRows, maxTotal }: { rows: DayRoste
                       key={b.value}
                       type="button"
                       onClick={() => mark(row, b.value)}
-                      disabled={row.locked || busy}
+                      disabled={readOnly || row.locked || busy}
                       aria-pressed={on}
                       aria-label={b.label}
                       title={b.label}

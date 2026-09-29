@@ -1,4 +1,4 @@
-import { isDateInScheduledDays } from "@/lib/weekdays";
+import { pickPlacement } from "@/lib/evaluator/placement";
 import type { RubricSection } from "@/lib/models/rubric";
 import type { Attendance } from "@/lib/models/evaluations";
 import { findOfflineStudent, getOfflineRubricSections, getOfflineEvaluation, getOfflineSchedule, getOutboxEntry } from "./db";
@@ -32,6 +32,10 @@ export interface GradeViewData {
   student: { nameAr: string; nameEn: string | null; universityNumber: string };
   groupId?: string;
   hospitalName: string;
+  // The schedule doesn't list this day for the group (moved by a holiday).
+  offSchedule?: boolean;
+  // The day's grades are validated (اعتماد): the form is read-only.
+  dayValidated?: boolean;
   sections: RubricSection[];
   maxTotal: number;
   existing: ExistingForForm | null;
@@ -58,14 +62,8 @@ export async function loadOfflineGradeData(studentId: string): Promise<GradeView
   if (!found) return { ok: false, reason: "out_of_scope" };
 
   const schedule = (await getOfflineSchedule()) ?? [];
-  const stint = schedule.find(
-    (s) =>
-      s.groupId === found.groupId &&
-      s.startDate <= dateISO &&
-      s.endDate >= dateISO &&
-      isDateInScheduledDays(dateISO, s.daysOfWeek)
-  );
-  if (!stint) return { ok: false, reason: "not_scheduled" };
+  const placement = pickPlacement(schedule, found.groupId, dateISO);
+  if (!placement) return { ok: false, reason: "not_scheduled" };
 
   // Bundles imported before rubric items existed have no `items` field.
   const sections = ((await getOfflineRubricSections()) ?? []).map((s) => ({ ...s, items: s.items ?? [] }));
@@ -102,7 +100,8 @@ export async function loadOfflineGradeData(studentId: string): Promise<GradeView
     dateISO,
     student: { nameAr: found.student.nameAr, nameEn: found.student.nameEn, universityNumber: found.student.universityNumber },
     groupId: found.groupId,
-    hospitalName: stint.hospitalName,
+    hospitalName: placement.hospitalName,
+    offSchedule: !placement.scheduled,
     sections,
     maxTotal,
     existing,

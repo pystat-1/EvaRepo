@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { logoutAction } from "@/lib/actions/auth";
 import { OfflineSyncStatus } from "./offline-sync-status";
+import { ValidationReminder } from "./validation-reminder";
 
 // The Evaluator App shell (plan §2.4) — a separate, focused experience from
 // the admin dashboard, built mobile-first per §2.3. The app is now
@@ -10,6 +11,7 @@ import { OfflineSyncStatus } from "./offline-sync-status";
 // work continues in Phase 4b onward.
 const NAV = [
   { href: "/attendance", label: "الحضور والتقييم" },
+  { href: "/day-grades", label: "درجات اليوم" },
   { href: "/daily-note", label: "تسليم الديلي نوت" },
   { href: "/attendance-log", label: "سجل الحضور" },
   { href: "/schedule", label: "جدولي" },
@@ -60,6 +62,7 @@ export default async function EvaluatorLayout({ children }: { children: React.Re
       </header>
       <main className="mx-auto w-full max-w-lg sm:max-w-2xl lg:max-w-4xl flex-1 px-4 sm:px-6 py-6 flex flex-col gap-4">
         <OfflineSyncStatus />
+        <ValidationReminder accountId={session.sub} />
         {children}
       </main>
     </div>

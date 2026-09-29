@@ -379,6 +379,10 @@ model Evaluation {
   // into items (فقرات). Each section's EvaluationScore is the sum of its
   // items, so everything that reads section scores keeps working as-is.
   itemScores  Json?
+  // True while the evaluator's day for this group is not validated yet
+  // (اعتماد). Admin views, flags and statistics only count evaluations
+  // where this is false. Existing rows default to false (already visible).
+  pendingValidation Boolean @default(false)
   total       Float    @default(0)
   locked      Boolean  @default(false)
   createdAt   DateTime @default(now())
@@ -645,4 +649,28 @@ model AttendanceRecord {
   @@unique([studentId, dateISO])
   @@index([groupId, dateISO])
   @@map("attendance_records")
+}
+
+// A day an evaluator actually worked with a group. Created on the first
+// attendance mark or grade of the day, whether or not the rotation
+// schedule had the group meeting that day (holidays move days around).
+// Validating it (اعتماد) locks the day's evaluations and releases them
+// to the admin; an admin can reopen it.
+model GroupWorkDay {
+  id            String    @id @default(cuid())
+  groupId       String
+  dateISO       String // "YYYY-MM-DD", the real day worked
+  hospitalId    String?
+  scheduled     Boolean   @default(true) // false = off-schedule day
+  startedById   String
+  startedAt     DateTime  @default(now())
+  validatedAt   DateTime?
+  validatedById String?
+  reopenedAt    DateTime?
+  reopenedById  String?
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([groupId, dateISO])
+  @@index([validatedAt])
+  @@map("group_work_days")
 }

@@ -106,7 +106,7 @@ export default function GradeStudentPage() {
     if (reason === "not_scheduled") {
       return (
         <div className="card border-amber-200 bg-amber-50">
-          <p className="text-sm text-amber-800">اليوم ليس يوم حضور مجدول لمجموعة هذا الطالب حسب جدول الدوران.</p>
+          <p className="text-sm text-amber-800">مجموعة هذا الطالب ليست ضمن دورانك في هذه الفترة.</p>
         </div>
       );
     }
@@ -192,6 +192,7 @@ function GradeForm({
   const [saveError, setSaveError] = useState<string | null>(null);
 
   const absent = attendance === "absent";
+  const readOnly = !!data.dayValidated;
   const backHref = data.groupId ? `/attendance?group=${data.groupId}` : "/attendance";
 
   function sectionTotal(section: Section): number {
@@ -290,6 +291,16 @@ function GradeForm({
           </p>
         </div>
       )}
+      {readOnly && (
+        <p className="text-sm rounded-md px-3 py-2" style={{ color: "var(--green-700)", background: "var(--green-100)" }}>
+          تم اعتماد درجات هذا اليوم وإرسالها للإدارة — التعديل مغلق.
+        </p>
+      )}
+      {!readOnly && data.offSchedule && (
+        <p className="text-sm rounded-md px-3 py-2" style={{ color: "var(--amber-700)", background: "var(--amber-100)" }}>
+          يوم عمل خارج جدول الدوران — سيُسجَّل تاريخ اليوم يومَ عمل فعليًا.
+        </p>
+      )}
       <div className="flex items-start justify-between gap-3">
         <div>
           <h1 className="text-lg font-bold">
@@ -307,6 +318,7 @@ function GradeForm({
       </div>
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+        <fieldset disabled={readOnly} className="contents">
         <div className="card">
           <div className="text-sm font-medium mb-2">الحضور</div>
           <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="الحضور">
@@ -453,7 +465,8 @@ function GradeForm({
           </div>
         </div>
 
-        <button type="submit" className="btn btn-primary" disabled={saveStatus === "saving"}>
+        </fieldset>
+        <button type="submit" className="btn btn-primary" disabled={readOnly || saveStatus === "saving"}>
           {saveStatus === "saving" ? "جارِ الحفظ..." : "حفظ التقييم"}
         </button>
         {saveStatus === "saved-online" && (

@@ -176,7 +176,8 @@ export async function captureGradeToSheet(studentId: string, dateISO: string): P
       }),
       listRubricSections(),
     ]);
-    if (!e) return;
+    // Not validated yet: captured when the evaluator validates the day.
+    if (!e || e.pendingValidation) return;
     const hospital = e.hospitalId
       ? await prisma.hospital.findUnique({ where: { id: e.hospitalId }, select: { name: true } })
       : null;

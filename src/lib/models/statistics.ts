@@ -47,13 +47,13 @@ export async function getGroupStats(): Promise<GroupStat[]> {
   const [evalAgg, passAgg] = await Promise.all([
     prisma.evaluation.groupBy({
       by: ["groupId"],
-      where: { groupId: { in: groupIds } },
+      where: { groupId: { in: groupIds }, pendingValidation: false },
       _count: { _all: true },
       _avg: { total: true },
     }),
     prisma.evaluation.groupBy({
       by: ["groupId"],
-      where: { groupId: { in: groupIds }, total: { gte: passThreshold } },
+      where: { groupId: { in: groupIds }, total: { gte: passThreshold }, pendingValidation: false },
       _count: { _all: true },
     }),
   ]);
@@ -86,7 +86,7 @@ export async function getHospitalStats(): Promise<HospitalStat[]> {
 
   const evalAgg = await prisma.evaluation.groupBy({
     by: ["hospitalId"],
-    where: { hospitalId: { in: hospitalIds } },
+    where: { hospitalId: { in: hospitalIds }, pendingValidation: false },
     _count: { _all: true },
     _avg: { total: true },
   });
@@ -105,8 +105,8 @@ export async function getHospitalStats(): Promise<HospitalStat[]> {
 
 export async function getOverallStats() {
   const [totalEvaluations, avg, maxTotal] = await Promise.all([
-    prisma.evaluation.count(),
-    prisma.evaluation.aggregate({ _avg: { total: true } }),
+    prisma.evaluation.count({ where: { pendingValidation: false } }),
+    prisma.evaluation.aggregate({ where: { pendingValidation: false }, _avg: { total: true } }),
     getMaxTotal(),
   ]);
   return {

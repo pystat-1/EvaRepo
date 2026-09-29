@@ -150,7 +150,7 @@ export async function getGradingSheet(filters: GradingSheetFilters = {}): Promis
   // necessarily in this database, so a blanket `include` would error.
   const evals = studentIds.length
     ? await prisma.evaluation.findMany({
-        where: { studentId: { in: studentIds } },
+        where: { studentId: { in: studentIds }, pendingValidation: false },
         select: {
           studentId: true,
           dateISO: true,

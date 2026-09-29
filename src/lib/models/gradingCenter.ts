@@ -14,7 +14,8 @@ export interface GradingCenterFilters {
 }
 
 function buildEvaluationWhere(filters: GradingCenterFilters): Record<string, unknown> {
-  const where: Record<string, unknown> = {};
+  // Only grades an evaluator has validated (اعتماد) reach the admin.
+  const where: Record<string, unknown> = { pendingValidation: false };
   if (filters.hospitalId) where.hospitalId = filters.hospitalId;
   if (filters.groupId) where.groupId = filters.groupId;
   if (filters.evaluatorId) where.evaluatorId = filters.evaluatorId;

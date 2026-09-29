@@ -21,7 +21,8 @@ export type EntityType =
   | "CourseAttendancePattern"
   | "CourseHoliday"
   | "Session"
-  | "AttendanceRecord";
+  | "AttendanceRecord"
+  | "GroupWorkDay";
 export type AuditAction = "create" | "update" | "deactivate" | "reactivate" | "delete" | "import";
 
 export async function recordAudit(params: {

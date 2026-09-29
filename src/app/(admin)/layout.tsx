@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { logoutAction } from "@/lib/actions/auth";
 import { countUnseenFlags } from "@/lib/models/flags";
+import { countPendingWorkDays } from "@/lib/models/workDays";
 import NavLink from "./NavLink";
 
 // The course-setup entities (students, courses, groups, hospitals, study
@@ -15,6 +16,7 @@ const NAV = [
   { href: "/setup", label: "إعداد الدورة" },
   { href: "/master", label: "الجدول الشامل" },
   { href: "/grading-center", label: "مركز التقييم" },
+  { href: "/validations", label: "اعتماد الأيام" },
   { href: "/rubric", label: "معيار التقييم" },
   { href: "/statistics", label: "الإحصائيات" },
   { href: "/flags", label: "التنبيهات" },
@@ -29,7 +31,8 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     redirect("/login");
   }
 
-  const unseenFlags = await countUnseenFlags();
+  const [unseenFlags, pendingDays] = await Promise.all([countUnseenFlags(), countPendingWorkDays()]);
+  const badges: Record<string, number> = { "/flags": unseenFlags, "/validations": pendingDays };
 
   return (
     <div className="flex flex-1 flex-col">
@@ -61,7 +64,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         </div>
         <nav className="mx-auto w-full max-w-[1600px] px-4 sm:px-6 lg:px-8 flex gap-4 overflow-x-auto">
           {NAV.map((item) => (
-            <NavLink key={item.href} href={item.href} badge={item.href === "/flags" ? unseenFlags : undefined}>
+            <NavLink key={item.href} href={item.href} badge={badges[item.href]}>
               {item.label}
             </NavLink>
           ))}

@@ -1,10 +1,10 @@
 import { prisma } from "../db";
 import { recordAudit } from "../audit";
 import { isDateInScheduledDays } from "../weekdays";
+import { pickPlacement } from "../evaluator/placement";
 import { getEvaluatorSchedule, EvaluatorStint } from "./evaluators";
 import { listActiveStudentsInGroup } from "./students";
 import { getMaxTotal } from "./rubric";
-import { getScheduledRotationForDate } from "./rotationBlocks";
 import { getEvaluationForStudentDate, upsertEvaluation, Attendance } from "./evaluations";
 
 const SHIFT_LABEL_AR: Record<string, string> = { MORNING: "صباحي", EVENING: "مسائي" };
@@ -40,7 +40,7 @@ export async function getAttendanceRecord(
   return row ? serializeRecord(row) : null;
 }
 
-// ---- Groups the schedule puts in front of this evaluator on a date ----
+// ---- Groups this evaluator can work with on a date ----
 
 export interface ScheduledGroup {
   groupId: string;
@@ -50,41 +50,49 @@ export interface ScheduledGroup {
   shift: string | null;
   shiftLabel: string | null;
   studentCount: number;
+  // true = the rotation schedule has this group meeting that day;
+  // false = an off-schedule day (moved by a holiday etc.)
+  scheduled: boolean;
+  // Day already started (something recorded) / already validated.
+  started: boolean;
+  validated: boolean;
 }
 
-function meetsOn(stint: EvaluatorStint, dateISO: string): boolean {
-  return stint.startDate <= dateISO && stint.endDate >= dateISO && isDateInScheduledDays(dateISO, stint.daysOfWeek);
-}
-
-// The groups whose rotation block meets on `dateISO` at a hospital this
-// evaluator is assigned to: what "load the group by the schedule" means.
-// Morning groups come first, the same default the reference app uses.
-export async function getScheduledGroupsForDate(accountId: string, dateISO: string): Promise<ScheduledGroup[]> {
-  const stints = (await getEvaluatorSchedule(accountId)).filter((s) => meetsOn(s, dateISO));
-  if (stints.length === 0) return [];
-  const groups = await prisma.group.findMany({
-    where: { id: { in: stints.map((s) => s.groupId) } },
-    select: { id: true, shift: true },
-  });
+// Every group of this evaluator that can be worked with on `dateISO`:
+// the schedule's groups for the day first (morning before evening), then
+// their other groups near their rotation, for days moved by holidays.
+export async function getAvailableGroupsForDate(accountId: string, dateISO: string): Promise<ScheduledGroup[]> {
+  const stints = await getEvaluatorSchedule(accountId);
+  const groupIds = Array.from(new Set(stints.map((s) => s.groupId)));
+  if (groupIds.length === 0) return [];
+  const [groups, workDays] = await Promise.all([
+    prisma.group.findMany({ where: { id: { in: groupIds } }, select: { id: true, shift: true } }),
+    prisma.groupWorkDay.findMany({ where: { groupId: { in: groupIds }, dateISO } }),
+  ]);
   const shiftById = new Map(groups.map((g) => [g.id, g.shift as string | null]));
-  const seen = new Set<string>();
+  const dayBy = new Map(workDays.map((d) => [d.groupId, d]));
   const out: ScheduledGroup[] = [];
-  for (const s of stints) {
-    if (seen.has(s.groupId)) continue;
-    seen.add(s.groupId);
-    const shift = shiftById.get(s.groupId) ?? null;
+  for (const groupId of groupIds) {
+    const placement = pickPlacement(stints, groupId, dateISO);
+    if (!placement) continue;
+    const stint = stints.find((s) => s.groupId === groupId)!;
+    const shift = shiftById.get(groupId) ?? null;
+    const day = dayBy.get(groupId);
     out.push({
-      groupId: s.groupId,
-      groupName: s.groupName,
-      hospitalId: s.hospitalId,
-      hospitalName: s.hospitalName,
+      groupId,
+      groupName: stint.groupName,
+      hospitalId: placement.hospitalId,
+      hospitalName: placement.hospitalName,
       shift,
       shiftLabel: shift ? SHIFT_LABEL_AR[shift] ?? null : null,
-      studentCount: s.studentCount,
+      studentCount: stint.studentCount,
+      scheduled: placement.scheduled,
+      started: !!day,
+      validated: !!day?.validatedAt,
     });
   }
-  const order = (g: ScheduledGroup) => (g.shift === "EVENING" ? 1 : 0);
-  return out.sort((a, b) => order(a) - order(b) || a.groupName.localeCompare(b.groupName, "ar"));
+  const rank = (g: ScheduledGroup) => (g.scheduled || g.started ? 0 : 2) + (g.shift === "EVENING" ? 1 : 0);
+  return out.sort((a, b) => rank(a) - rank(b) || a.groupName.localeCompare(b.groupName, "ar"));
 }
 
 // ---- One group's roster for one day ----
@@ -145,13 +153,6 @@ export async function getGroupDayRoster(groupId: string, dateISO: string): Promi
 
 // ---- Writes (scope is checked by the caller: src/lib/actions/attendance.ts) ----
 
-async function groupHospitalFor(studentId: string, dateISO: string) {
-  const student = await prisma.student.findUnique({ where: { id: studentId }, select: { groupId: true } });
-  if (!student?.groupId) return { groupId: null, hospitalId: null };
-  const block = await getScheduledRotationForDate(student.groupId, dateISO);
-  return { groupId: student.groupId, hospitalId: block?.hospitalId ?? null };
-}
-
 // Marks attendance from the quick list. Absent also saves a zero evaluation
 // (so absences reach the grading center and at-risk flags). Undoing an
 // absence removes that zero evaluation again, but only if it is still the
@@ -161,7 +162,8 @@ export async function markAttendance(
   actorId: string,
   studentId: string,
   dateISO: string,
-  status: Attendance
+  status: Attendance,
+  where: { groupId: string; hospitalId: string | null }
 ): Promise<void> {
   const existingEval = await getEvaluationForStudentDate(studentId, dateISO);
   if (existingEval?.locked) throw new Error("هذا التقييم مقفل ولا يمكن تعديله");
@@ -178,6 +180,9 @@ export async function markAttendance(
       feedback: existingEval?.feedback ?? undefined,
       dailyNote: null,
       scores: {},
+      pendingValidation: true,
+      hospitalId: where.hospitalId,
+      groupId: where.groupId,
     });
     return; // upsertEvaluation wrote the attendance record
   }
@@ -196,10 +201,13 @@ export async function markAttendance(
       after: { reason: "attendance changed from absent to " + status },
     });
   } else if (existingEval && existingEval.attendance !== status) {
-    await prisma.evaluation.update({ where: { id: existingEval.id }, data: { attendance: status } });
+    await prisma.evaluation.update({
+      where: { id: existingEval.id },
+      data: { attendance: status, pendingValidation: true },
+    });
   }
 
-  const { groupId, hospitalId } = await groupHospitalFor(studentId, dateISO);
+  const { groupId, hospitalId } = where;
   if (before?.status === status) return;
   const now = new Date();
   await prisma.attendanceRecord.upsert({
@@ -224,7 +232,8 @@ export async function setDailyNote(
   actorId: string,
   studentId: string,
   dateISO: string,
-  delivered: boolean | null
+  delivered: boolean | null,
+  where: { groupId: string; hospitalId: string | null }
 ): Promise<void> {
   const before = await getAttendanceRecord(studentId, dateISO);
   const existingEval = await getEvaluationForStudentDate(studentId, dateISO);
@@ -232,7 +241,7 @@ export async function setDailyNote(
   if (status === "absent") throw new Error("الطالب غائب اليوم — لا يمكن تسجيل تسليم الملاحظة اليومية");
   if (existingEval?.locked) throw new Error("هذا التقييم مقفل ولا يمكن تعديله");
 
-  const { groupId, hospitalId } = await groupHospitalFor(studentId, dateISO);
+  const { groupId, hospitalId } = where;
   const now = new Date();
   const note = {
     dailyNote: delivered,
@@ -258,7 +267,7 @@ export async function setDailyNote(
   if (existingEval) {
     await prisma.evaluation.update({
       where: { id: existingEval.id },
-      data: { dailyNoteSubmitted: delivered === true },
+      data: { dailyNoteSubmitted: delivered === true, pendingValidation: true },
     });
   }
   await recordAudit({
@@ -283,6 +292,10 @@ export interface AttendanceLogCell {
 export interface AttendanceLog {
   groupId: string;
   dates: string[];
+  // Days worked that the schedule didn't list (holidays moved them), and
+  // days whose grades are validated.
+  offScheduleDates: string[];
+  validatedDates: string[];
   students: Array<{
     id: string;
     nameAr: string;
@@ -320,7 +333,8 @@ export async function getAttendanceLog(
 ): Promise<AttendanceLog | null> {
   const stints = await getEvaluatorSchedule(accountId);
   if (!stints.some((s) => s.groupId === groupId)) return null;
-  const dates = meetingDatesUpTo(stints, groupId, untilISO);
+  const workDays = await prisma.groupWorkDay.findMany({ where: { groupId, dateISO: { lte: untilISO } } });
+  const dates = Array.from(new Set([...meetingDatesUpTo(stints, groupId, untilISO), ...workDays.map((d) => d.dateISO)])).sort();
   const students = await listActiveStudentsInGroup(groupId);
   const ids = students.map((s) => s.id);
   const [records, evaluations] = await Promise.all([
@@ -337,6 +351,8 @@ export async function getAttendanceLog(
   return {
     groupId,
     dates,
+    offScheduleDates: workDays.filter((d) => !d.scheduled).map((d) => d.dateISO),
+    validatedDates: workDays.filter((d) => d.validatedAt).map((d) => d.dateISO),
     students: students
       .map((s) => {
         const cells: Record<string, AttendanceLogCell> = {};
@@ -359,4 +375,60 @@ export async function getAttendanceLog(
       })
       .sort((a, b) => a.nameAr.localeCompare(b.nameAr, "ar")),
   };
+}
+
+// ---- درجات اليوم: the whole group's grades for one day, item by item ----
+
+export interface DayGradeRow {
+  id: string;
+  nameAr: string;
+  universityNumber: string;
+  attendance: Attendance | null;
+  dailyNote: boolean | null;
+  evaluated: boolean;
+  total: number | null;
+  locked: boolean;
+  scores: Record<string, number>; // sectionId -> score
+  itemScores: Record<string, number>; // itemId -> score
+}
+
+export async function getGroupDayGrades(groupId: string, dateISO: string): Promise<DayGradeRow[]> {
+  const students = await listActiveStudentsInGroup(groupId);
+  const ids = students.map((s) => s.id);
+  const [records, evaluations] = await Promise.all([
+    prisma.attendanceRecord.findMany({ where: { studentId: { in: ids }, dateISO } }),
+    prisma.evaluation.findMany({
+      where: { studentId: { in: ids }, dateISO },
+      include: { scores: { select: { rubricSectionId: true, score: true } } },
+    }),
+  ]);
+  const recordBy = new Map(records.map((r) => [r.studentId, r]));
+  const evalBy = new Map(evaluations.map((e) => [e.studentId, e]));
+  return students
+    .map((s): DayGradeRow => {
+      const rec = recordBy.get(s.id);
+      const ev = evalBy.get(s.id);
+      const itemScores: Record<string, number> = {};
+      const raw = ev?.itemScores;
+      if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+        for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+          if (typeof v === "number") itemScores[k] = v;
+        }
+      }
+      const scores: Record<string, number> = {};
+      ev?.scores.forEach((x) => (scores[x.rubricSectionId] = x.score));
+      return {
+        id: s.id,
+        nameAr: s.nameAr,
+        universityNumber: s.universityNumber,
+        attendance: (rec?.status ?? ev?.attendance ?? null) as Attendance | null,
+        dailyNote: rec ? rec.dailyNote : ev ? (ev.dailyNoteSubmitted ? true : null) : null,
+        evaluated: !!ev,
+        total: ev ? ev.total : null,
+        locked: ev?.locked ?? false,
+        scores,
+        itemScores,
+      };
+    })
+    .sort((a, b) => a.nameAr.localeCompare(b.nameAr, "ar"));
 }

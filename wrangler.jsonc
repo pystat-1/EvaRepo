@@ -4,6 +4,14 @@
   "name": "evarepo",
   "compatibility_date": "2026-09-01",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  // Run the Worker next to the Neon database (AWS us-west-2) instead of at
+  // the edge nearest the user. Every page and every grade save makes many
+  // sequential database round trips; from the edge each one cost ~270 ms
+  // (a single autosave took several seconds), next to the database each
+  // is a few ms. The user pays the long hop once per request instead.
+  "placement": {
+    "region": "aws:us-west-2"
+  },
   "assets": {
     "directory": ".open-next/assets",
     "binding": "ASSETS",

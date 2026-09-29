@@ -32,6 +32,7 @@ export interface Evaluation {
   itemScores: Record<string, number>;
   total: number;
   locked: boolean;
+  pendingValidation: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -55,6 +56,7 @@ function serialize(row: {
   itemScores?: unknown;
   total: number;
   locked: boolean;
+  pendingValidation?: boolean;
   createdAt: Date;
   updatedAt: Date;
 }): Evaluation {
@@ -72,6 +74,7 @@ function serialize(row: {
     itemScores: parseItemScores(row.itemScores),
     total: row.total,
     locked: row.locked,
+    pendingValidation: row.pendingValidation ?? false,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -153,8 +156,9 @@ export async function listEvaluationsForStudent(
   studentId: string,
   limit = 90
 ): Promise<EvaluationWithScores[]> {
+  // The student's own view: validated grades only.
   const rows = await prisma.evaluation.findMany({
-    where: { studentId },
+    where: { studentId, pendingValidation: false },
     orderBy: { dateISO: "desc" },
     take: limit,
     include: { evaluator: { select: { name: true } }, scores: true },
@@ -179,6 +183,13 @@ export interface UpsertEvaluationInput {
   dailyNote?: boolean | null;
   scores: Record<string, number>; // rubricSectionId -> score (sections without items)
   itemScores?: Record<string, number>; // rubricItemId -> score
+  // Evaluator saves stay hidden from the admin until the day is validated.
+  pendingValidation?: boolean;
+  // Where the day was actually worked; needed for off-schedule days, which
+  // have no rotation block on that date to look the hospital up from.
+  hospitalId?: string | null;
+  // The student's group, when the caller already knows it (skips a lookup).
+  groupId?: string | null;
 }
 
 // The Tier 0 fix from the data-integrity roadmap, applied structurally: the
@@ -215,7 +226,18 @@ export async function upsertEvaluation(
     throw new Error("لا يمكن حفظ تقييم لهذا التاريخ — تجاوز المدة المسموحة (7 أيام)");
   }
 
-  const sections = await listRubricSections();
+  const key = { studentId: input.studentId, dateISO: input.dateISO };
+  // Independent reads in parallel: each is a network round trip to the
+  // database, and a save used to make ~30 of them one after another.
+  const [sections, located, existing, record] = await Promise.all([
+    listRubricSections(),
+    input.groupId && input.hospitalId !== undefined
+      ? Promise.resolve({ groupId: input.groupId, hospitalId: input.hospitalId })
+      : getStudentGroupHospital(input.studentId, input.dateISO),
+    getEvaluationForStudentDate(input.studentId, input.dateISO),
+    prisma.attendanceRecord.findUnique({ where: { studentId_dateISO: key } }),
+  ]);
+
   const absent = input.attendance === "absent";
   const fromItems = applyItemScores(input.scores, absent ? {} : input.itemScores ?? {}, sections);
   const scores = normalizeScoresForAttendance(input.attendance, fromItems.scores, sections);
@@ -226,59 +248,51 @@ export async function upsertEvaluation(
     input.dailyNote !== undefined ? input.dailyNote : input.dailyNoteSubmitted ? true : null;
   const dailyNoteSubmitted = !absent && dailyNote === true;
 
-  const { groupId, hospitalId } = await getStudentGroupHospital(input.studentId, input.dateISO);
-  const existing = await getEvaluationForStudentDate(input.studentId, input.dateISO);
+  const groupId = located.groupId;
+  const hospitalId = input.hospitalId ?? located.hospitalId;
+  const pendingValidation = input.pendingValidation ?? false;
 
   if (existing?.locked) throw new Error("هذا التقييم مقفل ولا يمكن تعديله");
 
-  // Upsert the evaluation row itself, then replace its scores wholesale
-  // (delete + recreate) inside the same transaction — mirroring the old
-  // db.ts's DELETE-then-INSERT of evaluation_scores exactly, just done
-  // atomically instead of as two separate statements.
-  const evaluationId: string = await prisma.$transaction(async (tx: any) => {
-    const evaluation = await tx.evaluation.upsert({
-      where: { studentId_dateISO: { studentId: input.studentId, dateISO: input.dateISO } },
-      create: {
-        studentId: input.studentId,
-        evaluatorId: input.evaluatorId,
-        groupId,
-        hospitalId,
-        dateISO: input.dateISO,
-        attendance: input.attendance,
-        notes: input.notes ?? null,
-        feedback: input.feedback ?? null,
-        dailyNoteSubmitted,
-        itemScores,
-        total,
-      },
-      update: {
-        evaluatorId: input.evaluatorId,
-        groupId,
-        hospitalId,
-        attendance: input.attendance,
-        notes: input.notes ?? null,
-        feedback: input.feedback ?? null,
-        dailyNoteSubmitted,
-        itemScores,
-        total,
-      },
-    });
+  // Keep the day's attendance record (الحضور / الديلي نوت screens) in step
+  // with what was saved. The marked time only moves when the attendance
+  // status actually changes.
+  const now = new Date();
+  const statusChanged = !record || record.status !== input.attendance;
+  const noteValue = absent ? null : dailyNote;
+  const noteChanged = !record || record.dailyNote !== noteValue;
+  const scoreRows = Object.entries(scores).map(([rubricSectionId, score]) => ({ rubricSectionId, score }));
+  const fields = {
+    evaluatorId: input.evaluatorId,
+    groupId,
+    hospitalId,
+    attendance: input.attendance,
+    notes: input.notes ?? null,
+    feedback: input.feedback ?? null,
+    dailyNoteSubmitted,
+    itemScores,
+    total,
+    pendingValidation,
+  };
 
-    // Keep the day's attendance record (الحضور / الديلي نوت screens) in
-    // step with what the grading form saved. The marked time only moves
-    // when the attendance status actually changes.
-    const record = await tx.attendanceRecord.findUnique({
-      where: { studentId_dateISO: { studentId: input.studentId, dateISO: input.dateISO } },
-    });
-    const now = new Date();
-    const statusChanged = !record || record.status !== input.attendance;
-    const noteValue = absent ? null : dailyNote;
-    const noteChanged = !record || record.dailyNote !== noteValue;
-    await tx.attendanceRecord.upsert({
-      where: { studentId_dateISO: { studentId: input.studentId, dateISO: input.dateISO } },
+  // One batch transaction of plain statements (a single round trip): the
+  // evaluation, its scores replaced wholesale (delete + insert, as the old
+  // DELETE-then-INSERT did), and the attendance record. The id is chosen
+  // here so the score rows can reference a brand-new evaluation; a nested
+  // write would have cost Prisma's multi-step internal transaction instead.
+  const evaluationId = existing?.id ?? crypto.randomUUID();
+  const [row] = await prisma.$transaction([
+    prisma.evaluation.upsert({
+      where: { studentId_dateISO: key },
+      create: { id: evaluationId, ...key, ...fields },
+      update: fields,
+    }),
+    prisma.evaluationScore.deleteMany({ where: { evaluationId } }),
+    prisma.evaluationScore.createMany({ data: scoreRows.map((r) => ({ ...r, evaluationId })) }),
+    prisma.attendanceRecord.upsert({
+      where: { studentId_dateISO: key },
       create: {
-        studentId: input.studentId,
-        dateISO: input.dateISO,
+        ...key,
         groupId,
         hospitalId,
         status: input.attendance,
@@ -300,33 +314,28 @@ export async function upsertEvaluation(
             }
           : {}),
       },
-    });
+    }),
+  ]);
 
-    await tx.evaluationScore.deleteMany({ where: { evaluationId: evaluation.id } });
-    if (Object.keys(scores).length > 0) {
-      await tx.evaluationScore.createMany({
-        data: Object.entries(scores).map(([rubricSectionId, score]) => ({
-          evaluationId: evaluation.id,
-          rubricSectionId,
-          score,
-        })),
-      });
-    }
-
-    return evaluation.id;
-  });
-
-  const result = (await getEvaluation(evaluationId))!;
+  const result: EvaluationWithScores = {
+    ...serialize(row),
+    scores: Object.fromEntries(scoreRows.map((r) => [r.rubricSectionId, r.score])),
+    evaluatorName: existing && existing.evaluatorId === input.evaluatorId ? existing.evaluatorName : null,
+  };
   await recordAudit({
     actorId,
     entityType: "Evaluation",
-    entityId: evaluationId,
+    entityId: row.id,
     action: existing ? "update" : "create",
     before: existing,
     after: result,
   });
 
-  await recomputeFlagsForStudent(input.studentId);
+  // Flags only count validated grades, so a draft save changes nothing —
+  // unless it just turned a previously visible grade back into a draft.
+  if (!pendingValidation || (existing && !existing.pendingValidation)) {
+    await recomputeFlagsForStudent(input.studentId);
+  }
 
   return result;
 }

@@ -194,12 +194,19 @@ async function ensureDefaultRubricItems(): Promise<void> {
 // request's render pass; it's cleared automatically between requests, so
 // an edit is visible on the very next request with no manual invalidation.
 export const listRubricSections = cache(async (includeInactive = false): Promise<RubricSection[]> => {
-  await ensureDefaultRubric();
-  const rows = await prisma.rubricSection.findMany({
-    where: includeInactive ? undefined : { active: true },
-    orderBy: { sortOrder: "asc" },
-    include: { items: true },
-  });
+  const query = () =>
+    prisma.rubricSection.findMany({
+      where: includeInactive ? undefined : { active: true },
+      orderBy: { sortOrder: "asc" },
+      include: { items: true },
+    });
+  // Read first and only seed when something is missing: the seeding checks
+  // are two extra round trips that every grade save used to pay.
+  let rows = await query();
+  if (rows.length === 0 || rows.every((r) => r.items.length === 0)) {
+    await ensureDefaultRubric();
+    rows = await query();
+  }
   return rows.map(serialize);
 });
 

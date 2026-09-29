@@ -2,7 +2,7 @@ import Link from "next/link";
 import { getSession } from "@/lib/auth";
 import { todayISO, formatTimeBaghdad } from "@/lib/date";
 import { getEvaluatorSchedule } from "@/lib/models/evaluators";
-import { getAttendanceLog, getScheduledGroupsForDate, AttendanceLogCell } from "@/lib/models/attendance";
+import { getAttendanceLog, getAvailableGroupsForDate, AttendanceLogCell } from "@/lib/models/attendance";
 
 const STATUS_VIEW: Record<string, { mark: string; label: string; color: string; bg: string }> = {
   present: { mark: "✓", label: "حاضر", color: "var(--green-700)", bg: "var(--green-100)" },
@@ -20,7 +20,7 @@ export default async function AttendanceLogPage({ searchParams }: { searchParams
 
   const [stints, todayGroups] = await Promise.all([
     getEvaluatorSchedule(session!.sub),
-    getScheduledGroupsForDate(session!.sub, dateISO),
+    getAvailableGroupsForDate(session!.sub, dateISO),
   ]);
   // Groups that have started (a future group has nothing to log yet),
   // most recent first.
@@ -44,7 +44,8 @@ export default async function AttendanceLogPage({ searchParams }: { searchParams
 
   const selectedId =
     groupOptions.find((g) => g.groupId === requested)?.groupId ??
-    todayGroups.find((g) => groupOptions.some((o) => o.groupId === g.groupId))?.groupId ??
+    todayGroups.find((g) => (g.scheduled || g.started) && groupOptions.some((o) => o.groupId === g.groupId))
+      ?.groupId ??
     groupOptions[0].groupId;
   const log = await getAttendanceLog(session!.sub, selectedId, dateISO);
 
@@ -93,6 +94,8 @@ export default async function AttendanceLogPage({ searchParams }: { searchParams
           <span className="inline-block w-2 h-2 rounded-full" style={{ background: "var(--green-700)" }} />
           سلّم الملاحظة اليومية
         </span>
+        <span style={{ color: "var(--amber-700)" }}>* يوم عمل خارج الجدول</span>
+        <span style={{ color: "var(--green-700)" }}>✓ يوم معتمد</span>
       </div>
 
       {!log || log.dates.length === 0 ? (
@@ -107,11 +110,22 @@ export default async function AttendanceLogPage({ searchParams }: { searchParams
                 <th className="sticky right-0 z-10" style={{ background: "var(--surface-raised)" }}>
                   الطالب
                 </th>
-                {log.dates.map((d) => (
-                  <th key={d} className="text-center tabular-nums whitespace-nowrap" title={d}>
-                    {d.slice(8)}/{d.slice(5, 7)}
-                  </th>
-                ))}
+                {log.dates.map((d) => {
+                  const off = log.offScheduleDates.includes(d);
+                  const validated = log.validatedDates.includes(d);
+                  return (
+                    <th
+                      key={d}
+                      className="text-center tabular-nums whitespace-nowrap"
+                      title={`${d}${off ? " · يوم خارج الجدول" : ""}${validated ? " · معتمد" : ""}`}
+                      style={off ? { color: "var(--amber-700)" } : undefined}
+                    >
+                      {d.slice(8)}/{d.slice(5, 7)}
+                      {off ? "*" : ""}
+                      {validated ? <span style={{ color: "var(--green-700)" }}> ✓</span> : null}
+                    </th>
+                  );
+                })}
                 <th className="text-center">حضور</th>
                 <th className="text-center">غياب</th>
                 <th className="text-center">ملاحظة</th>

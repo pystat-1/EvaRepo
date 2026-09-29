@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { setDailyNoteAction } from "@/lib/actions/attendance";
 import type { DayRosterRow } from "@/lib/models/attendance";
 
-export function DailyNoteList({ rows: initialRows }: { rows: DayRosterRow[] }) {
+export function DailyNoteList({ rows: initialRows, readOnly = false }: { rows: DayRosterRow[]; readOnly?: boolean }) {
   const router = useRouter();
   const [rows, setRows] = useState(initialRows);
   const [error, setError] = useState<string | null>(null);
@@ -14,7 +14,7 @@ export function DailyNoteList({ rows: initialRows }: { rows: DayRosterRow[] }) {
 
   // Tapping the active choice again clears it back to "not recorded".
   function set(row: DayRosterRow, value: boolean) {
-    if (row.locked) return;
+    if (readOnly || row.locked) return;
     const next = row.dailyNote === value ? null : value;
     const previous = rows;
     setError(null);
@@ -94,14 +94,14 @@ export function DailyNoteList({ rows: initialRows }: { rows: DayRosterRow[] }) {
                   label="✓ سلّم"
                   on={row.dailyNote === true}
                   color="var(--green-700)"
-                  disabled={row.locked || busy}
+                  disabled={readOnly || row.locked || busy}
                   onClick={() => set(row, true)}
                 />
                 <Choice
                   label="✗ لم يسلّم"
                   on={row.dailyNote === false}
                   color="var(--red-700)"
-                  disabled={row.locked || busy}
+                  disabled={readOnly || row.locked || busy}
                   onClick={() => set(row, false)}
                 />
               </div>

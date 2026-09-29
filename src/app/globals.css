@@ -249,3 +249,151 @@ table.data-table tbody tr:hover {
   color: var(--ink-muted);
   margin-top: 0.3rem;
 }
+
+/* ---------------------------------------------------------------------
+   درجات اليوم grid. One scroll container scrolls both ways; the header
+   row sticks to the top and the student-name column sticks to the start
+   edge (right, in RTL), so while scrolling sideways the name stays and
+   while scrolling down the criteria stay. The corner cell sticks to both.
+   `border-collapse: separate` because collapsed borders don't travel
+   with sticky cells; every sticky cell has an opaque background.
+   ------------------------------------------------------------------- */
+.grade-grid {
+  overflow: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  max-height: calc(100dvh - 15rem);
+  min-height: 18rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+}
+.grade-grid:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+.grade-grid table {
+  border-collapse: separate;
+  border-spacing: 0;
+  min-width: 100%;
+  font-size: 0.85rem;
+}
+.grade-grid th,
+.grade-grid td {
+  background: var(--surface-raised);
+  border-bottom: 1px solid var(--border);
+  border-inline-start: 1px solid var(--border);
+  padding: 0.3rem 0.4rem;
+  text-align: center;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.grade-grid thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--paper-100);
+  border-top: 3px solid transparent;
+  font-weight: 600;
+  font-size: 0.75rem;
+  line-height: 1.25;
+  padding-block: 0.4rem;
+}
+.grade-grid .sticky-name {
+  position: sticky;
+  inset-inline-start: 0;
+  z-index: 1;
+  text-align: start;
+  border-inline-start: none;
+  border-inline-end: 2px solid var(--border-strong);
+  min-width: 8.5rem;
+  max-width: 11rem;
+}
+.grade-grid thead .sticky-name {
+  z-index: 3;
+}
+.grade-grid tbody th.sticky-name {
+  font-weight: 500;
+}
+.grade-grid .section-start {
+  border-inline-start: 2px solid var(--border-strong);
+}
+.grade-grid tr.absent td,
+.grade-grid tr.absent th {
+  background: var(--red-100);
+}
+.grade-grid .grid-section {
+  display: block;
+  font-size: 0.66rem;
+  font-weight: 700;
+}
+.grade-grid .grid-item {
+  display: block;
+  color: var(--ink);
+}
+.grade-grid .grid-max {
+  color: var(--ink-muted);
+  font-weight: 400;
+}
+.grade-grid .grid-name {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 2.25rem;
+}
+.grade-grid .grid-index {
+  color: var(--ink-muted);
+  font-size: 0.7rem;
+  min-width: 1.1rem;
+  font-variant-numeric: tabular-nums;
+}
+.grade-grid .grid-name-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.grade-grid .grid-select {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  padding: 0.3rem 0.25rem;
+  font-size: 0.8rem;
+  min-height: 2.25rem;
+}
+.grade-grid .grid-number {
+  width: 3.6rem;
+  min-height: 2.25rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  direction: ltr;
+  background: #fff;
+  -moz-appearance: textfield;
+}
+.grade-grid .grid-number::-webkit-inner-spin-button,
+.grade-grid .grid-number::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.grade-grid .grid-number[aria-invalid="true"] {
+  border-color: var(--red-700);
+}
+.grade-grid .grid-check {
+  width: 1.35rem;
+  height: 1.35rem;
+  accent-color: var(--brand);
+}
+.grade-grid select:disabled,
+.grade-grid input:disabled {
+  opacity: 0.55;
+}
+.grade-grid .grid-total {
+  font-weight: 700;
+  color: var(--brand-dark);
+}
+.grade-grid .grid-save {
+  display: inline-block;
+  width: 1rem;
+  margin-inline-start: 0.2rem;
+  font-weight: 700;
+}

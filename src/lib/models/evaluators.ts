@@ -457,15 +457,20 @@ export async function getEvaluatorSchedule(accountId: string): Promise<Evaluator
   const seen = new Set<string>();
   const stints: EvaluatorStint[] = [];
 
-  for (const a of assignments) {
-    const blocks = await prisma.rotationBlock.findMany({
-      where: a.groupId ? { groupId: a.groupId, active: true } : { hospitalId: a.hospitalId, active: true },
-      orderBy: { startDate: "asc" },
-      include: {
-        hospital: { select: { name: true } },
-        group: { select: { id: true, name: true, active: true, _count: { select: { students: { where: { active: true } } } } } },
-      },
-    });
+  // One query per assignment, run in parallel (each is a network round trip).
+  const blocksPerAssignment = await Promise.all(
+    assignments.map((a) =>
+      prisma.rotationBlock.findMany({
+        where: a.groupId ? { groupId: a.groupId, active: true } : { hospitalId: a.hospitalId, active: true },
+        orderBy: { startDate: "asc" },
+        include: {
+          hospital: { select: { name: true } },
+          group: { select: { id: true, name: true, active: true, _count: { select: { students: { where: { active: true } } } } } },
+        },
+      })
+    )
+  );
+  for (const blocks of blocksPerAssignment) {
     for (const b of blocks) {
       if (seen.has(b.id) || !b.group.active) continue;
       seen.add(b.id);

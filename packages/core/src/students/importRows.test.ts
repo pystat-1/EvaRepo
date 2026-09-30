@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { groupKey, groupNumberFromName, headerKey, parseGroupNumber, parseShift, validateRows } from "./rows";
+import { groupKey, groupNumberFromName, headerKey, parseGroupNumber, parseShift, validateRows } from "./importRows";
 
 const groups = new Set([groupKey("MORNING", 1), groupKey("MORNING", 2), groupKey("EVENING", 1)]);
 

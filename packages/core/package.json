@@ -1,0 +1,11 @@
+{
+  "name": "@eva/core",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Eva's business rules: grading validation, placement, rotation schedule, attendance dates, student import rows. Pure TypeScript, no database or UI, shared by the website, the desktop app, the evaluator app and the relay.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
+  }
+}

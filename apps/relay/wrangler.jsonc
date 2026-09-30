@@ -17,6 +17,6 @@
   ],
   // Evaluators sign in on their phones with Google. The OAuth web client ID
   // is public (it is in every sign-in page); empty = phone sign-in is off.
-  "vars": { "GOOGLE_CLIENT_ID": "" }
+  "vars": { "GOOGLE_CLIENT_ID": "580192730512-kdji5ub3drdsi6v10hha5k2bh3jsd2k9.apps.googleusercontent.com" }
   // Secret (set once with `wrangler secret put ADMIN_TOKEN`): ADMIN_TOKEN
 }

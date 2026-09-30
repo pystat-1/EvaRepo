@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { courseStatistics, groupGradeSheet, listEvaluations, recentAudit, studentRecord } from "./grading";
+import { countEvaluations, courseStatistics, groupGradeSheet, listEvaluations, recentAudit, studentRecord } from "./grading";
 import { listEvaluators, saveEvaluator, setEvaluatorActive, setEvaluatorHospitals } from "./evaluators";
 import { saveStudent } from "./students";
 import { IDS, addEvaluation, groupId, seeded } from "./testSeed";
@@ -22,6 +22,15 @@ describe("grades", () => {
     expect(rows.map((x) => x.id)).toEqual(["v2", "v4", "v1", "v3"]); // v5 is not validated
     expect(rows.find((x) => x.id === "v1")!.sections).toEqual({ rs0: 5, rs1: 7, rs2: 1, rs3: 1, rs4: 1 });
     expect((await listEvaluations(r, { from: "2026-10-05" })).map((x) => x.id)).toEqual(["v2", "v4"]);
+  });
+
+  it("opens on the newest grades; the count, search and full list still cover everything", async () => {
+    const r = await withGrades();
+    const first = await listEvaluations(r, { courseId: IDS.course }, 2);
+    expect(first.map((x) => x.id)).toEqual(["v2", "v4"]);
+    expect(first[0].sections).toEqual({ rs0: 3, rs1: 5, rs2: 1, rs3: 1, rs4: 0 });
+    expect(await countEvaluations(r, { courseId: IDS.course })).toBe(4);
+    expect((await listEvaluations(r, { courseId: IDS.course, search: "طالب 1" }, 1)).map((x) => x.id).sort()).toEqual(["v1", "v2"]); // search ignores the page
   });
 
   it("summarises one student", async () => {

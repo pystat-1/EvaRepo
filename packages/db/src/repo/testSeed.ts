@@ -22,8 +22,8 @@ const addDays = (iso: string, d: number) => {
   return x.toISOString().slice(0, 10);
 };
 
-export async function seeded(perGroup = 2): Promise<Repo & { raw: ReturnType<typeof openBetterSqlite>["db"] }> {
-  const { db: raw, exec } = openBetterSqlite(":memory:");
+export async function seeded(perGroup = 2, file = ":memory:"): Promise<Repo & { raw: ReturnType<typeof openBetterSqlite>["db"] }> {
+  const { db: raw, exec } = openBetterSqlite(file);
   await migrate(exec);
   const r = repo(exec);
   const d = r.db;

@@ -26,4 +26,7 @@ export function matchesSearch(query: string, ...fields: Array<string | null | un
 }
 
 /** Arabic alphabetical order (for names). */
-export const compareArabic = (a: string, b: string) => a.localeCompare(b, "ar");
+// One collator for the whole app: `localeCompare(b, "ar")` builds a new one
+// on every call, which is ~100x slower when sorting thousands of names.
+const collator = new Intl.Collator("ar");
+export const compareArabic = (a: string, b: string) => collator.compare(a, b);

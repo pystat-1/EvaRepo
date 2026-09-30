@@ -1,9 +1,9 @@
 // Writes a file the user chose in a save dialog (Excel templates and
-// exports). Only the file types Eva produces are allowed.
+// exports, diagnostic reports). Only the file types Eva produces are allowed.
 use std::fs;
 use std::path::Path;
 
-const ALLOWED: [&str; 3] = ["xlsx", "csv", "db"];
+const ALLOWED: [&str; 4] = ["xlsx", "csv", "db", "txt"];
 
 #[tauri::command]
 pub fn file_write(path: String, bytes: Vec<u8>) -> Result<(), String> {

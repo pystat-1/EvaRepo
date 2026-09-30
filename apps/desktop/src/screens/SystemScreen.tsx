@@ -7,6 +7,11 @@ import { takeBackup, type StartupResult } from "@eva/db/startup";
 import * as schema from "@eva/db/schema";
 import { backups, orm, type BackupEntry, type DbInfo } from "../lib/db";
 import { confirmAction } from "../components/confirm";
+import type { Check } from "../lib/selfCheck";
+import { logTail, openFolder, type SystemInfo } from "../lib/health";
+import { checkForUpdate, installUpdate, useUpdateState } from "../lib/updater";
+import { useSyncState } from "../lib/autoSync";
+import { saveFile } from "../lib/files";
 
 
 const REASON_AR: Record<string, string> = {
@@ -29,7 +34,19 @@ const kb = (n: number) => (n < 1024 * 1024 ? `${Math.max(1, Math.round(n / 1024)
 
 // النظام: database health, counts, backups, restore and import. The
 // safety net screen: every destructive action here takes a backup first.
-export function SystemScreen({ info, startup }: { info: DbInfo; startup: Extract<StartupResult, { ok: true }> }) {
+export function SystemScreen({
+  info,
+  startup,
+  checks,
+  system,
+}: {
+  info: DbInfo;
+  startup: Extract<StartupResult, { ok: true }>;
+  checks: Check[];
+  system: SystemInfo | null;
+}) {
+  const update = useUpdateState();
+  const sync = useSyncState();
   const [stats, setStats] = useState<Record<string, number> | null>(null);
   const [list, setList] = useState<BackupEntry[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
@@ -73,6 +90,27 @@ export function SystemScreen({ info, startup }: { info: DbInfo; startup: Extract
       setBusy(null);
     }
   }
+
+  // A plain-text report to send when something goes wrong: facts, checks and the log's end.
+  const report = () =>
+    run("report", async () => {
+      const lines = [
+        `Eva ${system?.version ?? "?"} · ${system?.os ?? ""} · ${new Date().toISOString()}`,
+        `Data: ${system?.data_dir ?? info.path} · DB ${kb(system?.db_bytes ?? 0)} + WAL ${kb(system?.wal_bytes ?? 0)} · free disk ${system?.free_disk_bytes ? kb(system.free_disk_bytes) : "?"}`,
+        `Schema: ${startup.schemaVersion} · backups: ${list.length} · counts: ${JSON.stringify(stats)}`,
+        `Sync: ${sync.kind} · last ${sync.lastAt ?? "-"} · ${sync.message ?? ""}`,
+        `Update: ${update.available?.version ?? "none"} · checked ${update.checkedAt ?? "-"} · ${update.error ?? ""}`,
+        "",
+        "Self-check:",
+        ...checks.map((c) => `  [${c.level}] ${c.title} — ${c.detail}`),
+        "",
+        "Log (latest lines):",
+        await logTail(400).catch((e) => String(e)),
+      ];
+      const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
+      const ok = await saveFile(`تقرير Eva ${stamp}.txt`, new TextEncoder().encode(lines.join("\r\n")), { name: "نص", extensions: ["txt"] });
+      return ok ? "حُفظ التقرير. أرسله للدعم الفني مع وصف ما حدث." : undefined;
+    });
 
   const backupNow = () => run("backup", async () => `أُخذت نسخة احتياطية: ${formatBackupTime(await takeBackup(backups, "manual"))}`);
 
@@ -127,6 +165,83 @@ export function SystemScreen({ info, startup }: { info: DbInfo; startup: Extract
       </div>
 
       {note && <p className={`note ${note.kind === "ok" ? "note-ok" : "note-err"}`}>{note.text}</p>}
+
+      <div className="card stack">
+        <h2 style={{ margin: 0 }}>الفحص الذاتي</h2>
+        <ul className="checks">
+          {checks.map((c) => (
+            <li key={c.id} className={`check-${c.level}`}>
+              <span className="check-dot" aria-hidden="true" />
+              <div>
+                <b>{c.title}</b>
+                <div className="muted">{c.detail}</div>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <div className="card stack">
+        <div className="row" style={{ justifyContent: "space-between" }}>
+          <h2 style={{ margin: 0 }}>الإصدار والتحديثات</h2>
+          <span className="muted">
+            الإصدار الحالي <b className="ltr">{system?.version ?? "…"}</b>
+          </span>
+        </div>
+        {update.installing ? (
+          <p className="note note-ok" style={{ margin: 0 }}>
+            {update.installing.phase === "backup"
+              ? "جارٍ أخذ نسخة احتياطية قبل التحديث…"
+              : update.installing.phase === "download"
+                ? `جارٍ تنزيل التحديث${update.installing.percent !== null ? ` (${update.installing.percent}%)` : "…"}`
+                : "جارٍ التثبيت — سيُعاد تشغيل التطبيق."}
+          </p>
+        ) : update.available ? (
+          <div className="stack">
+            <p style={{ margin: 0 }}>
+              يتوفر الإصدار <b className="ltr">{update.available.version}</b>
+              {update.available.notes ? ` — ${update.available.notes}` : ""}
+            </p>
+            <div className="row">
+              <button className="btn btn-primary" onClick={() => void installUpdate()}>
+                تثبيت التحديث الآن
+              </button>
+              <span className="muted">تُؤخذ نسخة احتياطية أولًا، ثم يُعاد تشغيل التطبيق خلال دقيقة.</span>
+            </div>
+          </div>
+        ) : (
+          <div className="row">
+            <span className="muted">
+              {update.checking ? "جارٍ البحث عن تحديث…" : update.checkedAt ? "لديك أحدث إصدار." : "يبحث التطبيق عن التحديثات تلقائيًا."}
+            </span>
+            <button className="btn" onClick={() => void checkForUpdate()} disabled={update.checking}>
+              البحث عن تحديث
+            </button>
+          </div>
+        )}
+        {update.error && !update.installing && <p className="muted small" style={{ margin: 0 }}>{update.error}</p>}
+      </div>
+
+      <div className="card stack">
+        <h2 style={{ margin: 0 }}>الدعم الفني</h2>
+        <p className="muted" style={{ margin: 0 }}>
+          عند حدوث مشكلة: احفظ تقريرًا تشخيصيًا (لا يحتوي على بيانات الطلاب) وأرسله مع وصف ما حدث.
+        </p>
+        <div className="row">
+          <button className="btn btn-primary" onClick={report} disabled={!!busy}>
+            حفظ تقرير تشخيصي…
+          </button>
+          <button className="btn" onClick={() => void openFolder("logs")}>
+            فتح مجلد السجلات
+          </button>
+          <button className="btn" onClick={() => void openFolder("backups")}>
+            فتح مجلد النسخ الاحتياطية
+          </button>
+          <button className="btn" onClick={() => void openFolder("data")}>
+            فتح مجلد البيانات
+          </button>
+        </div>
+      </div>
 
       <div className="card stack">
         <div className="row" style={{ justifyContent: "space-between" }}>

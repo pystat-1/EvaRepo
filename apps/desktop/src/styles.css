@@ -177,3 +177,15 @@ thead .sticky-col { z-index: 3; background: var(--paper-100); }
 .sync-error .sync-dot { background: #f2b35b; }
 @keyframes sync-pulse { 50% { opacity: .35; } }
 @media (prefers-reduced-motion: reduce) { .sync-syncing .sync-dot { animation: none; } }
+
+/* Self-check: banner over the screens and the list in النظام */
+.health-banner { display: flex; gap: 10px; align-items: flex-start; border-radius: var(--radius); padding: 10px 14px; margin-bottom: 14px; }
+.health-banner ul { margin: 0; padding: 0; list-style: none; flex: 1; display: flex; flex-direction: column; gap: 6px; }
+.health-banner li { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.health-warn { background: var(--amber-100); color: var(--amber-700); }
+.health-err { background: var(--red-100); color: var(--red-700); }
+.checks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.checks li { display: flex; gap: 10px; align-items: flex-start; }
+.check-dot { width: 10px; height: 10px; border-radius: 50%; margin-top: 7px; flex: none; background: var(--green-700); }
+.check-warn .check-dot { background: #d18b1f; }
+.check-err .check-dot { background: var(--red-700); }

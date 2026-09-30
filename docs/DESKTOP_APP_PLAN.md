@@ -121,15 +121,15 @@ Rules:
 
 ## 7. Reliability checklist (definition of "top tier" for Eva)
 
-- [ ] No lost data: every write is a transaction; drafts autosave; WAL mode; `PRAGMA integrity_check` on start.
-- [ ] Automatic local backups (daily and pre-update), plus one-click export of the whole database.
-- [ ] Crash containment: a failing screen shows a recovery panel, never a white screen; logs are written to a file the admin can send.
-- [ ] Start-up self-check: database version, disk space, last backup age, sync status.
-- [ ] Every input validated (Zod) and every error shown in Arabic with a next step.
-- [ ] Sync is idempotent and resumable; nothing is applied twice; conflicts go to the admin.
-- [ ] Tests on every change: logic (unit), database (integration), key screens (end-to-end).
-- [ ] Signed auto-updates with a backup before applying.
-- [ ] Performance budget: any screen opens in under 200 ms with 5 000 students.
+- [x] No lost data: every write is a transaction; drafts autosave; WAL mode; `PRAGMA integrity_check` on start.
+- [x] Automatic local backups (daily and pre-update), plus one-click export of the whole database.
+- [x] Crash containment: a failing screen shows a recovery panel, never a white screen; logs are written to a file the admin can send (النظام → حفظ تقرير تشخيصي).
+- [x] Start-up self-check: database version, disk space, last backup age, sync status (plus waiting decisions and updates).
+- [x] Every input validated and every error shown in Arabic with a next step. (Hand-written, tested validators in `@eva/core` and the repositories rather than Zod.)
+- [x] Sync is idempotent and resumable; nothing is applied twice; conflicts go to the admin.
+- [x] Tests on every change: logic (unit), database (integration), key screens (end-to-end, in CI).
+- [x] Signed auto-updates with a backup before applying.
+- [x] Performance budget: any screen opens in under 200 ms with 5 000 students (and 50 000 grades).
 
 ## 8. Phased roadmap
 
@@ -183,3 +183,12 @@ Architecture decisions are recorded in `docs/adr/`; flow diagrams are in `docs/F
   - `apps/evaluator`: installable PWA, works fully offline (drafts, outbox, cached bundle in IndexedDB), syncs on open/online/every minute; today's scheduled groups plus any other group (holidays), sticky grade grid with autosave, validate → outbox, overdue reminders, per-day status from the desktop's decision. 6 tests.
   - Desktop: المزامنة screen (server settings, test connection, sync now, auto-sync every 5 min), phone passwords per evaluator (shown once), `sync_inbox` table + migration `0001`. The desktop re-checks every submission (scope, roster, scores); a day already graded by another evaluator is held as a conflict until the admin chooses a version. In-app confirmation dialog replaces `window.confirm`. 8 tests.
   - End-to-end test (real desktop window + phone browser + live relay): publish, phone login, validate a day, validate offline then send on reconnect, conflict from a second evaluator, pull (2 applied, 1 conflict), phone shows the decision, admin applies the other version, grading center updated; integrity ok, no page errors.
+- **After phase 4 (2026-09-30):** evaluators sign in on the phone with Google (the email the admin registered; no passwords; migration 0002 on the relay); sync runs by itself (after start, a few seconds after any change, every minute, when back online); the evaluator app gained جدولي، السجلات (previous assessments, attendance log)، طلابي and downloads (a day's grades and blank printable templates in Excel and Word; schedule, log, history and students in Excel), all offline; the desktop sends each evaluator their validated history in the bundle.
+- **Phase 5 (2026-09-30):**
+  - Self-check at start and every 5 minutes (`lib/selfCheck.ts`, tested): database, disk space, backup age, sync, decisions waiting, updates; a banner over every screen when something needs attention, and the list in النظام.
+  - Support: a diagnostic report (facts, checks and the log's end; no student data) saved as a text file; open the logs, backups or data folder (Rust `system.rs`: only Eva's own folders).
+  - Signed automatic updates (tauri-plugin-updater): checked 20 s after start and every 6 hours from GitHub Releases; installing takes a backup first, verifies the signature against the key built into the app, installs and restarts. The release workflow publishes the installer, its signature and `latest.json` on a `desktop-v*` tag. The signing key lives outside the repo (see ADMIN_CREDENTIALS.md).
+  - Performance: the budget test found the grading center taking 10.4 s with 50 000 grades (all rows loaded; scores fetched by a list of 50 000 ids, which SQLite would refuse past 32 766; a new Arabic collator per comparison). Now: the newest 1 500 open at once with the total count, search and export read everything, one shared collator. Every screen is under 200 ms (grading center 161 ms).
+  - End-to-end tests in the repo (`npm run e2e -w @eva/desktop`): the whole loop (desktop UI, relay code, phone app with a stand-in for Google, offline grading, downloads) and the performance budget with 5 004 students; they run in CI on every push.
+  - Installer 0.2.0: 5.1 MB, per-user, Arabic/English.
+

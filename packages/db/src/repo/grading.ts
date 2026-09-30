@@ -1,7 +1,7 @@
 // Grades: the evaluation list with filters, a student's record, the group
 // grade sheet (students x days), and statistics. Only validated grades
 // count (pendingValidation = false), the same rule as the website.
-import { and, eq, gte, inArray, lte } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, inArray, lte } from "drizzle-orm";
 import { compareArabic, matchesSearch } from "@eva/core/text/arabic";
 import * as t from "../schema";
 import { type Repo } from "./common";
@@ -39,13 +39,48 @@ export async function rubric(r: Repo) {
   return rows.sort((a, b) => a.sortOrder - b.sortOrder);
 }
 
-export async function listEvaluations(r: Repo, f: EvaluationFilter = {}): Promise<EvaluationRow[]> {
-  const rows = await r.db
+function evaluationWhere(f: EvaluationFilter) {
+  return and(
+    eq(t.evaluations.pendingValidation, false),
+    f.courseId ? eq(t.students.courseId, f.courseId) : undefined,
+    f.groupId ? eq(t.evaluations.groupId, f.groupId) : undefined,
+    f.hospitalId ? eq(t.evaluations.hospitalId, f.hospitalId) : undefined,
+    f.evaluatorId ? eq(t.evaluations.evaluatorId, f.evaluatorId) : undefined,
+    f.studentId ? eq(t.evaluations.studentId, f.studentId) : undefined,
+    f.from ? gte(t.evaluations.dateISO, f.from) : undefined,
+    f.to ? lte(t.evaluations.dateISO, f.to) : undefined
+  );
+}
+
+/** How many validated grades match (cheap: no rows are read out). */
+export async function countEvaluations(r: Repo, f: EvaluationFilter = {}): Promise<number> {
+  const [row] = await r.db
+    .select({ n: count() })
+    .from(t.evaluations)
+    .innerJoin(t.students, eq(t.students.id, t.evaluations.studentId))
+    .where(evaluationWhere(f));
+  return row?.n ?? 0;
+}
+
+/**
+ * Validated grades, newest first. `limit` keeps the screen fast on a full
+ * course (tens of thousands of grades); search, "show all" and exports read
+ * everything. Scores are fetched in chunks (SQLite caps a query at 32 766
+ * parameters).
+ */
+export async function listEvaluations(r: Repo, f: EvaluationFilter = {}, limit?: number): Promise<EvaluationRow[]> {
+  const q = r.db
     .select({
-      e: t.evaluations,
+      id: t.evaluations.id,
+      dateISO: t.evaluations.dateISO,
+      studentId: t.evaluations.studentId,
+      groupId: t.evaluations.groupId,
+      attendance: t.evaluations.attendance,
+      total: t.evaluations.total,
+      locked: t.evaluations.locked,
+      notes: t.evaluations.notes,
       studentName: t.students.nameAr,
       universityNumber: t.students.universityNumber,
-      studentCourse: t.students.courseId,
       groupName: t.groups.name,
       hospitalName: t.hospitals.name,
       evaluatorName: t.accounts.name,
@@ -55,41 +90,26 @@ export async function listEvaluations(r: Repo, f: EvaluationFilter = {}): Promis
     .leftJoin(t.groups, eq(t.groups.id, t.evaluations.groupId))
     .leftJoin(t.hospitals, eq(t.hospitals.id, t.evaluations.hospitalId))
     .leftJoin(t.accounts, eq(t.accounts.id, t.evaluations.evaluatorId))
-    .where(
-      and(
-        eq(t.evaluations.pendingValidation, false),
-        f.courseId ? eq(t.students.courseId, f.courseId) : undefined,
-        f.groupId ? eq(t.evaluations.groupId, f.groupId) : undefined,
-        f.hospitalId ? eq(t.evaluations.hospitalId, f.hospitalId) : undefined,
-        f.evaluatorId ? eq(t.evaluations.evaluatorId, f.evaluatorId) : undefined,
-        f.studentId ? eq(t.evaluations.studentId, f.studentId) : undefined,
-        f.from ? gte(t.evaluations.dateISO, f.from) : undefined,
-        f.to ? lte(t.evaluations.dateISO, f.to) : undefined
-      )
-    );
-  const filtered = rows.filter((x) => !f.search || matchesSearch(f.search, x.studentName, x.universityNumber));
-  const ids = filtered.map((x) => x.e.id);
-  const scores = ids.length ? await r.db.select().from(t.evaluationScores).where(inArray(t.evaluationScores.evaluationId, ids)) : [];
+    .where(evaluationWhere(f))
+    .orderBy(desc(t.evaluations.dateISO), asc(t.students.nameAr));
+  const rows = (limit && !f.search ? await q.limit(limit) : await q).filter(
+    (x) => !f.search || matchesSearch(f.search, x.studentName, x.universityNumber)
+  );
   const byEval = new Map<string, Record<string, number>>();
-  for (const s of scores) (byEval.get(s.evaluationId) ?? byEval.set(s.evaluationId, {}).get(s.evaluationId)!)[s.rubricSectionId] = s.score;
-  return filtered
-    .map((x) => ({
-      id: x.e.id,
-      dateISO: x.e.dateISO,
-      studentId: x.e.studentId,
-      studentName: x.studentName,
-      universityNumber: x.universityNumber,
-      groupId: x.e.groupId,
-      groupName: x.groupName,
-      hospitalName: x.hospitalName,
-      evaluatorName: x.evaluatorName,
-      attendance: x.e.attendance,
-      total: x.e.total,
-      locked: x.e.locked,
-      notes: x.e.notes,
-      sections: byEval.get(x.e.id) ?? {},
-    }))
-    .sort((a, b) => b.dateISO.localeCompare(a.dateISO) || compareArabic(a.studentName, b.studentName));
+  const ids = rows.map((x) => x.id);
+  for (let k = 0; k < ids.length; k += 5000) {
+    const chunk = ids.slice(k, k + 5000);
+    const scores = await r.db
+      .select({ evaluationId: t.evaluationScores.evaluationId, sectionId: t.evaluationScores.rubricSectionId, score: t.evaluationScores.score })
+      .from(t.evaluationScores)
+      .where(inArray(t.evaluationScores.evaluationId, chunk));
+    for (const s of scores) {
+      let m = byEval.get(s.evaluationId);
+      if (!m) byEval.set(s.evaluationId, (m = {}));
+      m[s.sectionId] = s.score;
+    }
+  }
+  return rows.map((x) => ({ ...x, sections: byEval.get(x.id) ?? {} }));
 }
 
 export interface StudentRecord {

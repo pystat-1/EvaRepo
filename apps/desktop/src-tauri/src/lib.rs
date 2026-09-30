@@ -1,5 +1,6 @@
 mod db;
 mod files;
+mod system;
 
 use tauri::Manager;
 
@@ -16,6 +17,7 @@ pub fn run() {
         )
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             // A panic anywhere in the Rust side is written to the log before
             // the app goes down, so the cause can be sent and fixed.
@@ -44,6 +46,9 @@ pub fn run() {
             db::backup_restore,
             db::db_import_file,
             files::file_write,
+            system::system_info,
+            system::log_tail,
+            system::open_folder,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Eva");

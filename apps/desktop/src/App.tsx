@@ -17,6 +17,9 @@ import { ConfirmHost } from "./components/confirm";
 import { SyncScreen } from "./screens/SyncScreen";
 import { SyncBadge } from "./components/SyncBadge";
 import { startAutoSync } from "./lib/autoSync";
+import { startUpdateChecks } from "./lib/updater";
+import { openFolder, useHealth } from "./lib/health";
+import { HealthBanner } from "./components/HealthBanner";
 
 // The admin app's screens. Ctrl+1..7 jumps to them; Ctrl+K opens the
 // command palette.
@@ -112,6 +115,9 @@ function Ready({
   setOpenStudent: (id: string | null) => void;
 }) {
   useEffect(startAutoSync, []);
+  useEffect(startUpdateChecks, []);
+  // The app is only running when the start-up integrity check passed.
+  const health = useHealth("ok");
   const paletteActions: PaletteAction[] = [
     ...TABS.map((t, i) => ({ id: `tab-${t.key}`, label: t.label, hint: `Ctrl+${i + 1}`, run: () => setTab(t.key) })),
     {
@@ -139,6 +145,7 @@ function Ready({
           </div>
         </nav>
         <main className="main">
+          <HealthBanner checks={health.checks} onGo={setTab} />
           {/* Each screen has its own boundary: a bug in one screen shows a
               recovery panel there and never takes down the whole app. */}
           <ErrorBoundary key={tab} FallbackComponent={ScreenCrash} onError={(err, info) => logScreenCrash(tab, err, info.componentStack)}>
@@ -149,7 +156,7 @@ function Ready({
             {tab === "evaluators" && <EvaluatorsScreen />}
             {tab === "sync" && <SyncScreen />}
             {tab === "audit" && <AuditScreen />}
-            {tab === "system" && <SystemScreen info={boot.info} startup={boot.result} />}
+            {tab === "system" && <SystemScreen info={boot.info} startup={boot.result} checks={health.checks} system={health.info} />}
           </ErrorBoundary>
         </main>
       </div>
@@ -176,6 +183,9 @@ function ScreenCrash({ error, resetErrorBoundary }: FallbackProps) {
       <div className="row">
         <button className="btn btn-primary" onClick={resetErrorBoundary}>
           إعادة المحاولة
+        </button>
+        <button className="btn" onClick={() => void openFolder("logs")}>
+          فتح مجلد السجلات
         </button>
       </div>
     </div>

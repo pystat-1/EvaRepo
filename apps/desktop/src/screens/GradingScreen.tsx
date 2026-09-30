@@ -1,14 +1,16 @@
-import { useMemo, useState } from "react";
+import { useDeferredValue, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { ColumnDef } from "@tanstack/react-table";
 import { courseOverview, listCourses, listHospitals } from "@eva/db/repo/courses";
-import { groupGradeSheet, listEvaluations, rubric, type EvaluationRow } from "@eva/db/repo/grading";
+import { countEvaluations, groupGradeSheet, listEvaluations, rubric, type EvaluationRow, type EvaluationFilter } from "@eva/db/repo/grading";
 import { listEvaluators } from "@eva/db/repo/evaluators";
 import { currentCourse } from "@eva/db/repo/students";
 import { DataTable } from "../components/DataTable";
 import { ATTENDANCE_AR, Empty, Notice, PageHeader, fmt2 } from "../components/ui";
 import { errorText, r } from "../lib/repo";
 import { loadExcel, saveFile } from "../lib/files";
+
+const PAGE = 1500; // grades shown when the screen opens (newest first)
 
 export function GradingScreen() {
   const [view, setView] = useState<"list" | "sheet">("list");
@@ -21,19 +23,19 @@ export function GradingScreen() {
   const hospitals = useQuery({ queryKey: ["hospitals"], queryFn: () => listHospitals(r) });
   const evaluators = useQuery({ queryKey: ["evaluators"], queryFn: () => listEvaluators(r) });
   const sections = useQuery({ queryKey: ["rubric"], queryFn: () => rubric(r) });
-  const rows = useQuery({
-    queryKey: ["evaluations", courseId, f.groupId, f.hospitalId, f.evaluatorId, f.from, f.to],
-    queryFn: () =>
-      listEvaluations(r, {
-        courseId: courseId || undefined, groupId: f.groupId || undefined, hospitalId: f.hospitalId || undefined,
-        evaluatorId: f.evaluatorId || undefined, from: f.from || undefined, to: f.to || undefined,
-      }),
-  });
-  const shown = useMemo(() => {
-    const q = f.search.trim();
-    if (!q) return rows.data ?? [];
-    return (rows.data ?? []).filter((e) => e.studentName.includes(q) || e.universityNumber.includes(q));
-  }, [rows.data, f.search]);
+  // A full course holds tens of thousands of grades: the newest ones open
+  // instantly; search, "show all" and the Excel export read everything.
+  const [showAll, setShowAll] = useState(false);
+  const search = useDeferredValue(f.search.trim());
+  const filter: EvaluationFilter = {
+    courseId: courseId || undefined, groupId: f.groupId || undefined, hospitalId: f.hospitalId || undefined,
+    evaluatorId: f.evaluatorId || undefined, from: f.from || undefined, to: f.to || undefined, search: search || undefined,
+  };
+  const limit = showAll || search ? undefined : PAGE;
+  const rows = useQuery({ queryKey: ["evaluations", filter, limit], queryFn: () => listEvaluations(r, filter, limit), placeholderData: (prev) => prev });
+  const total = useQuery({ queryKey: ["evaluationCount", { ...filter, search: undefined }], queryFn: () => countEvaluations(r, { ...filter, search: undefined }) });
+  const shown = rows.data ?? [];
+  const partial = !search && !showAll && total.data !== undefined && total.data > shown.length;
 
   const columns = useMemo<ColumnDef<EvaluationRow, unknown>[]>(
     () => [
@@ -66,14 +68,14 @@ export function GradingScreen() {
       const secs = sections.data ?? [];
       ws.addRow(["التاريخ", "الرقم الجامعي", "الطالب", "المجموعة", "المستشفى", "الحضور", ...secs.map((s) => s.labelAr), "المجموع", "المقيّم", "ملاحظات"]);
       ws.getRow(1).font = { bold: true };
-      for (const e of shown) {
+      for (const e of partial ? await listEvaluations(r, filter) : shown) {
         const absent = e.attendance === "absent";
         ws.addRow([e.dateISO, e.universityNumber, e.studentName, e.groupName ?? "", e.hospitalName ?? "", ATTENDANCE_AR[e.attendance],
           ...secs.map((s) => (absent ? "" : e.sections[s.id] ?? "")), absent ? "" : e.total, e.evaluatorName ?? "", e.notes ?? ""]);
       }
       ws.columns.forEach((c) => (c.width = 16));
       const bytes = new Uint8Array(await wb.xlsx.writeBuffer());
-      if (await saveFile("الدرجات.xlsx", bytes, { name: "Excel", extensions: ["xlsx"] })) setNote({ kind: "ok", text: `حُفظ ${shown.length} تقييم.` });
+      if (await saveFile("الدرجات.xlsx", bytes, { name: "Excel", extensions: ["xlsx"] })) setNote({ kind: "ok", text: `حُفظ ${ws.rowCount - 1} تقييم.` });
     } catch (e) {
       setNote({ kind: "err", text: errorText(e) });
     }
@@ -131,6 +133,15 @@ export function GradingScreen() {
         )}
       </div>
       {rows.isError && <Notice kind="err">{errorText(rows.error)}</Notice>}
+      {view === "list" && partial && (
+        <p className="muted" style={{ margin: 0 }}>
+          يُعرض أحدث {shown.length.toLocaleString("en")} تقييم من {total.data!.toLocaleString("en")}. ضيّق التصفية أو ابحث عن طالب، أو{" "}
+          <button className="btn btn-sm" onClick={() => setShowAll(true)}>
+            اعرض الكل
+          </button>{" "}
+          (التصدير يشمل الكل دائمًا).
+        </p>
+      )}
       {view === "list" ? (
         <DataTable rows={shown} columns={columns} getRowId={(e) => e.id} empty={rows.isLoading ? "جارٍ التحميل…" : "لا توجد درجات معتمدة لهذا الاختيار"} />
       ) : f.groupId ? (

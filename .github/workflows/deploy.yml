@@ -28,7 +28,7 @@ jobs:
 
       # Never deploy code that fails its checks.
       - name: Type-check and unit tests
-        run: npx tsc --noEmit -p . && npx vitest run
+        run: npx next typegen && npx tsc --noEmit -p . && npx vitest run
 
       - name: Build and deploy to Cloudflare Workers
         env:

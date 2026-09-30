@@ -17,6 +17,6 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Type-check
-        run: npx tsc --noEmit -p .
+        run: npx next typegen && npx tsc --noEmit -p .
       - name: Unit tests
         run: npx vitest run

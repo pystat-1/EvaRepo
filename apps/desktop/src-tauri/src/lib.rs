@@ -20,7 +20,12 @@ pub fn run() {
             // A panic anywhere in the Rust side is written to the log before
             // the app goes down, so the cause can be sent and fixed.
             std::panic::set_hook(Box::new(|info| log::error!("PANIC: {info}")));
-            let dir = app.path().app_data_dir().expect("no app data folder");
+            // EVA_DATA_DIR points a copy of the app at another folder (tests,
+            // or trying something without touching the real data).
+            let dir = match std::env::var_os("EVA_DATA_DIR") {
+                Some(d) if !d.is_empty() => std::path::PathBuf::from(d),
+                _ => app.path().app_data_dir().expect("no app data folder"),
+            };
             std::fs::create_dir_all(&dir)?;
             app.manage(db::DbState::new(dir));
             Ok(())

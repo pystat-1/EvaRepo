@@ -134,3 +134,34 @@ thead .sticky-col { z-index: 3; background: var(--paper-100); }
 .palette [cmdk-empty] { padding: 18px; text-align: center; color: var(--ink-muted); }
 
 .confirm-box { position: relative; margin: 0; width: min(460px, 92vw); }
+
+/* Shared small pieces */
+.badge-warn { background: var(--amber-100); color: var(--amber-700); border-color: transparent; }
+.badge-err { background: var(--red-100); color: var(--red-700); border-color: transparent; }
+.btn-sm { min-height: 30px; padding: 4px 10px; font-size: 13.5px; }
+.mono { font-family: Consolas, "Cascadia Mono", monospace; letter-spacing: .02em; }
+.small { font-size: 13px; }
+
+/* Evaluators: summary, toolbar and one card per evaluator */
+.ev-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+.ev-stat { display: flex; flex-direction: column; gap: 8px; }
+.ev-stat p { margin: 0; }
+.ev-stat-title { font-weight: 600; }
+.ev-search { flex: 1 1 260px; max-width: 420px; }
+.ev-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(440px, 1fr)); gap: 12px; align-items: start; }
+.ev-card { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.ev-card.dim { opacity: .72; }
+.ev-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; flex-wrap: wrap; }
+.ev-id { min-width: 0; }
+.ev-name { font-weight: 700; font-size: 16.5px; }
+.ev-email { font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ev-badges { gap: 6px; }
+.ev-covers { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.chip-tag { display: inline-flex; align-items: center; gap: 2px; padding: 3px 4px 3px 10px; border-radius: 999px; background: var(--brand-tint); border: 1px solid var(--border); font-size: 13.5px; }
+.chip-x { all: unset; cursor: pointer; width: 22px; height: 22px; border-radius: 50%; display: inline-grid; place-items: center; font-size: 11px; color: var(--ink-muted); margin-inline-start: 4px; }
+.chip-x:hover { background: var(--red-100); color: var(--red-700); }
+.chip-x:focus-visible { outline: 2px solid var(--brand); }
+.ev-add { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px; border-radius: var(--radius); background: var(--surface); border: 1px dashed var(--border-strong); }
+.ev-add .input { flex: 1 1 150px; min-height: 32px; }
+.ev-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; border-top: 1px solid var(--border); padding-top: 10px; }
+@media (max-width: 1100px) { .ev-grid { grid-template-columns: 1fr; } }

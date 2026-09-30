@@ -108,6 +108,16 @@ export async function setEvaluatorPasswordHash(r: Repo, accountId: string, passw
   await plan.commit();
 }
 
+/** Several at once (one transaction), e.g. "passwords for everyone without one". */
+export async function setEvaluatorPasswordHashes(r: Repo, list: Array<{ accountId: string; passwordHash: string }>) {
+  const plan = new Plan(r);
+  for (const x of list) {
+    plan.add(r.db.update(t.accounts).set({ passwordHash: x.passwordHash, updatedAt: nowISO() }).where(eq(t.accounts.id, x.accountId)));
+    plan.audit("Evaluator", x.accountId, "update", undefined, { phonePassword: "reset" });
+  }
+  await plan.commit();
+}
+
 // ---- applying pulled submissions ------------------------------------------
 
 export interface PulledSubmission {

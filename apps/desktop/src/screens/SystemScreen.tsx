@@ -12,6 +12,8 @@ import { logTail, openFolder, type SystemInfo } from "../lib/health";
 import { checkForUpdate, installUpdate, useUpdateState } from "../lib/updater";
 import { useSyncState } from "../lib/autoSync";
 import { saveFile } from "../lib/files";
+import { CloudBackupCard } from "../components/CloudBackupCard";
+import { cloudRound, useCloudState } from "../lib/cloud/cloudBackup";
 
 
 const REASON_AR: Record<string, string> = {
@@ -47,6 +49,7 @@ export function SystemScreen({
 }) {
   const update = useUpdateState();
   const sync = useSyncState();
+  const cloud = useCloudState();
   const [stats, setStats] = useState<Record<string, number> | null>(null);
   const [list, setList] = useState<BackupEntry[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
@@ -75,7 +78,7 @@ export function SystemScreen({
     return () => {
       alive = false;
     };
-  }, [version]);
+  }, [version, cloud.files.length, cloud.lastUploadAt, cloud.busy]); // also after an online-backup round prunes this computer
 
   async function run(label: string, fn: () => Promise<string | void>) {
     setBusy(label);
@@ -112,7 +115,12 @@ export function SystemScreen({
       return ok ? "حُفظ التقرير. أرسله للدعم الفني مع وصف ما حدث." : undefined;
     });
 
-  const backupNow = () => run("backup", async () => `أُخذت نسخة احتياطية: ${formatBackupTime(await takeBackup(backups, "manual"))}`);
+  const backupNow = () =>
+    run("backup", async () => {
+      const name = await takeBackup(backups, "manual");
+      void cloudRound(); // goes online right away when online backups are on
+      return `أُخذت نسخة احتياطية: ${formatBackupTime(name)}`;
+    });
 
   const restore = (name: string) =>
     run("restore", async () => {
@@ -243,9 +251,11 @@ export function SystemScreen({
         </div>
       </div>
 
+      <CloudBackupCard onRestore={restore} busy={!!busy} />
+
       <div className="card stack">
         <div className="row" style={{ justifyContent: "space-between" }}>
-          <h2 style={{ margin: 0 }}>النسخ الاحتياطية ({list.length})</h2>
+          <h2 style={{ margin: 0 }}>النسخ على هذا الحاسوب ({list.length})</h2>
           <div className="row">
             <button className="btn btn-primary" onClick={backupNow} disabled={!!busy}>
               {busy === "backup" ? "جارٍ النسخ…" : "نسخة احتياطية الآن"}
@@ -256,7 +266,11 @@ export function SystemScreen({
           </div>
         </div>
         <p className="muted" style={{ margin: 0 }}>
-          تُؤخذ نسخة تلقائيًا كل يوم وقبل أي ترقية أو استيراد أو استعادة. يُحتفظ بآخر 30 نسخة وبنسخة من كل شهر لمدة سنة. المجلد:{" "}
+          تُؤخذ نسخة تلقائيًا كل يوم وقبل أي ترقية أو استيراد أو استعادة.{" "}
+          {cloud.enabled
+            ? "تُرفع كل نسخة إلى الإنترنت ويبقى على هذا الحاسوب آخر 3 فقط."
+            : "يُحتفظ على هذا الحاسوب بآخر 30 نسخة وبنسخة من كل شهر لمدة سنة — فعّل النسخ على الإنترنت لتبقى البيانات آمنة خارجه."}{" "}
+          المجلد:{" "}
           <span className="ltr">{info.backups_dir}</span>
         </p>
         <table className="list">

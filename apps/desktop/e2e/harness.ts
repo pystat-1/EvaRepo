@@ -11,7 +11,7 @@ import fs from "node:fs";
 import path from "node:path";
 import Database from "better-sqlite3";
 import { chromium, type Browser, type BrowserContext, type Page, type Route } from "playwright";
-import { handle, type DB, type Env, type Stmt } from "../../relay/src/relay";
+import { handle, type BackupBucket, type DB, type Env, type Stmt } from "../../relay/src/relay";
 import { seeded } from "../../../packages/db/src/repo/testSeed";
 
 export const ROOT = path.resolve(import.meta.dirname, "../../..");
@@ -72,7 +72,15 @@ export async function startRelay() {
     ["sign", "verify"]
   )) as CryptoKeyPair;
   const jwk = await crypto.subtle.exportKey("jwk", pair.publicKey);
-  const env: Env = { DB: d1, ADMIN_TOKEN: ADMIN, GOOGLE_CLIENT_ID: CLIENT, googleKeys: async (kid) => (kid === "k1" ? jwk : null) };
+  // Online backups: an in-memory stand-in for the R2 bucket.
+  const bucket = new Map<string, Uint8Array>();
+  const BACKUPS: BackupBucket = {
+    put: async (k, v) => void bucket.set(k, new Uint8Array(v as ArrayBuffer)),
+    get: async (k) => (bucket.has(k) ? { body: new Response(bucket.get(k)! as BodyInit).body!, size: bucket.get(k)!.length } : null),
+    list: async () => ({ objects: [...bucket].map(([key, v]) => ({ key, size: v.length, uploaded: new Date() })), truncated: false }),
+    delete: async (k) => void bucket.delete(k),
+  };
+  const env: Env = { DB: d1, ADMIN_TOKEN: ADMIN, GOOGLE_CLIENT_ID: CLIENT, googleKeys: async (kid) => (kid === "k1" ? jwk : null), BACKUPS };
 
   async function serve(route: Route, origin: string) {
     const req = route.request();
@@ -95,7 +103,7 @@ export async function startRelay() {
     const sig = new Uint8Array(await crypto.subtle.sign("RSASSA-PKCS1-v1_5", pair.privateKey, new TextEncoder().encode(`${head}.${body}`)));
     return `${head}.${body}.${b64url(sig)}`;
   }
-  return { db, serve, idToken };
+  return { db, serve, idToken, bucket };
 }
 export type Relay = Awaited<ReturnType<typeof startRelay>>;
 
@@ -118,20 +126,35 @@ export function stopServers() {
 }
 
 /** Tauri's IPC answered from a SQLite file (the commands the Rust side implements). */
-function tauriCommands(db: Database.Database, file: string, out: string) {
+export interface TauriLog {
+  restored: string[];
+}
+function tauriCommands(db: Database.Database, file: string, out: string, log: TauriLog) {
   const bind = (p: unknown[] = []) => p.map((v) => (Array.isArray(v) ? Buffer.from(v as number[]) : v));
-  type Args = { sql: string; params?: unknown[]; statements: Array<{ sql: string; params?: unknown[] }> };
-  return (cmd: string, a: Args): unknown => {
+  const dir = path.join(out, `backups-${path.basename(file)}`);
+  fs.mkdirSync(dir, { recursive: true });
+  const valid = (n: string) => /^eva-[A-Za-z0-9.-]+\.db$/.test(n);
+  type Args = { sql: string; params?: unknown[]; statements: Array<{ sql: string; params?: unknown[] }>; name: string; names: string[]; __raw?: string; __name?: string };
+  return async (cmd: string, a: Args): Promise<unknown> => {
     switch (cmd) {
-      case "db_open": return { path: file, backups_dir: out, created: false };
+      case "db_open": return { path: file, backups_dir: dir, created: false };
       case "db_exec": db.exec(a.sql); return null;
       case "db_query": { const s = db.prepare(a.sql); return s.reader ? s.all(...bind(a.params)) : (s.run(...bind(a.params)), []); }
       case "db_values": { const s = db.prepare(a.sql); return s.reader ? s.raw().all(...bind(a.params)) : (s.run(...bind(a.params)), []); }
       case "db_run": return db.prepare(a.sql).run(...bind(a.params)).changes;
       case "db_batch": db.transaction(() => a.statements.forEach((s) => db.prepare(s.sql).run(...bind(s.params))))(); return null;
       case "db_integrity": return db.pragma("integrity_check", { simple: true });
-      case "backup_list": return [{ name: `eva-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-080000-daily.db`, size: 1000 }];
-      case "backup_create": return 1;
+      case "backup_list": return fs.readdirSync(dir).filter(valid).map((name) => ({ name, size: fs.statSync(path.join(dir, name)).size }));
+      case "backup_create": await db.backup(path.join(dir, a.name)); return fs.statSync(path.join(dir, a.name)).size;
+      case "backup_delete": for (const n of a.names.filter(valid)) fs.rmSync(path.join(dir, n), { force: true }); return a.names.length;
+      case "backup_read": return { __bytes: fs.readFileSync(path.join(dir, a.name)).toString("base64") };
+      case "backup_write": {
+        const bytes = Buffer.from(a.__raw!, "base64");
+        if (!valid(a.__name!) || bytes.subarray(0, 15).toString() !== "SQLite format 3") throw new Error("not an Eva database");
+        fs.writeFileSync(path.join(dir, a.__name!), bytes);
+        return bytes.length;
+      }
+      case "backup_restore": log.restored.push(a.name); return null;
       case "system_info": return { version: "0.2.0", data_dir: out, log_dir: out, db_bytes: fs.statSync(file).size, wal_bytes: 0, free_disk_bytes: 50e9, os: "e2e" };
       case "log_tail": return "";
       case "plugin:updater|check": return null; // no update in tests
@@ -145,9 +168,17 @@ const TAURI_SHIM = `
   window.__TAURI_INTERNALS__ = {
     metadata: { currentWindow: { label: "main" }, currentWebview: { windowLabel: "main", label: "main" } },
     transformCallback: () => ++cb,
-    invoke: async (cmd, args) => {
+    invoke: async (cmd, args, options) => {
+      // Raw bytes (backup_write) travel as base64; so do raw results (backup_read).
+      if (args instanceof Uint8Array || args instanceof ArrayBuffer) {
+        const u = args instanceof Uint8Array ? args : new Uint8Array(args);
+        let bin = "";
+        for (let i = 0; i < u.length; i += 0x8000) bin += String.fromCharCode(...u.subarray(i, i + 0x8000));
+        args = { __raw: btoa(bin), __name: options?.headers?.["x-backup-name"] };
+      }
       const r = await window.__evaNode(cmd, args);
       if (r.err) throw r.err;
+      if (r.ok && r.ok.__bytes !== undefined) return Uint8Array.from(atob(r.ok.__bytes), (c) => c.charCodeAt(0)).buffer;
       return r.ok;
     },
   };`;
@@ -156,10 +187,11 @@ export async function openDesktop(browser: Browser, db: Database.Database, file:
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, locale: "ar" });
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.length < 20 && errors.push("desktop: " + e.message));
-  const run = tauriCommands(db, file, out);
-  await page.exposeFunction("__evaNode", (cmd: string, args: Parameters<typeof run>[1] | undefined) => {
+  const tauriLog: TauriLog = { restored: [] };
+  const run = tauriCommands(db, file, out, tauriLog);
+  await page.exposeFunction("__evaNode", async (cmd: string, args: Parameters<typeof run>[1] | undefined) => {
     try {
-      return { ok: run(cmd, args ?? ({} as Parameters<typeof run>[1])) };
+      return { ok: await run(cmd, args ?? ({} as Parameters<typeof run>[1])) };
     } catch (e) {
       return { err: String((e as Error).message) };
     }
@@ -167,7 +199,7 @@ export async function openDesktop(browser: Browser, db: Database.Database, file:
   await page.addInitScript({ content: TAURI_SHIM });
   if (relay) await page.route(`${RELAY}/**`, (r) => relay.serve(r, "http://localhost:1420"));
   await page.goto("http://localhost:1420/");
-  return { page, errors };
+  return { page, errors, tauriLog };
 }
 
 const FAKE_GSI = `

@@ -1,4 +1,4 @@
-// npm run e2e -w @eva/desktop [-- flow|perf]   (both when nothing is given)
+// npm run e2e -w @eva/desktop [-- flow|perf|backup]   (all when nothing is given)
 // Builds nothing itself: the phone app must be built (npm run build -w @eva/evaluator).
 import fs from "node:fs";
 import os from "node:os";
@@ -6,9 +6,11 @@ import path from "node:path";
 import { launch, log, startVite, stopServers } from "./harness";
 import { flow } from "./flow";
 import { perf } from "./perf";
+import { backup } from "./backup";
 
-const which = process.argv.slice(2).filter((a) => a === "flow" || a === "perf");
-const run = which.length ? which : ["flow", "perf"];
+const TESTS = { flow, perf, backup };
+const which = process.argv.slice(2).filter((a): a is keyof typeof TESTS => a in TESTS);
+const run = which.length ? which : (Object.keys(TESTS) as Array<keyof typeof TESTS>);
 const out = fs.mkdtempSync(path.join(os.tmpdir(), "eva-e2e-"));
 
 let failed = false;
@@ -20,7 +22,7 @@ try {
     for (const name of run) {
       log(`\n── ${name} ──`);
       const t0 = Date.now();
-      await (name === "flow" ? flow : perf)(browser, out);
+      await TESTS[name](browser, out);
       log(`── ${name} passed in ${Math.round((Date.now() - t0) / 1000)}s`);
     }
   } finally {

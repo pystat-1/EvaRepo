@@ -45,6 +45,8 @@ pub fn run() {
             db::backup_delete,
             db::backup_restore,
             db::db_import_file,
+            db::backup_read,
+            db::backup_write,
             files::file_write,
             system::system_info,
             system::log_tail,

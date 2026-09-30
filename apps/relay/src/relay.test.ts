@@ -2,7 +2,7 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import Database from "better-sqlite3";
 import type { EvaluatorBundle } from "@eva/core/sync/contract";
-import { handle, type DB, type Env, type Stmt } from "./relay";
+import { handle, type BackupBucket, type DB, type Env, type Stmt } from "./relay";
 
 // D1-shaped adapter over better-sqlite3 (D1 is SQLite, same SQL).
 function d1(): DB {
@@ -169,5 +169,33 @@ describe("relay", () => {
     expect((await call("/admin/status", { method: "OPTIONS", headers: { origin: "https://evil.example" } })).status).toBe(403);
     const res = await call("/admin/status", { token: ADMIN, headers: { origin: "http://tauri.localhost" } });
     expect(res.headers.get("access-control-allow-origin")).toBe("http://tauri.localhost");
+  });
+
+  it("stores, lists, returns and deletes encrypted backups (admin only)", async () => {
+    const store = new Map<string, Uint8Array>();
+    const bucket: BackupBucket = {
+      put: async (k, v) => void store.set(k, new Uint8Array(v as ArrayBuffer)),
+      get: async (k) => (store.has(k) ? { body: new Response(store.get(k)!).body!, size: store.get(k)!.length } : null),
+      list: async () => ({ objects: [...store].map(([key, v]) => ({ key, size: v.length, uploaded: new Date("2026-10-01T00:00:00Z") })), truncated: false }),
+      delete: async (k) => void store.delete(k),
+    };
+    env.BACKUPS = bucket;
+    const name = "eva-20261001-080000-daily.db.evab";
+    const file = new Uint8Array([...new TextEncoder().encode("EVAB"), 1, 2, 3]);
+    const put = (n: string, body: Uint8Array, token = ADMIN) =>
+      handle(new Request(`https://relay.test/admin/backups/${n}`, { method: "PUT", headers: { authorization: `Bearer ${token}`, "content-length": String(body.length) }, body }), env);
+    expect((await put(name, file, "wrong")).status).toBe(401);
+    expect((await put("evil.db.evab", file)).status).toBe(400); // only Eva backup names
+    expect((await put("../../etc", file)).status).toBe(404); // paths never leave /admin/backups
+    expect((await put(name, new TextEncoder().encode("plain"))).status).toBe(400); // not an Eva backup file
+    expect((await put(name, file)).status).toBe(200);
+    const listed = (await body(await call("/admin/backups", { token: ADMIN }))) as { backups: Array<{ name: string; size: number }> };
+    expect(listed.backups).toEqual([expect.objectContaining({ name, size: 7 })]);
+    const got = await call(`/admin/backups/${name}`, { token: ADMIN });
+    expect(new Uint8Array(await got.arrayBuffer())).toEqual(file);
+    expect((await call(`/admin/backups/${name}`, { method: "DELETE", token: ADMIN })).status).toBe(200);
+    expect(store.size).toBe(0);
+    env.BACKUPS = undefined;
+    expect((await call("/admin/backups", { token: ADMIN })).status).toBe(503);
   });
 });

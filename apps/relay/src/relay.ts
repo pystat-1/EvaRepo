@@ -23,6 +23,16 @@ export interface Env {
   GOOGLE_CLIENT_ID?: string;
   /** Tests pass their own signing keys; production uses Google's. */
   googleKeys?: KeyLookup;
+  /** R2 bucket for the desktop's encrypted backups (optional: off when absent). */
+  BACKUPS?: BackupBucket;
+}
+
+/** The slice of Cloudflare R2 used for backups (also faked in tests). */
+export interface BackupBucket {
+  put(key: string, value: ArrayBuffer | ReadableStream | null, opts?: { customMetadata?: Record<string, string> }): Promise<unknown>;
+  get(key: string): Promise<{ body: ReadableStream; size: number } | null>;
+  list(opts?: { prefix?: string; cursor?: string }): Promise<{ objects: Array<{ key: string; size: number; uploaded: Date }>; truncated: boolean; cursor?: string }>;
+  delete(key: string): Promise<void>;
 }
 
 const SESSION_DAYS = 90; // sliding: an evaluator who uses the app never has to sign in again
@@ -241,6 +251,7 @@ async function status(env: Env) {
     submissions: await q(`SELECT COUNT(*) AS n FROM submissions`),
     lastSeq: await q(`SELECT COALESCE(MAX(seq), 0) AS n FROM submissions`),
     googleSignIn: !!env.GOOGLE_CLIENT_ID,
+    backups: !!env.BACKUPS,
     // Who has signed in on a phone, and when the phone was last active.
     phones: (
       await env.DB.prepare(
@@ -250,6 +261,46 @@ async function status(env: Env) {
       ).all<{ id: string; googleName: string | null; lastLoginAt: string; lastSeenAt: string | null }>()
     ).results,
   });
+}
+
+// ---- backups (admin) -------------------------------------------------------
+// The desktop encrypts each backup before it leaves the laptop; the relay only
+// stores the opaque files. Names mirror the local backup names.
+
+const BACKUP_NAME = /^eva-\d{8}-\d{6}-[a-z-]{3,20}\.db\.evab$/;
+const MAX_BACKUP_BYTES = 95 * 1024 * 1024; // under the Workers request limit
+
+async function listBackups(env: Env) {
+  const out: Array<{ name: string; size: number; uploadedAt: string }> = [];
+  let cursor: string | undefined;
+  do {
+    const page = await env.BACKUPS!.list({ prefix: "eva-", cursor });
+    for (const o of page.objects) if (BACKUP_NAME.test(o.key)) out.push({ name: o.key, size: o.size, uploadedAt: o.uploaded.toISOString() });
+    cursor = page.truncated ? page.cursor : undefined;
+  } while (cursor);
+  return json({ backups: out.sort((a, b) => b.name.localeCompare(a.name)) });
+}
+
+async function backupFile(env: Env, req: Request, name: string) {
+  if (!BACKUP_NAME.test(name)) return fail(400, "اسم نسخة غير صالح");
+  if (req.method === "PUT") {
+    if (Number(req.headers.get("content-length") ?? 0) > MAX_BACKUP_BYTES) return fail(413, "حجم النسخة غير مقبول");
+    const body = await req.arrayBuffer(); // the size that arrived is what counts
+    if (!body.byteLength || body.byteLength > MAX_BACKUP_BYTES) return fail(413, "حجم النسخة غير مقبول");
+    if (new TextDecoder().decode(body.slice(0, 4)) !== "EVAB") return fail(400, "ملف نسخة غير صالح");
+    await env.BACKUPS!.put(name, body);
+    return json({ ok: true, name, size: body.byteLength });
+  }
+  if (req.method === "GET") {
+    const obj = await env.BACKUPS!.get(name);
+    if (!obj) return fail(404, "النسخة غير موجودة");
+    return new Response(obj.body, { headers: { "content-type": "application/octet-stream", "content-length": String(obj.size), "cache-control": "no-store" } });
+  }
+  if (req.method === "DELETE") {
+    await env.BACKUPS!.delete(name);
+    return json({ ok: true });
+  }
+  return fail(405, "غير مسموح");
 }
 
 // ---- routing ----------------------------------------------------------------
@@ -275,7 +326,7 @@ export async function handle(req: Request, env: Env): Promise<Response> {
       status: 204,
       headers: {
         "access-control-allow-origin": origin,
-        "access-control-allow-methods": "GET, POST, PUT",
+        "access-control-allow-methods": "GET, POST, PUT, DELETE",
         "access-control-allow-headers": "authorization, content-type",
         "access-control-max-age": "86400",
         vary: "origin",
@@ -297,6 +348,11 @@ async function route(req: Request, env: Env): Promise<Response> {
       if (p === "/admin/submissions" && req.method === "GET") return await listSubmissions(env, url);
       if (p === "/admin/results" && req.method === "POST") return await postResults(env, req);
       if (p === "/admin/status" && req.method === "GET") return await status(env);
+      if (p === "/admin/backups" || p.startsWith("/admin/backups/")) {
+        if (!env.BACKUPS) return fail(503, "التخزين على الإنترنت غير مفعَّل على الخادم");
+        if (p === "/admin/backups" && req.method === "GET") return await listBackups(env);
+        return await backupFile(env, req, decodeURIComponent(p.slice("/admin/backups/".length)));
+      }
       return fail(404, "غير موجود");
     }
     if (p === "/api/config" && req.method === "GET") return config(env);

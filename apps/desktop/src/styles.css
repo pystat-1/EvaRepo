@@ -30,17 +30,20 @@ body { margin: 0; background: var(--surface); }
 button, input, select, textarea { font: inherit; }
 .tabular { font-variant-numeric: tabular-nums; }
 
-.shell { display: grid; grid-template-columns: 230px 1fr; min-height: 100vh; }
-.sidebar { background: var(--brand-dark); color: #fff; padding: 18px 12px; display: flex; flex-direction: column; gap: 4px; }
-.sidebar .brand { font-weight: 700; font-size: 20px; padding: 4px 10px 16px; }
-.sidebar .brand small { display: block; font-weight: 400; font-size: 12px; opacity: .75; }
-.nav-item { all: unset; cursor: pointer; padding: 9px 12px; border-radius: var(--radius); display: flex; justify-content: space-between; align-items: center; }
-.nav-item:hover { background: rgba(255,255,255,.08); }
-.nav-item[aria-current="page"] { background: rgba(255,255,255,.16); font-weight: 600; }
-.nav-item:disabled, .nav-item[aria-disabled="true"] { opacity: .45; cursor: default; }
-.nav-item:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.shell { display: flex; flex-direction: column; height: 100vh; }
+/* Top bar: brand, the screens as tabs, sync status */
+.topbar { background: var(--brand-dark); color: #fff; display: flex; align-items: stretch; gap: 16px; padding: 0 18px; min-height: 52px; flex: none; }
+.topbar .brand { font-weight: 700; font-size: 21px; display: flex; align-items: center; padding-inline-end: 6px; }
+.tabs { display: flex; align-items: stretch; gap: 2px; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.tabs::-webkit-scrollbar { display: none; }
+.tab { all: unset; cursor: pointer; padding: 0 13px; display: flex; align-items: center; white-space: nowrap; font-size: 14.5px; color: rgba(255,255,255,.8); border-bottom: 3px solid transparent; border-top: 3px solid transparent; }
+.tab:hover { color: #fff; background: rgba(255,255,255,.06); }
+.tab[aria-current="page"] { color: #fff; font-weight: 700; border-bottom-color: #7fd1c1; }
+.topbar-tools { display: flex; align-items: center; gap: 10px; flex: none; }
+.kbd-hint { font-size: 12px; border: 1px solid rgba(255,255,255,.25); border-radius: 6px; padding: 2px 7px; }
+.tab:focus-visible { outline: 2px solid #fff; outline-offset: -4px; }
 .soon { font-size: 11px; opacity: .8; }
-.main { padding: 26px 30px; overflow: auto; }
+.main { padding: 24px 30px; overflow: auto; flex: 1; min-height: 0; }
 
 h1 { font-size: 22px; margin: 0 0 4px; }
 h2 { font-size: 16px; margin: 0 0 10px; }
@@ -66,7 +69,6 @@ table.list th { color: var(--ink-muted); font-weight: 600; }
 code, .ltr { direction: ltr; unicode-bidi: embed; font-family: Consolas, monospace; font-size: 12.5px; }
 
 /* ---- phase 3 screens ---- */
-.sidebar-foot { margin-top: auto; padding: 10px 12px 0; font-size: 12px; }
 .muted-light { color: rgba(255,255,255,.65); }
 .page-header { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
 .page-header p { margin: 2px 0 0; }
@@ -166,8 +168,7 @@ thead .sticky-col { z-index: 3; background: var(--paper-100); }
 .ev-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; border-top: 1px solid var(--border); padding-top: 10px; }
 @media (max-width: 1100px) { .ev-grid { grid-template-columns: 1fr; } }
 
-/* Sidebar: automatic sync status */
-.sidebar-foot { display: flex; flex-direction: column; gap: 8px; }
+/* Top bar: automatic sync status */
 .sync-badge { all: unset; cursor: pointer; display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: var(--radius); font-size: 12.5px; color: rgba(255,255,255,.85); }
 .sync-badge:hover { background: rgba(255,255,255,.08); }
 .sync-badge:focus-visible { outline: 2px solid #fff; }
@@ -189,3 +190,4 @@ thead .sticky-col { z-index: 3; background: var(--paper-100); }
 .check-dot { width: 10px; height: 10px; border-radius: 50%; margin-top: 7px; flex: none; background: var(--green-700); }
 .check-warn .check-dot { background: #d18b1f; }
 .check-err .check-dot { background: var(--red-700); }
+.recovery-code { font-family: Consolas, "Cascadia Mono", monospace; font-size: 19px; font-weight: 700; letter-spacing: .04em; background: var(--paper-100); border: 1px dashed var(--border-strong); border-radius: var(--radius); padding: 12px 14px; margin: 0; word-break: break-all; user-select: all; }

@@ -5,7 +5,7 @@
 export type Level = "ok" | "warn" | "err";
 
 export interface Check {
-  id: "database" | "disk" | "backup" | "sync" | "decisions" | "update";
+  id: "database" | "disk" | "backup" | "cloud" | "sync" | "decisions" | "update";
   level: Level;
   title: string;
   detail: string;
@@ -18,6 +18,8 @@ export interface Facts {
   integrity: string; // "ok" or SQLite's message
   freeDiskBytes: number | null;
   lastBackupAt: Date | null;
+  /** Online backups (encrypted, in the relay's storage). */
+  cloud: { enabled: boolean; lastUploadAt: Date | null; error: string | null };
   sync: { configured: boolean; kind: "off" | "idle" | "syncing" | "offline" | "error"; lastAt: string | null; message: string | null };
   openDecisions: number;
   update: { version: string } | null;
@@ -61,6 +63,18 @@ export function selfCheck(f: Facts): Check[] {
           ? { id: "backup", level: "warn", title: "النسخة الاحتياطية اليومية متأخرة", detail: `آخر نسخة ${ago(h)}. تُؤخذ تلقائيًا عند التشغيل كل يوم.`, go: "system" }
           : { id: "backup", level: "ok", title: "النسخ الاحتياطية منتظمة", detail: `آخر نسخة ${ago(h)}.` }
     );
+  }
+
+  const c = f.cloud;
+  if (!c.enabled) {
+    out.push({ id: "cloud", level: "warn", title: "النسخ الاحتياطية على هذا الحاسوب فقط", detail: "فعّل النسخ على الإنترنت من شاشة النظام حتى لا تضيع البيانات إذا تعطّل الحاسوب أو فُقد.", go: "system" });
+  } else if (c.error && !c.lastUploadAt) {
+    out.push({ id: "cloud", level: "err", title: "تتعذّر النسخ على الإنترنت", detail: `${c.error} — تُعاد المحاولة كل 10 دقائق.`, go: "system" });
+  } else if (f.lastBackupAt && hoursAgo(f.now, f.lastBackupAt) > 1 && (!c.lastUploadAt || hoursAgo(f.lastBackupAt, c.lastUploadAt) > 1)) {
+    // the newest backup is over an hour old and newer than the last upload
+    out.push({ id: "cloud", level: "warn", title: "لم تُرفع آخر نسخة احتياطية بعد", detail: c.error ? `${c.error} — تُعاد المحاولة تلقائيًا.` : "تُرفع تلقائيًا خلال دقائق عند الاتصال.", go: "system" });
+  } else {
+    out.push({ id: "cloud", level: "ok", title: "النسخ محفوظة على الإنترنت", detail: c.lastUploadAt ? `آخر رفع ${ago(hoursAgo(f.now, c.lastUploadAt))}، مشفّرة برمز الاسترداد.` : "مشفّرة برمز الاسترداد." });
   }
 
   const s = f.sync;

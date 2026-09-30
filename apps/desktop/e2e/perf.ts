@@ -46,7 +46,7 @@ export async function perf(browser: Browser, out: string) {
   log(`seeded ${students.length} students and ${grades} grades`);
 
   const { page, errors } = await openDesktop(browser, db, file, out);
-  await page.waitForSelector("nav.sidebar");
+  await page.waitForSelector("nav.tabs");
   const results: Array<[string, number]> = [];
   for (const round of [0, 1]) {
     for (const [tab, ready] of SCREENS) {

@@ -11,6 +11,7 @@ import { relayConfig } from "./relay";
 import { useSyncState } from "./autoSync";
 import { useUpdateState } from "./updater";
 import { selfCheck, type Check } from "./selfCheck";
+import { useCloudState } from "./cloud/cloudBackup";
 
 export interface SystemInfo {
   version: string;
@@ -35,6 +36,7 @@ export async function newestBackup(): Promise<Date | null> {
 export function useHealth(integrity: string): { checks: Check[]; info: SystemInfo | null } {
   const sync = useSyncState();
   const update = useUpdateState();
+  const cloud = useCloudState();
   const [checks, setChecks] = useState<Check[]>([]);
   const [info, setInfo] = useState<SystemInfo | null>(null);
   const [tick, setTick] = useState(0);
@@ -59,6 +61,7 @@ export function useHealth(integrity: string): { checks: Check[]; info: SystemInf
           integrity,
           freeDiskBytes: sys?.free_disk_bytes ?? null,
           lastBackupAt: last,
+          cloud: { enabled: !!cloud.enabled, lastUploadAt: cloud.lastUploadAt ? new Date(cloud.lastUploadAt) : null, error: cloud.error },
           sync: { configured: !!config, kind: sync.kind, lastAt: sync.lastAt, message: sync.message },
           openDecisions: box.filter((x) => x.status !== "applied").length,
           update: update.available ? { version: update.available.version } : null,
@@ -68,6 +71,6 @@ export function useHealth(integrity: string): { checks: Check[]; info: SystemInf
     return () => {
       alive = false;
     };
-  }, [integrity, sync.kind, sync.lastAt, sync.message, update.available, tick]);
+  }, [integrity, sync.kind, sync.lastAt, sync.message, update.available, cloud.enabled, cloud.lastUploadAt, cloud.error, tick]);
   return { checks, info };
 }

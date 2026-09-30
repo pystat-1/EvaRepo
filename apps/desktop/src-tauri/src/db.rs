@@ -267,3 +267,44 @@ pub fn backup_restore(state: tauri::State<DbState>, name: String) -> Res<()> {
 pub fn db_import_file(state: tauri::State<DbState>, path: String) -> Res<()> {
     replace_with(&state, Path::new(&path))
 }
+
+/// The bytes of one backup file (to encrypt and upload), sent to the page as
+/// raw bytes rather than JSON.
+#[tauri::command]
+pub fn backup_read(state: tauri::State<DbState>, name: String) -> Res<tauri::ipc::Response> {
+    if !valid_backup_name(&name) {
+        return Err("اسم نسخة احتياطية غير صالح".into());
+    }
+    let bytes = fs::read(state.backups_dir().join(&name)).map_err(err("تعذّر قراءة النسخة"))?;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
+/// Saves a backup downloaded from online storage into the backups folder,
+/// after checking it is an intact Eva database. The name comes in the
+/// `x-backup-name` header, the file as the raw request body.
+#[tauri::command]
+pub fn backup_write(state: tauri::State<DbState>, request: tauri::ipc::Request) -> Res<u64> {
+    let name = request
+        .headers()
+        .get("x-backup-name")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    if !valid_backup_name(&name) {
+        return Err("اسم نسخة احتياطية غير صالح".into());
+    }
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+        return Err("لا توجد بيانات".into());
+    };
+    fs::create_dir_all(state.backups_dir()).map_err(err("مجلد النسخ الاحتياطية"))?;
+    let dest = state.backups_dir().join(&name);
+    let staged = state.backups_dir().join(format!("{name}.incoming"));
+    fs::write(&staged, bytes).map_err(err("تعذّر حفظ النسخة"))?;
+    if let Err(e) = check_eva_file(&staged) {
+        let _ = fs::remove_file(&staged);
+        return Err(e);
+    }
+    fs::rename(&staged, &dest).map_err(err("تعذّر حفظ النسخة"))?;
+    log::info!("backup downloaded: {name} ({} bytes)", bytes.len());
+    Ok(bytes.len() as u64)
+}

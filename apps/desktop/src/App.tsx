@@ -18,6 +18,7 @@ import { SyncScreen } from "./screens/SyncScreen";
 import { SyncBadge } from "./components/SyncBadge";
 import { startAutoSync } from "./lib/autoSync";
 import { startUpdateChecks } from "./lib/updater";
+import { startCloudBackups } from "./lib/cloud/cloudBackup";
 import { openFolder, useHealth } from "./lib/health";
 import { HealthBanner } from "./components/HealthBanner";
 
@@ -116,6 +117,7 @@ function Ready({
 }) {
   useEffect(startAutoSync, []);
   useEffect(startUpdateChecks, []);
+  useEffect(startCloudBackups, []);
   // The app is only running when the start-up integrity check passed.
   const health = useHealth("ok");
   const paletteActions: PaletteAction[] = [
@@ -130,20 +132,24 @@ function Ready({
   return (
     <QueryClientProvider client={queryClient}>
       <div className="shell">
-        <nav className="sidebar" aria-label="أقسام التطبيق">
-          <div className="brand">
-            Eva <small>إدارة بيانات التدريب السريري</small>
+        <header className="topbar">
+          <div className="brand" title="إدارة بيانات التدريب السريري">
+            Eva
           </div>
-          {TABS.map((t, i) => (
-            <button key={t.key} className="nav-item" aria-current={tab === t.key ? "page" : undefined} onClick={() => setTab(t.key)} title={`Ctrl+${i + 1}`}>
-              {t.label}
-            </button>
-          ))}
-          <div className="sidebar-foot">
+          <nav className="tabs" aria-label="أقسام التطبيق">
+            {TABS.map((t, i) => (
+              <button key={t.key} className="tab" aria-current={tab === t.key ? "page" : undefined} onClick={() => setTab(t.key)} title={`Ctrl+${i + 1}`}>
+                {t.label}
+              </button>
+            ))}
+          </nav>
+          <div className="topbar-tools">
             <SyncBadge onOpen={() => setTab("sync")} />
-            <div className="muted-light">Ctrl+K للبحث والأوامر</div>
+            <span className="muted-light kbd-hint" title="البحث والأوامر">
+              Ctrl+K
+            </span>
           </div>
-        </nav>
+        </header>
         <main className="main">
           <HealthBanner checks={health.checks} onGo={setTab} />
           {/* Each screen has its own boundary: a bug in one screen shows a

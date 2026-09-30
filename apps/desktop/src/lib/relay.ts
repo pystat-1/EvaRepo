@@ -99,3 +99,35 @@ export async function pull(c: RelayConfig): Promise<{ applied: number; conflicts
   await setSetting(r, "relay.pulledAt", new Date().toISOString());
   return counts;
 }
+
+// ---- online backups (encrypted files, stored by the relay in R2) ----------
+
+export interface CloudFile {
+  name: string;
+  size: number;
+  uploadedAt: string;
+}
+
+async function raw(c: RelayConfig, path: string, init: RequestInit = {}, timeoutMs = 300_000) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(`${c.url}${path}`, { ...init, signal: ctrl.signal, headers: { authorization: `Bearer ${c.key}`, ...(init.headers ?? {}) } });
+    if (!res.ok) {
+      const msg = ((await res.json().catch(() => ({}))) as { error?: string }).error;
+      throw new Error(msg ?? `الخادم ردّ بخطأ ${res.status}`);
+    }
+    return res;
+  } catch (e) {
+    if (e instanceof DOMException || e instanceof TypeError) throw new Error("تعذّر الاتصال بالخادم — تحقق من الإنترنت");
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export const cloudList = async (c: RelayConfig) => ((await (await raw(c, "/admin/backups")).json()) as { backups: CloudFile[] }).backups;
+export const cloudPut = async (c: RelayConfig, name: string, bytes: Uint8Array) =>
+  void (await raw(c, `/admin/backups/${encodeURIComponent(name)}`, { method: "PUT", body: bytes as BodyInit, headers: { "content-type": "application/octet-stream" } }));
+export const cloudGet = async (c: RelayConfig, name: string) => new Uint8Array(await (await raw(c, `/admin/backups/${encodeURIComponent(name)}`)).arrayBuffer());
+export const cloudDelete = async (c: RelayConfig, name: string) => void (await raw(c, `/admin/backups/${encodeURIComponent(name)}`, { method: "DELETE" }));

@@ -7,6 +7,7 @@ const healthy: Facts = {
   integrity: "ok",
   freeDiskBytes: 50 * 1024 ** 3,
   lastBackupAt: new Date("2026-10-10T07:00:00Z"),
+  cloud: { enabled: true, lastUploadAt: new Date("2026-10-10T07:05:00Z"), error: null },
   sync: { configured: true, kind: "idle", lastAt: "2026-10-10T08:59:00Z", message: null },
   openDecisions: 0,
   update: null,
@@ -17,7 +18,7 @@ describe("self-check", () => {
   it("is all green on a healthy installation", () => {
     const checks = selfCheck(healthy);
     expect(worst(checks)).toBe("ok");
-    expect(checks.map((c) => c.id)).toEqual(["database", "disk", "backup", "sync"]);
+    expect(checks.map((c) => c.id)).toEqual(["database", "disk", "backup", "cloud", "sync"]);
   });
 
   it("flags a damaged database, low disk and old backups", () => {
@@ -27,6 +28,12 @@ describe("self-check", () => {
     expect(level({ lastBackupAt: null }, "backup")).toBe("err");
     expect(level({ lastBackupAt: new Date("2026-10-08T09:00:00Z") }, "backup")).toBe("warn");
     expect(level({ lastBackupAt: new Date("2026-09-20T09:00:00Z") }, "backup")).toBe("err");
+  });
+
+  it("warns when backups are only on this computer or the newest is not online", () => {
+    expect(level({ cloud: { enabled: false, lastUploadAt: null, error: null } }, "cloud")).toBe("warn");
+    expect(level({ cloud: { enabled: true, lastUploadAt: null, error: "مفتاح المدير غير صحيح" } }, "cloud")).toBe("err");
+    expect(level({ cloud: { enabled: true, lastUploadAt: new Date("2026-10-08T07:00:00Z"), error: null } }, "cloud")).toBe("warn");
   });
 
   it("reports sync problems, waiting decisions and updates, each with where to fix it", () => {

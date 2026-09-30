@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { parseBackupName } from "@eva/db/backup";
 import { backups, type BackupEntry, type DbInfo } from "../lib/db";
 import { formatBackupTime } from "./SystemScreen";
+import { confirmAction } from "../components/confirm";
+
 
 const REASON_TEXT: Record<string, string> = {
   damaged: "ملف قاعدة البيانات تالف. لم يُعدَّل شيء فيه.",
@@ -33,7 +35,7 @@ export function RecoveryScreen({
   }, []);
 
   async function restore(name: string) {
-    if (!window.confirm(`استعادة النسخة ${formatBackupTime(name)}؟ سيحلّ محلّ الملف الحالي.`)) return;
+    if (!(await confirmAction(`استعادة النسخة ${formatBackupTime(name)}؟ سيحلّ محلّ الملف الحالي.`, "استعادة"))) return;
     setBusy(true);
     setMsg(null);
     try {

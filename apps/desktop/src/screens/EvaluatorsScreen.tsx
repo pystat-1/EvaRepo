@@ -5,6 +5,8 @@ import { listHospitals } from "@eva/db/repo/courses";
 import { currentCourse } from "@eva/db/repo/students";
 import { recentAudit } from "@eva/db/repo/grading";
 import { ValidationError } from "@eva/db/repo/common";
+import { setEvaluatorPasswordHash } from "@eva/db/repo/sync";
+import { generatePassword, hashPassword } from "@eva/core/sync/password";
 import { Dialog, Field, Notice, PageHeader } from "../components/ui";
 import { errorText, r } from "../lib/repo";
 
@@ -12,6 +14,7 @@ export function EvaluatorsScreen() {
   const list = useQuery({ queryKey: ["evaluators"], queryFn: () => listEvaluators(r) });
   const course = useQuery({ queryKey: ["currentCourse"], queryFn: () => currentCourse(r) });
   const [editing, setEditing] = useState<EvaluatorRow | "new" | null>(null);
+  const [passwordFor, setPasswordFor] = useState<EvaluatorRow | null>(null);
   const toggle = useMutation({ mutationFn: (v: { id: string; active: boolean }) => setEvaluatorActive(r, v.id, v.active) });
   const rows = list.data ?? [];
 
@@ -26,7 +29,7 @@ export function EvaluatorsScreen() {
       <div className="card">
         <table className="list">
           <thead>
-            <tr><th>الاسم</th><th>البريد</th><th>المستشفيات</th><th>الحالة</th><th></th></tr>
+            <tr><th>الاسم</th><th>البريد</th><th>المستشفيات</th><th>الهاتف</th><th>الحالة</th><th></th></tr>
           </thead>
           <tbody>
             {rows.map((e) => (
@@ -40,10 +43,12 @@ export function EvaluatorsScreen() {
                     ))}
                   </div>
                 </td>
+                <td>{e.hasPhonePassword ? <span className="badge badge-ok">لديه كلمة مرور</span> : <span className="badge">بلا كلمة مرور</span>}</td>
                 <td>{e.active ? <span className="badge badge-ok">فعّال</span> : <span className="badge">معطّل</span>}</td>
                 <td>
                   <div className="row">
                     <button className="btn" onClick={() => setEditing(e)}>تعديل</button>
+                    <button className="btn" onClick={() => setPasswordFor(e)}>{e.hasPhonePassword ? "كلمة مرور جديدة" : "إنشاء كلمة مرور الهاتف"}</button>
                     <button className="btn" onClick={() => toggle.mutate({ id: e.id, active: !e.active })}>{e.active ? "تعطيل" : "تفعيل"}</button>
                   </div>
                 </td>
@@ -53,6 +58,7 @@ export function EvaluatorsScreen() {
         </table>
       </div>
       <EvaluatorDialog evaluator={editing} courseId={course.data?.id ?? null} onClose={() => setEditing(null)} />
+      <PhonePasswordDialog evaluator={passwordFor} onClose={() => setPasswordFor(null)} />
     </div>
   );
 }
@@ -100,6 +106,64 @@ function EvaluatorDialog({ evaluator, courseId, onClose }: { evaluator: Evaluato
           <button className="btn" type="button" onClick={onClose}>إلغاء</button>
         </div>
       </form>
+    </Dialog>
+  );
+}
+
+// Generates a strong password, stores only its hash, and shows it ONCE so
+// the admin can hand it to the evaluator. It reaches the phones' server at
+// the next sync (المزامنة); the evaluator's old phone sessions end then.
+function PhonePasswordDialog({ evaluator, onClose }: { evaluator: EvaluatorRow | null; onClose: () => void }) {
+  const [shown, setShown] = useState<{ id: string; password: string } | null>(null);
+  const make = useMutation({
+    mutationFn: async (id: string) => {
+      const password = generatePassword();
+      await setEvaluatorPasswordHash(r, id, await hashPassword(password));
+      return { id, password };
+    },
+    onSuccess: setShown,
+  });
+  const current = shown && evaluator && shown.id === evaluator.id ? shown.password : null;
+  const close = () => {
+    setShown(null);
+    onClose();
+  };
+  return (
+    <Dialog open={!!evaluator} title={`كلمة مرور الهاتف — ${evaluator?.name ?? ""}`} onClose={close}>
+      {evaluator && (
+        <div className="stack">
+          {!current ? (
+            <>
+              <p className="muted">تُنشأ كلمة مرور قوية جديدة.{evaluator.hasPhonePassword ? " تتوقف كلمة المرور السابقة عند المزامنة التالية." : ""}</p>
+              <button className="btn btn-primary" disabled={make.isPending} onClick={() => make.mutate(evaluator.id)}>
+                إنشاء كلمة المرور
+              </button>
+            </>
+          ) : (
+            <>
+              <p>أعطِ المقيّم هذه البيانات (تظهر مرة واحدة فقط):</p>
+              <div className="card">
+                <div>
+                  البريد: <span className="ltr">{evaluator.email}</span>
+                </div>
+                <div>
+                  كلمة المرور: <b className="ltr" style={{ fontSize: 18 }}>{current}</b>
+                </div>
+              </div>
+              <div className="row">
+                <button className="btn" onClick={() => navigator.clipboard.writeText(evaluator.email + " / " + current)}>
+                  نسخ
+                </button>
+                <button className="btn btn-primary" onClick={close}>
+                  تم
+                </button>
+              </div>
+              <p className="muted">تصل إلى هاتفه بعد المزامنة (شاشة المزامنة ← مزامنة الآن).</p>
+            </>
+          )}
+          {make.error && <Notice kind="err">{errorText(make.error)}</Notice>}
+        </div>
+      )}
     </Dialog>
   );
 }

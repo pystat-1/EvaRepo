@@ -6,6 +6,8 @@ import { parseBackupName } from "@eva/db/backup";
 import { takeBackup, type StartupResult } from "@eva/db/startup";
 import * as schema from "@eva/db/schema";
 import { backups, orm, type BackupEntry, type DbInfo } from "../lib/db";
+import { confirmAction } from "../components/confirm";
+
 
 const REASON_AR: Record<string, string> = {
   daily: "يومية",
@@ -76,7 +78,7 @@ export function SystemScreen({ info, startup }: { info: DbInfo; startup: Extract
 
   const restore = (name: string) =>
     run("restore", async () => {
-      if (!window.confirm(`استعادة النسخة المأخوذة في ${formatBackupTime(name)}؟\nستُؤخذ نسخة من البيانات الحالية أولًا، ثم يُعاد تشغيل التطبيق.`))
+      if (!(await confirmAction(`استعادة النسخة المأخوذة في ${formatBackupTime(name)}؟\nستُؤخذ نسخة من البيانات الحالية أولًا، ثم يُعاد تشغيل التطبيق.`, "استعادة")))
         return;
       await takeBackup(backups, "before-restore");
       await backups.restore(name);
@@ -87,7 +89,7 @@ export function SystemScreen({ info, startup }: { info: DbInfo; startup: Extract
     run("import", async () => {
       const path = await open({ multiple: false, filters: [{ name: "قاعدة بيانات Eva", extensions: ["db"] }] });
       if (typeof path !== "string") return;
-      if (!window.confirm("استبدال بيانات التطبيق الحالية بهذا الملف؟\nستُؤخذ نسخة احتياطية من البيانات الحالية أولًا.")) return;
+      if (!(await confirmAction("استبدال بيانات التطبيق الحالية بهذا الملف؟\nستُؤخذ نسخة احتياطية من البيانات الحالية أولًا.", "استيراد"))) return;
       await takeBackup(backups, "before-import");
       await backups.importFile(path);
       await relaunch();

@@ -60,6 +60,16 @@ export async function seeded(perGroup = 2): Promise<Repo & { raw: ReturnType<typ
   for (let i = 0; i < sections.length; i++) {
     await d.insert(t.rubricSections).values({ id: `rs${i}`, labelAr: sections[i][0], maxScore: sections[i][1], sortOrder: i + 1 });
   }
+  // The real rubric's items (فقرات): 5 + 3.5+3.5 + four 0.25 checks x 3.
+  const items: Array<[string, string, string, number, "check" | "number"]> = [
+    ["dailynote", "rs0", "الملاحظة اليومية", 5, "number"],
+    ["gdisc", "rs1", "مناقشة جماعية", 3.5, "number"],
+    ["cdisc", "rs1", "مناقشة الحالة", 3.5, "number"],
+    ...(["staff", "std", "tchr", "pat"].map((k) => [k, "rs2", k, 0.25, "check"]) as Array<[string, string, string, number, "check"]>),
+    ...(["late", "meet", "loc", "ord"].map((k) => [k, "rs3", k, 0.25, "check"]) as Array<[string, string, string, number, "check"]>),
+    ...(["badge", "veil", "uni", "coat"].map((k) => [k, "rs4", k, 0.25, "check"]) as Array<[string, string, string, number, "check"]>),
+  ];
+  await d.insert(t.rubricItems).values(items.map(([key, sectionId, labelAr, maxScore, kind], i) => ({ id: `ri-${key}`, key, sectionId, labelAr, maxScore, kind, sortOrder: i })));
   await d.insert(t.accounts).values([
     { id: IDS.evaluators[0], email: "sara@x.iq", name: "د. سارة", role: "EVALUATOR" },
     { id: IDS.evaluators[1], email: "ali@x.iq", name: "م. علي", role: "EVALUATOR" },

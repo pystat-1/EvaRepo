@@ -22,3 +22,7 @@ jobs:
         run: npx vitest run
       - name: Desktop app (type-check + UI build)
         run: npm run build -w @eva/desktop
+      - name: Evaluator app (type-check + build)
+        run: npm run build -w @eva/evaluator
+      - name: Relay (type-check)
+        run: npx tsc --noEmit -p apps/relay

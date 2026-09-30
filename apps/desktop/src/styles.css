@@ -132,3 +132,5 @@ thead .sticky-col { z-index: 3; background: var(--paper-100); }
 .palette [cmdk-item] { display: flex; justify-content: space-between; gap: 12px; padding: 9px 10px; border-radius: 8px; cursor: pointer; }
 .palette [cmdk-item][data-selected="true"] { background: var(--brand-tint); }
 .palette [cmdk-empty] { padding: 18px; text-align: center; color: var(--ink-muted); }
+
+.confirm-box { position: relative; margin: 0; width: min(460px, 92vw); }

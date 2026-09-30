@@ -10,6 +10,8 @@ export interface EvaluatorRow {
   name: string;
   email: string;
   active: boolean;
+  /** Has a phone password the relay can check (PBKDF2; old website bcrypt hashes don't count). */
+  hasPhonePassword: boolean;
   hospitals: Array<{ assignmentId: string; hospitalId: string; hospitalName: string; courseId: string | null }>;
 }
 
@@ -29,6 +31,7 @@ export async function listEvaluators(r: Repo, includeInactive = true): Promise<E
       name: acc.name,
       email: acc.email,
       active: acc.active,
+      hasPhonePassword: !!acc.passwordHash?.startsWith("pbkdf2$"),
       hospitals: assignments
         .filter((x) => x.a.accountId === acc.id)
         .map((x) => ({ assignmentId: x.a.id, hospitalId: x.a.hospitalId, hospitalName: x.hospitalName, courseId: x.a.courseId })),

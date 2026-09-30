@@ -1,0 +1,19 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "eva-relay",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  // The evaluator phone app (built into apps/evaluator/dist) is served as
+  // static files: no Worker CPU for them. Unknown paths fall back to the
+  // app's index.html (single-page app); only the API reaches the Worker.
+  "assets": {
+    "directory": "../evaluator/dist",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*", "/admin/*"]
+  },
+  "d1_databases": [
+    { "binding": "DB", "database_name": "eva-relay", "database_id": "3a752794-cc9d-4d93-952b-bad958136072", "migrations_dir": "migrations" }
+  ]
+  // Secret (set once with `wrangler secret put ADMIN_TOKEN`): ADMIN_TOKEN
+}

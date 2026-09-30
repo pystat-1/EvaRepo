@@ -13,6 +13,8 @@ import { StatisticsScreen } from "./screens/StatisticsScreen";
 import { AuditScreen, EvaluatorsScreen } from "./screens/EvaluatorsScreen";
 import { CommandPalette, type PaletteAction } from "./components/CommandPalette";
 import { queryClient } from "./lib/repo";
+import { ConfirmHost } from "./components/confirm";
+import { SyncScreen, useAutoSync } from "./screens/SyncScreen";
 
 // The admin app's screens. Ctrl+1..7 jumps to them; Ctrl+K opens the
 // command palette.
@@ -22,6 +24,7 @@ const TABS = [
   { key: "grading", label: "مركز الدرجات" },
   { key: "statistics", label: "الإحصائيات" },
   { key: "evaluators", label: "المقيّمون" },
+  { key: "sync", label: "المزامنة" },
   { key: "audit", label: "سجل التغييرات" },
   { key: "system", label: "النظام" },
 ] as const;
@@ -81,9 +84,32 @@ export function App() {
     );
   }
   if (boot.stage === "problem") {
-    return <RecoveryScreen problem={boot.result} info={boot.info} onRetry={retry} />;
+    return (
+      <>
+        <RecoveryScreen problem={boot.result} info={boot.info} onRetry={retry} />
+        <ConfirmHost />
+      </>
+    );
   }
 
+  return <Ready boot={boot} tab={tab} setTab={setTab} openStudent={openStudent} setOpenStudent={setOpenStudent} />;
+}
+
+// The running app (after the database opened safely).
+function Ready({
+  boot,
+  tab,
+  setTab,
+  openStudent,
+  setOpenStudent,
+}: {
+  boot: Extract<Boot, { stage: "ready" }>;
+  tab: TabKey;
+  setTab: (t: TabKey) => void;
+  openStudent: string | null;
+  setOpenStudent: (id: string | null) => void;
+}) {
+  useAutoSync();
   const paletteActions: PaletteAction[] = [
     ...TABS.map((t, i) => ({ id: `tab-${t.key}`, label: t.label, hint: `Ctrl+${i + 1}`, run: () => setTab(t.key) })),
     {
@@ -116,11 +142,13 @@ export function App() {
             {tab === "grading" && <GradingScreen />}
             {tab === "statistics" && <StatisticsScreen />}
             {tab === "evaluators" && <EvaluatorsScreen />}
+            {tab === "sync" && <SyncScreen />}
             {tab === "audit" && <AuditScreen />}
             {tab === "system" && <SystemScreen info={boot.info} startup={boot.result} />}
           </ErrorBoundary>
         </main>
       </div>
+      <ConfirmHost />
       <CommandPalette
         actions={paletteActions}
         onOpenStudent={(id) => {

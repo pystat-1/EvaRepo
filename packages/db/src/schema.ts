@@ -358,6 +358,28 @@ export const termSettings = sqliteTable("term_settings", {
   updatedAt: updatedAt(),
 });
 
+// Every validated day received from an evaluator's phone (via the relay),
+// and what the desktop did with it. `clientId` makes receiving the same
+// submission twice harmless. Conflicts and rejections stay here for the
+// admin to review (and, for conflicts, to apply anyway).
+export const syncInbox = sqliteTable(
+  "sync_inbox",
+  {
+    clientId: text("clientId").primaryKey(),
+    relaySeq: integer("relaySeq").notNull(),
+    evaluatorId: text("evaluatorId").notNull(),
+    groupId: text("groupId").notNull(),
+    dateISO: text("dateISO").notNull(),
+    payload: text("payload").notNull(), // the DaySubmission JSON as received
+    receivedAt: text("receivedAt").notNull(),
+    status: text("status").$type<"applied" | "conflict" | "rejected">().notNull(),
+    message: text("message").notNull(),
+    decidedAt: text("decidedAt").notNull(),
+    reported: bool("reported").notNull().default(false), // outcome sent back to the relay
+  },
+  (t) => [index("sync_inbox_status").on(t.status), index("sync_inbox_seq").on(t.relaySeq)]
+);
+
 // Facts about this database file itself (schema version, when it was
 // created, where its data came from). Key/value, read at start-up.
 export const meta = sqliteTable("meta", {

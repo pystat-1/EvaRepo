@@ -1,4 +1,21 @@
-# Eva v3 — Phase 1 + Phase 2 + Phase 3 (Database + Evaluators + Grading)
+# Eva — clinical training records for a nursing college
+
+- **Eva Desktop** (`apps/desktop`): the Windows app the administrator uses —
+  students, courses and rotation, grading center, statistics, evaluators,
+  backups. Local-first: one SQLite file on the admin's computer. Download it
+  from [Releases](https://github.com/pystat-1/EvaRepo/releases).
+- **Evaluator app** (`apps/evaluator`): the installable phone app evaluators
+  use to grade, offline too; it syncs through a small relay (`apps/relay`).
+- Plan and design notes: [docs/DESKTOP_APP_PLAN.md](docs/DESKTOP_APP_PLAN.md).
+- [Code signing policy](docs/CODE_SIGNING_POLICY.md) · [Privacy](docs/PRIVACY.md) · [MIT licence](LICENSE)
+
+Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/).
+
+The rest of this file covers the original web app (being replaced by Eva Desktop).
+
+---
+
+## Eva v3 (web) — Phase 1 + Phase 2 + Phase 3 (Database + Evaluators + Grading)
 
 This implements all three phases from the project plan ("Eva v3 Rewrite
 Plan"): Phase 1, the authoritative registry of students, groups, hospitals,

@@ -2,6 +2,7 @@
   "name": "@eva/evaluator",
   "private": true,
   "version": "0.1.0",
+  "license": "MIT",
   "type": "module",
   "description": "Eva evaluator phone app: installable offline PWA that grades validated days and syncs through the relay (docs/adr/0003).",
   "scripts": {

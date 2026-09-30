@@ -43,7 +43,14 @@
         "installMode": "currentUser"
       }
     },
-    "createUpdaterArtifacts": true
+    "createUpdaterArtifacts": true,
+    "publisher": "Eva contributors",
+    "copyright": "Copyright (c) 2026 pystat-1 and Eva contributors. MIT licence.",
+    "shortDescription": "Eva — clinical training records",
+    "longDescription": "Eva Desktop: students, rotation, evaluators and daily grades for a nursing college's clinical training, stored on this computer.",
+    "homepage": "https://github.com/pystat-1/EvaRepo",
+    "license": "MIT",
+    "licenseFile": "../../../LICENSE"
   },
   "plugins": {
     "updater": {

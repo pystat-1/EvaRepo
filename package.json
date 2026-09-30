@@ -46,5 +46,9 @@
     "typescript": "^5",
     "vitest": "^5.0.2",
     "wrangler": "^4.132.0"
-  }
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ]
 }

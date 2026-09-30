@@ -1,0 +1,66 @@
+/* Eva design tokens ("clinical ledger"), same values as the website's
+   src/app/globals.css, so the desktop app looks like the same product. The
+   font is bundled (Vazirmatn, OFL) so the app looks right offline. */
+:root {
+  --ink: #0b1a1f;
+  --ink-muted: #3d5654;
+  --brand: #0e5c6b;
+  --brand-dark: #06333d;
+  --brand-tint: #eef5f3;
+  --surface: #f6f7f4;
+  --surface-raised: #ffffff;
+  --paper-100: #eef0ec;
+  --border: #dde1da;
+  --border-strong: #c7cdc4;
+  --green-700: #1f6b4f;
+  --green-100: #e2f0e7;
+  --amber-700: #8a5c10;
+  --amber-100: #f6ecd6;
+  --red-700: #9c2f2f;
+  --red-100: #f6e5e3;
+  --radius: 8px;
+  font-family: "Vazirmatn", "Segoe UI", Tahoma, sans-serif;
+  color: var(--ink);
+  background: var(--surface);
+  font-size: 15px;
+  line-height: 1.55;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--surface); }
+button, input, select, textarea { font: inherit; }
+.tabular { font-variant-numeric: tabular-nums; }
+
+.shell { display: grid; grid-template-columns: 230px 1fr; min-height: 100vh; }
+.sidebar { background: var(--brand-dark); color: #fff; padding: 18px 12px; display: flex; flex-direction: column; gap: 4px; }
+.sidebar .brand { font-weight: 700; font-size: 20px; padding: 4px 10px 16px; }
+.sidebar .brand small { display: block; font-weight: 400; font-size: 12px; opacity: .75; }
+.nav-item { all: unset; cursor: pointer; padding: 9px 12px; border-radius: var(--radius); display: flex; justify-content: space-between; align-items: center; }
+.nav-item:hover { background: rgba(255,255,255,.08); }
+.nav-item[aria-current="page"] { background: rgba(255,255,255,.16); font-weight: 600; }
+.nav-item:disabled, .nav-item[aria-disabled="true"] { opacity: .45; cursor: default; }
+.nav-item:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.soon { font-size: 11px; opacity: .8; }
+.main { padding: 26px 30px; overflow: auto; }
+
+h1 { font-size: 22px; margin: 0 0 4px; }
+h2 { font-size: 16px; margin: 0 0 10px; }
+.muted { color: var(--ink-muted); }
+.card { background: var(--surface-raised); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px; }
+.stack { display: flex; flex-direction: column; gap: 14px; }
+.row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.grid-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.stat b { display: block; font-size: 24px; }
+.btn { border: 1px solid var(--border-strong); background: #fff; color: var(--ink); padding: 7px 14px; border-radius: var(--radius); cursor: pointer; }
+.btn:hover { background: var(--paper-100); }
+.btn-primary { background: var(--brand); border-color: var(--brand); color: #fff; }
+.btn-primary:hover { background: var(--brand-dark); }
+.btn:disabled { opacity: .55; cursor: default; }
+.btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.note { border-radius: var(--radius); padding: 10px 12px; font-size: 14px; }
+.note-ok { background: var(--green-100); color: var(--green-700); }
+.note-warn { background: var(--amber-100); color: var(--amber-700); }
+.note-err { background: var(--red-100); color: var(--red-700); }
+table.list { width: 100%; border-collapse: collapse; font-size: 14px; }
+table.list th, table.list td { text-align: start; padding: 7px 8px; border-bottom: 1px solid var(--border); }
+table.list th { color: var(--ink-muted); font-weight: 600; }
+code, .ltr { direction: ltr; unicode-bidi: embed; font-family: Consolas, monospace; font-size: 12.5px; }

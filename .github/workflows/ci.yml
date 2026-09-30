@@ -20,3 +20,5 @@ jobs:
         run: npx next typegen && npx tsc --noEmit -p .
       - name: Unit tests
         run: npx vitest run
+      - name: Desktop app (type-check + UI build)
+        run: npm run build -w @eva/desktop

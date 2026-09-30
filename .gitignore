@@ -11,3 +11,8 @@ tsconfig.tsbuildinfo
 graphify-out/.graphify_python
 graphify-out/.graphify_root
 .claude
+
+# Eva Desktop build output
+/apps/desktop/dist/
+/apps/desktop/src-tauri/target/
+/apps/desktop/src-tauri/gen/

@@ -1,6 +1,6 @@
 # Eva Desktop: plan to turn Eva into installable, local-first software
 
-> **Status:** ACCEPTED, 2026-09-30. Decisions in §9 confirmed by the owner. Phase 1 in progress.
+> **Status:** ACCEPTED, 2026-09-30. Phase 1 done; phase 2 done (see §10). Next: phase 3 (admin screens).
 > **Goal (from the owner):** a top-tier, reliable **complete student data management system** that runs as an **installed desktop app** (no dependence on web hosting), with the **evaluator app** kept as a separate, simple, installable phone app **linked** to it.
 > **Constraint:** free and open-source tools only.
 > **Relation to other plans:** replaces the hosting model of `FINAL_PLAN.md`; keeps its product rules (courses → shifts → groups → rotations, rubric, validation, grading center). `EVALUATOR_APP_PLAN.md` rules (7-day window, conflicts, drafts) carry over to the new evaluator app.
@@ -162,3 +162,13 @@ Architecture decisions are recorded in `docs/adr/`; flow diagrams are in `docs/F
 - Tauri updater and Windows signing: https://v2.tauri.app/plugin/updater/ · https://v2.tauri.app/distribute/sign/windows/
 - Cloudflare Workers limits (10 ms CPU on Free): https://developers.cloudflare.com/workers/platform/limits/
 - Reliability engineering: https://www.computer.org/publications/tech-news/trends/software-reliability
+
+## 10. Progress log
+
+- **Phase 1 (2026-09-30):** `packages/core` (shared rules, tested), ADRs 0001–0004, `docs/FLOWS.md`, CI (type-check + tests on every push; deploy gated on them).
+- **Phase 2 (2026-09-30):**
+  - `packages/db`: SQLite schema mirroring the website's 21 tables; versioned migrations (`0000_init`); a migration runner that is atomic, refuses files from newer versions and backs up first; the backup policy (daily, before migrate/import/restore; keep 30 plus one per month for 12 months); the start-up sequence (integrity check → backup → migrate → daily backup → prune). 21 tests on real SQLite.
+  - `scripts/export-to-sqlite.ts`: website database → `eva.db`, read-only on the source, verifies row counts, integrity and foreign keys. Verified on the pre-reset backup: 387 evaluations and 158 students identical value for value.
+  - `apps/desktop`: Tauri 2 app. The Rust side owns `eva.db` (WAL, foreign keys, online backups, validated import/restore, backup-name checks, panic logging to a log file); React shell with per-screen crash boundaries, a recovery screen for damaged or too-new files, and the النظام screen (health, counts, backups, backup now, restore, import).
+  - Windows installer: 3.24 MB (NSIS). Tested in the real window: first run, manual backup, import of the exported data (158 students / 387 grades), restore, rejection of non-Eva files and of path-traversal backup names.
+  - `.github/workflows/desktop.yml` builds the installer on GitHub's Windows machines.

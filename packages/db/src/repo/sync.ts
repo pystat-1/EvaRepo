@@ -5,7 +5,7 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { applyItemScores, normalizeScoresForAttendance, round2, validateScores } from "@eva/core/grading/validation";
 import { pickPlacement } from "@eva/core/grading/placement";
-import { BUNDLE_FORMAT, checkDaySubmission, type DaySubmission, type EvaluatorBundle, type SubmissionResult } from "@eva/core/sync/contract";
+import { BUNDLE_FORMAT, checkDaySubmission, type DaySubmission, type EvaluatorBundle, type HistoryDay, type SubmissionResult } from "@eva/core/sync/contract";
 import { sha256Hex } from "@eva/core/sync/tokens";
 import { compareArabic } from "@eva/core/text/arabic";
 import * as t from "../schema";
@@ -57,6 +57,7 @@ export async function buildPublication(r: Repo): Promise<{ evaluators: Published
     .where(and(eq(t.rotationBlocks.courseId, course.id), eq(t.rotationBlocks.active, true)));
   const groups = await r.db.select().from(t.groups).where(eq(t.groups.courseId, course.id));
   const students = await r.db.select().from(t.students).where(and(eq(t.students.courseId, course.id), eq(t.students.active, true)));
+  const history = await courseHistory(r, course.id, accounts);
 
   const bundles: EvaluatorBundle[] = [];
   for (const acc of accounts.filter((a) => a.active)) {
@@ -66,6 +67,7 @@ export async function buildPublication(r: Repo): Promise<{ evaluators: Published
     const onlyGroups = new Set(mine.filter((a) => a.groupId).map((a) => a.groupId!));
     const myBlocks = blocks.filter((x) => hospitalIds.has(x.b.hospitalId) && (onlyGroups.size === 0 || onlyGroups.has(x.b.groupId)));
     const groupIds = [...new Set(myBlocks.map((x) => x.b.groupId))];
+    const myGroups = new Set(groupIds);
     const body = {
       format: BUNDLE_FORMAT,
       evaluator: { id: acc.id, name: acc.name },
@@ -87,11 +89,57 @@ export async function buildPublication(r: Repo): Promise<{ evaluators: Published
         .map((x) => ({ groupId: x.b.groupId, hospitalId: x.b.hospitalId, hospitalName: x.hospitalName, startDate: x.b.startDate, endDate: x.b.endDate, daysOfWeek: x.b.daysOfWeek }))
         .sort((a, b) => a.startDate.localeCompare(b.startDate) || a.groupId.localeCompare(b.groupId)),
       rubric,
+      // Days graded at this evaluator's hospitals for their groups.
+      history: history.filter((d) => myGroups.has(d.groupId) && d.hospitalId !== null && hospitalIds.has(d.hospitalId)),
     };
     const version = (await sha256Hex(JSON.stringify(body))).slice(0, 16);
     bundles.push({ ...body, version, generatedAt: nowISO() } as EvaluatorBundle);
   }
   return { evaluators, bundles };
+}
+
+/** Every validated day of the course, grouped by group + date + evaluator (for the bundles' history). */
+async function courseHistory(r: Repo, courseId: string, accounts: Array<{ id: string; name: string }>): Promise<HistoryDay[]> {
+  const evals = await r.db
+    .select()
+    .from(t.evaluations)
+    .where(and(eq(t.evaluations.courseId, courseId), eq(t.evaluations.pendingValidation, false)));
+  if (evals.length === 0) return [];
+  const scores = await r.db
+    .select({ evaluationId: t.evaluationScores.evaluationId, sectionId: t.evaluationScores.rubricSectionId, score: t.evaluationScores.score })
+    .from(t.evaluationScores)
+    .innerJoin(t.evaluations, eq(t.evaluations.id, t.evaluationScores.evaluationId))
+    .where(and(eq(t.evaluations.courseId, courseId), eq(t.evaluations.pendingValidation, false)));
+  const notes = await r.db
+    .select({ studentId: t.attendanceRecords.studentId, dateISO: t.attendanceRecords.dateISO, dailyNote: t.attendanceRecords.dailyNote })
+    .from(t.attendanceRecords);
+  const noteOf = new Map(notes.map((n) => [`${n.studentId}:${n.dateISO}`, n.dailyNote]));
+  const sectionsOf = new Map<string, Record<string, number>>();
+  for (const s of scores) sectionsOf.set(s.evaluationId, { ...(sectionsOf.get(s.evaluationId) ?? {}), [s.sectionId]: s.score });
+  const nameOf = new Map(accounts.map((a) => [a.id, a.name]));
+  const days = new Map<string, HistoryDay>();
+  for (const e of evals) {
+    if (!e.groupId) continue;
+    const key = `${e.groupId}:${e.dateISO}:${e.evaluatorId}`;
+    let d = days.get(key);
+    if (!d) {
+      d = { groupId: e.groupId, dateISO: e.dateISO, hospitalId: e.hospitalId, evaluatorId: e.evaluatorId, evaluatorName: nameOf.get(e.evaluatorId) ?? "—", records: [] };
+      days.set(key, d);
+    }
+    const note = noteOf.get(`${e.studentId}:${e.dateISO}`);
+    d.records.push({
+      studentId: e.studentId,
+      attendance: e.attendance,
+      dailyNote: e.attendance === "absent" ? null : note ?? e.dailyNoteSubmitted,
+      total: e.total,
+      sections: sectionsOf.get(e.id) ?? {},
+      items: e.itemScores ?? null,
+      ...(e.notes ? { notes: e.notes } : {}),
+    });
+  }
+  return [...days.values()]
+    .map((d) => ({ ...d, records: d.records.sort((a, b) => a.studentId.localeCompare(b.studentId)) }))
+    .sort((a, b) => b.dateISO.localeCompare(a.dateISO) || a.groupId.localeCompare(b.groupId));
 }
 
 // ---- phone sign-ins ------------------------------------------------------

@@ -133,3 +133,22 @@ describe("applyDaySubmission", () => {
     expect((await unreportedResults(r)).map((x) => x.clientId)).toEqual(["x"]);
   });
 });
+
+describe("bundle history", () => {
+  it("carries validated days to the evaluators of that hospital only", async () => {
+    const r = await seeded(2);
+    await applyDaySubmission(r, pulled(day()));
+    const { bundles } = await buildPublication(r);
+    const sara = bundles.find((b) => b.evaluator.id === IDS.evaluators[0])!;
+    const ali = bundles.find((b) => b.evaluator.id === IDS.evaluators[1])!;
+    expect(sara.history).toHaveLength(1);
+    const [d] = sara.history!;
+    expect(d).toMatchObject({ groupId: groupId("MORNING", 1), dateISO: "2026-10-04", evaluatorName: "د. سارة" });
+    const s1 = d.records.find((x) => x.studentId === "s1")!;
+    expect(s1).toMatchObject({ attendance: "present", dailyNote: true, total: 11.75, notes: "ممتاز" });
+    expect(Object.keys(s1.sections)).toHaveLength(5);
+    expect(s1.items).toMatchObject(full); // plus zeros for items left empty
+    expect(d.records.find((x) => x.studentId === "s2")).toMatchObject({ attendance: "absent", dailyNote: null, total: 0 });
+    expect(ali.history).toEqual([]); // another hospital
+  });
+});

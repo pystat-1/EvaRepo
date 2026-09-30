@@ -28,6 +28,34 @@ export interface EvaluatorBundle {
     maxScore: number;
     items: Array<{ id: string; labelAr: string; maxScore: number; kind: "check" | "number" }>;
   }>;
+  /**
+   * Validated days already on the desktop for this evaluator's groups at
+   * their hospitals (theirs and a colleague's): previous assessments, the
+   * attendance log and student records, all readable offline.
+   */
+  history?: HistoryDay[];
+}
+
+/** One student's validated grade as the desktop holds it. */
+export interface HistoryRecord {
+  studentId: string;
+  attendance: Attendance;
+  dailyNote: boolean | null;
+  total: number;
+  /** rubricSectionId -> section score. */
+  sections: Record<string, number>;
+  /** rubricItemId -> score, when graded item by item (older website grades have sections only). */
+  items: Record<string, number> | null;
+  notes?: string;
+}
+
+export interface HistoryDay {
+  groupId: string;
+  dateISO: string;
+  hospitalId: string | null;
+  evaluatorId: string;
+  evaluatorName: string;
+  records: HistoryRecord[];
 }
 
 

@@ -51,7 +51,7 @@ export function Home({
     <div className="screen">
       <header className="top">
         <div>
-          <b>{session.evaluator.name}</b>
+          <b>{bundle?.evaluator.name ?? session.evaluator.name}</b>
           <div className="muted small">{bundle?.course.label ?? "—"}</div>
         </div>
         <div className="row">

@@ -30,12 +30,21 @@ async function errorOf(res: Response) {
   return ((await res.json().catch(() => ({}))) as { error?: string }).error ?? `خطأ ${res.status}`;
 }
 
-export async function login(email: string, password: string): Promise<Session> {
-  const res = await fetch("/api/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email, password }) }).catch(() => {
-    throw new OfflineError("لا يوجد اتصال — تسجيل الدخول أول مرة يحتاج إلى إنترنت");
+/** The Google client ID the relay is set up with (null = sign-in not enabled yet). */
+export async function signInConfig(): Promise<string | null> {
+  const res = await fetch("/api/config", { cache: "no-store" });
+  if (!res.ok) throw new OfflineError("لا يوجد اتصال");
+  return ((await res.json()) as { googleClientId: string | null }).googleClientId;
+}
+
+/** Exchanges the ID token Google gave this phone for an Eva session. */
+export async function loginWithGoogle(credential: string): Promise<Session> {
+  const res = await fetch("/api/login/google", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ credential }) }).catch(() => {
+    throw new OfflineError("لا يوجد اتصال — الدخول أول مرة يحتاج إلى إنترنت");
   });
   if (!res.ok) throw new Error(await errorOf(res));
-  return (await res.json()) as Session;
+  const { token, evaluator } = (await res.json()) as Session;
+  return { token, evaluator };
 }
 
 export async function logout(token: string) {

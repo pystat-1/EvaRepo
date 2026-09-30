@@ -64,3 +64,6 @@ h2 { font-size: 17px; margin: 6px 0 0; }
 .grid .total { font-weight: 700; color: var(--brand-dark); }
 .idx { color: var(--muted); font-size: 12px; }
 .bottom { display: flex; flex-direction: column; gap: 8px; }
+
+.google-btn { display: flex; justify-content: center; min-height: 44px; }
+.google-btn[hidden] { display: none; }

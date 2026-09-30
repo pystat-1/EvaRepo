@@ -14,7 +14,9 @@ import { AuditScreen, EvaluatorsScreen } from "./screens/EvaluatorsScreen";
 import { CommandPalette, type PaletteAction } from "./components/CommandPalette";
 import { queryClient } from "./lib/repo";
 import { ConfirmHost } from "./components/confirm";
-import { SyncScreen, useAutoSync } from "./screens/SyncScreen";
+import { SyncScreen } from "./screens/SyncScreen";
+import { SyncBadge } from "./components/SyncBadge";
+import { startAutoSync } from "./lib/autoSync";
 
 // The admin app's screens. Ctrl+1..7 jumps to them; Ctrl+K opens the
 // command palette.
@@ -109,7 +111,7 @@ function Ready({
   openStudent: string | null;
   setOpenStudent: (id: string | null) => void;
 }) {
-  useAutoSync();
+  useEffect(startAutoSync, []);
   const paletteActions: PaletteAction[] = [
     ...TABS.map((t, i) => ({ id: `tab-${t.key}`, label: t.label, hint: `Ctrl+${i + 1}`, run: () => setTab(t.key) })),
     {
@@ -131,7 +133,10 @@ function Ready({
               {t.label}
             </button>
           ))}
-          <div className="sidebar-foot muted-light">Ctrl+K للبحث والأوامر</div>
+          <div className="sidebar-foot">
+            <SyncBadge onOpen={() => setTab("sync")} />
+            <div className="muted-light">Ctrl+K للبحث والأوامر</div>
+          </div>
         </nav>
         <main className="main">
           {/* Each screen has its own boundary: a bug in one screen shows a

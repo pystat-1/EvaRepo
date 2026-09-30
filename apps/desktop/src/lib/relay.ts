@@ -1,11 +1,15 @@
-// Eva Desktop <-> relay. Publishing sends evaluator logins (password
-// hashes only) and their bundles; pulling applies validated days in relay
-// order, one transaction each (packages/db/src/repo/sync.ts), then reports
-// the outcomes back so phones can show them.
-import { sha256Hex } from "@eva/core/sync/password";
+// Eva Desktop <-> relay. Publishing sends the evaluators (email, name,
+// active: they sign in on the phone with that email's Google account) and
+// their bundles; pulling applies validated days in relay order, one
+// transaction each (packages/db/src/repo/sync.ts), then reports the
+// outcomes back so phones can show them. lib/autoSync.ts runs all this.
+import { sha256Hex } from "@eva/core/sync/tokens";
 import type { DaySubmission } from "@eva/core/sync/contract";
-import { applyDaySubmission, buildPublication, getSetting, markReported, setSetting, unreportedResults } from "@eva/db/repo/sync";
+import { type PhoneSignIn, applyDaySubmission, buildPublication, getSetting, markReported, setSetting, unreportedResults } from "@eva/db/repo/sync";
 import { r } from "./repo";
+
+/** The relay this installation was set up with (the key is still entered once). */
+export const DEFAULT_RELAY_URL = "https://eva-relay.evarepo.workers.dev";
 
 export interface RelayConfig {
   url: string;
@@ -48,7 +52,14 @@ async function call(c: RelayConfig, path: string, init: RequestInit = {}) {
 }
 
 export async function relayStatus(c: RelayConfig) {
-  return (await call(c, "/admin/status")) as { evaluators: number; bundles: number; submissions: number; lastSeq: number };
+  return (await call(c, "/admin/status")) as {
+    evaluators: number;
+    bundles: number;
+    submissions: number;
+    lastSeq: number;
+    googleSignIn?: boolean;
+    phones?: PhoneSignIn[];
+  };
 }
 
 /** Publishes when anything changed since the last publish (or when forced). */

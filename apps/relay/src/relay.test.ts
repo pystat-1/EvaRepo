@@ -1,14 +1,14 @@
-import { beforeEach, describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
+import { beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { readFileSync, readdirSync } from "node:fs";
 import Database from "better-sqlite3";
-import { hashPassword } from "@eva/core/sync/password";
 import type { EvaluatorBundle } from "@eva/core/sync/contract";
 import { handle, type DB, type Env, type Stmt } from "./relay";
 
 // D1-shaped adapter over better-sqlite3 (D1 is SQLite, same SQL).
 function d1(): DB {
   const db = new Database(":memory:");
-  db.exec(readFileSync(new URL("../migrations/0001_init.sql", import.meta.url), "utf8"));
+  const dir = new URL("../migrations/", import.meta.url);
+  for (const f of readdirSync(dir).filter((f) => f.endsWith(".sql")).sort()) db.exec(readFileSync(new URL(f, dir), "utf8"));
   const stmt = (sql: string, values: unknown[] = []): Stmt & { exec(): unknown } => ({
     bind: (...v: unknown[]) => stmt(sql, v),
     first: async <T,>() => (db.prepare(sql).get(...values) as T) ?? null,
@@ -41,21 +41,46 @@ const day = (clientId: string, evaluatorId = "spoofed") => ({
   records: [{ studentId: "s1", attendance: "present", dailyNote: true, scores: { i1: 3 } }],
 });
 
-async function publishSara(passwordHash: string, active = true) {
-  return call("/admin/publish", {
-    method: "PUT", token: ADMIN,
-    body: JSON.stringify({ evaluators: [{ id: "e1", email: "Sara@X.iq", name: "د. سارة", passwordHash, active }], bundles: active ? [bundle("e1")] : [] }),
-  });
-}
-async function loginSara(password: string) {
-  return call("/api/login", { method: "POST", body: JSON.stringify({ email: "sara@x.iq", password }) });
+// A stand-in for Google: our own RSA key signs ID tokens exactly as Google does.
+const CLIENT = "123-test.apps.googleusercontent.com";
+let signer: CryptoKey;
+let publicJwk: JsonWebKey;
+const b64url = (b: Uint8Array | string) =>
+  Buffer.from(typeof b === "string" ? new TextEncoder().encode(b) : b).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+async function idToken(claims: Record<string, unknown>, kid = "k1") {
+  const t = Math.floor(Date.now() / 1000);
+  const head = b64url(JSON.stringify({ alg: "RS256", kid, typ: "JWT" }));
+  const body = b64url(JSON.stringify({ iss: "https://accounts.google.com", aud: CLIENT, iat: t, exp: t + 3600, email_verified: true, sub: "1", ...claims }));
+  const sig = new Uint8Array(await crypto.subtle.sign("RSASSA-PKCS1-v1_5", signer, new TextEncoder().encode(`${head}.${body}`)));
+  return `${head}.${body}.${b64url(sig)}`;
 }
 
+async function publishSara(active = true, email = "Sara@X.iq") {
+  return call("/admin/publish", {
+    method: "PUT", token: ADMIN,
+    body: JSON.stringify({ evaluators: [{ id: "e1", email, name: "د. سارة", active }], bundles: active ? [bundle("e1")] : [] }),
+  });
+}
+async function googleLogin(claims: Record<string, unknown> = { email: "sara@x.iq", name: "Sara K" }, kid?: string) {
+  return call("/api/login/google", { method: "POST", body: JSON.stringify({ credential: await idToken(claims, kid) }) });
+}
+async function loginSara() {
+  return (await body(await googleLogin())) as { token: string };
+}
+
+beforeAll(async () => {
+  const pair = (await crypto.subtle.generateKey(
+    { name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" },
+    true,
+    ["sign", "verify"]
+  )) as CryptoKeyPair;
+  signer = pair.privateKey;
+  publicJwk = await crypto.subtle.exportKey("jwk", pair.publicKey);
+});
+
 describe("relay", () => {
-  let hash: string;
-  beforeEach(async () => {
-    env = { DB: d1(), ADMIN_TOKEN: ADMIN };
-    hash = await hashPassword("k7Qm-Xp3w-Tz9d");
+  beforeEach(() => {
+    env = { DB: d1(), ADMIN_TOKEN: ADMIN, GOOGLE_CLIENT_ID: CLIENT, googleKeys: async (kid) => (kid === "k1" ? publicJwk : null) };
   });
 
   it("admin endpoints need the admin key", async () => {
@@ -64,19 +89,38 @@ describe("relay", () => {
     expect((await call("/admin/status", { token: ADMIN })).status).toBe(200);
   });
 
-  it("login: right password gets a token; wrong ones fail and are rate-limited", async () => {
-    await publishSara(hash);
-    expect((await loginSara("nope")).status).toBe(401);
-    const ok = await body(await loginSara("k7Qm-Xp3w-Tz9d"));
+  it("Google sign-in: a registered evaluator's verified Google account gets a session", async () => {
+    await publishSara();
+    expect(await body(await call("/api/config"))).toEqual({ googleClientId: CLIENT });
+    const res = await googleLogin({ email: "SARA@x.iq", name: "Sara K" });
+    expect(res.status).toBe(200);
+    const ok = await body(res);
     expect(ok.evaluator).toEqual({ id: "e1", name: "د. سارة" });
     expect(typeof ok.token).toBe("string");
-    for (let i = 0; i < 9; i++) await loginSara("nope");
-    expect((await loginSara("k7Qm-Xp3w-Tz9d")).status).toBe(429);
+    const status = (await body(await call("/admin/status", { token: ADMIN }))) as { phones: Array<{ id: string; googleName: string }>; googleSignIn: boolean };
+    expect(status.googleSignIn).toBe(true);
+    expect(status.phones).toMatchObject([{ id: "e1", googleName: "Sara K" }]);
+  });
+
+  it("Google sign-in refuses unknown emails and bad tokens", async () => {
+    await publishSara();
+    expect((await googleLogin({ email: "someone@gmail.com" })).status).toBe(403);
+    expect((await googleLogin({ email: "sara@x.iq", aud: "other-app" })).status).toBe(401);
+    expect((await googleLogin({ email: "sara@x.iq", iss: "https://evil.example" })).status).toBe(401);
+    expect((await googleLogin({ email: "sara@x.iq", exp: Math.floor(Date.now() / 1000) - 3600 })).status).toBe(401);
+    expect((await googleLogin({ email: "sara@x.iq", email_verified: false })).status).toBe(401);
+    expect((await googleLogin({ email: "sara@x.iq" }, "unknown-kid")).status).toBe(401);
+    const good = await idToken({ email: "sara@x.iq" });
+    const [h, , sig] = good.split(".");
+    const forged = `${h}.${b64url(JSON.stringify({ iss: "https://accounts.google.com", aud: CLIENT, exp: 9e9, email: "sara@x.iq", email_verified: true }))}.${sig}`;
+    expect((await call("/api/login/google", { method: "POST", body: JSON.stringify({ credential: forged }) })).status).toBe(401);
+    env.GOOGLE_CLIENT_ID = undefined;
+    expect((await googleLogin()).status).toBe(503);
   });
 
   it("serves the evaluator's bundle, with 304 when unchanged", async () => {
-    await publishSara(hash);
-    const { token } = (await body(await loginSara("k7Qm-Xp3w-Tz9d"))) as { token: string };
+    await publishSara();
+    const { token } = await loginSara();
     const res = await call("/api/bundle", { token });
     expect(res.status).toBe(200);
     expect(((await res.json()) as EvaluatorBundle).evaluator.id).toBe("e1");
@@ -85,8 +129,8 @@ describe("relay", () => {
   });
 
   it("stores submissions under the session's evaluator, idempotently", async () => {
-    await publishSara(hash);
-    const { token } = (await body(await loginSara("k7Qm-Xp3w-Tz9d"))) as { token: string };
+    await publishSara();
+    const { token } = await loginSara();
     const first = await body(await call("/api/submissions", { method: "POST", token, body: JSON.stringify({ submissions: [day("a"), { ...day("b"), dateISO: "bad" }] }) }));
     expect(first).toEqual({ accepted: ["a"], rejected: [{ clientId: "b", message: "تاريخ غير صالح" }] });
     await call("/api/submissions", { method: "POST", token, body: JSON.stringify({ submissions: [day("a")] }) }); // resend
@@ -97,22 +141,25 @@ describe("relay", () => {
   });
 
   it("returns the desktop's decisions to the phone", async () => {
-    await publishSara(hash);
-    const { token } = (await body(await loginSara("k7Qm-Xp3w-Tz9d"))) as { token: string };
+    await publishSara();
+    const { token } = await loginSara();
     await call("/api/submissions", { method: "POST", token, body: JSON.stringify({ submissions: [day("a")] }) });
     await call("/admin/results", { method: "POST", token: ADMIN, body: JSON.stringify({ results: [{ clientId: "a", outcome: "applied", message: "اعتُمد 1 تقييم" }] }) });
     const { results } = (await body(await call("/api/results", { token }))) as { results: Array<{ clientId: string; outcome: string }> };
     expect(results).toMatchObject([{ clientId: "a", outcome: "applied" }]);
   });
 
-  it("a new password or deactivation signs the evaluator out", async () => {
-    await publishSara(hash);
-    const { token } = (await body(await loginSara("k7Qm-Xp3w-Tz9d"))) as { token: string };
-    await publishSara(await hashPassword("new-pass-1234"));
+  it("deactivation or a changed email signs the evaluator out", async () => {
+    await publishSara();
+    let { token } = await loginSara();
+    await publishSara(true, "sara.new@x.iq");
     expect((await call("/api/bundle", { token })).status).toBe(401);
-    expect((await loginSara("new-pass-1234")).status).toBe(200);
-    await publishSara(await hashPassword("new-pass-1234"), false);
-    expect((await loginSara("new-pass-1234")).status).toBe(401);
+    expect((await googleLogin({ email: "sara@x.iq" })).status).toBe(403);
+    expect((await googleLogin({ email: "sara.new@x.iq" })).status).toBe(200);
+    ({ token } = (await body(await googleLogin({ email: "sara.new@x.iq" }))) as { token: string });
+    await publishSara(false, "sara.new@x.iq");
+    expect((await call("/api/bundle", { token })).status).toBe(401);
+    expect((await googleLogin({ email: "sara.new@x.iq" })).status).toBe(403);
   });
 
   it("allows the desktop app's origin (CORS) on admin endpoints only", async () => {

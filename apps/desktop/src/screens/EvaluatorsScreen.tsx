@@ -18,21 +18,20 @@ import {
 import { currentCourse } from "@eva/db/repo/students";
 import { recentAudit } from "@eva/db/repo/grading";
 import { ValidationError } from "@eva/db/repo/common";
-import { setEvaluatorPasswordHash, setEvaluatorPasswordHashes } from "@eva/db/repo/sync";
-import { generatePassword, hashPassword } from "@eva/core/sync/password";
+import { phoneSignIns, type PhoneSignIn } from "@eva/db/repo/sync";
 import { matchesSearch } from "@eva/core/text/arabic";
 import { Dialog, Empty, Field, Notice, PageHeader } from "../components/ui";
 import { confirmAction } from "../components/confirm";
 import { errorText, r } from "../lib/repo";
 import { saveFile } from "../lib/files";
-import { relayConfig } from "../lib/relay";
-import { buildEvaluatorTemplate, buildLoginsSheet, readEvaluatorTemplate } from "../lib/evaluatorExcel";
+import { DEFAULT_RELAY_URL, relayConfig } from "../lib/relay";
+import { buildEvaluatorTemplate, readEvaluatorTemplate } from "../lib/evaluatorExcel";
 
 type Filter = "all" | "active" | "inactive" | "nophone" | "nocover";
 const FILTERS: Array<[Filter, string]> = [
   ["all", "الكل"],
   ["active", "الفعّالون"],
-  ["nophone", "بلا كلمة مرور هاتف"],
+  ["nophone", "لم يدخلوا من الهاتف"],
   ["nocover", "بلا تخصيص"],
   ["inactive", "المعطّلون"],
 ];
@@ -49,11 +48,13 @@ export function EvaluatorsScreen() {
   const list = useQuery({ queryKey: ["evaluators"], queryFn: () => listEvaluators(r) });
   const cover = useQuery({ queryKey: ["coverage", courseId], queryFn: () => coverage(r, courseId!), enabled: !!courseId });
   const choices = useQuery({ queryKey: ["assignmentChoices", courseId], queryFn: () => assignmentChoices(r, courseId!), enabled: !!courseId });
+  const phones = useQuery({ queryKey: ["phoneSignIns"], queryFn: () => phoneSignIns(r) });
+  const relay = useQuery({ queryKey: ["relayConfig"], queryFn: relayConfig });
+  const signedIn = (id: string) => phones.data?.get(id) ?? null;
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
   const [editing, setEditing] = useState<EvaluatorRow | "new" | null>(null);
-  const [passwordFor, setPasswordFor] = useState<EvaluatorRow | null>(null);
-  const [bulk, setBulk] = useState(false);
+  const [copied, setCopied] = useState(false);
   const [importing, setImporting] = useState(false);
   const [note, setNote] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
 
@@ -68,12 +69,12 @@ export function EvaluatorsScreen() {
       (filter === "all" ||
         (filter === "active" && e.active) ||
         (filter === "inactive" && !e.active) ||
-        (filter === "nophone" && e.active && !e.hasPhonePassword) ||
+        (filter === "nophone" && e.active && !signedIn(e.id)) ||
         (filter === "nocover" && e.active && e.hospitals.length === 0))
   );
   const active = rows.filter((e) => e.active);
   const assigned = active.filter((e) => e.hospitals.length > 0);
-  const needPassword = assigned.filter((e) => !e.hasPhonePassword);
+  const link = relay.data?.url ?? DEFAULT_RELAY_URL;
   const uncovered = (cover.data ?? []).filter((c) => c.evaluators === 0);
 
   async function downloadTemplate(withData: boolean) {
@@ -118,20 +119,26 @@ export function EvaluatorsScreen() {
           {uncovered.length > 0 && <p className="muted small">المستشفى بلا مقيّم لا تصل مجموعاته إلى أي هاتف.</p>}
         </div>
         <div className="card ev-stat">
-          <div className="ev-stat-title">جاهزية الهاتف</div>
+          <div className="ev-stat-title">الدخول من الهاتف</div>
           <div>
-            <b className="tabular">{assigned.filter((e) => e.hasPhonePassword).length}</b> من <b className="tabular">{assigned.length}</b> مقيّم مخصّص لديهم كلمة مرور الهاتف
+            <b className="tabular">{assigned.filter((e) => signedIn(e.id)).length}</b> من <b className="tabular">{assigned.length}</b> مقيّم مخصّص دخلوا بحساب Google
             {active.length > assigned.length && <span className="muted small"> · {active.length - assigned.length} بلا تخصيص في هذه الدورة</span>}
           </div>
-          {needPassword.length > 0 ? (
-            <div>
-              <button className="btn btn-primary" onClick={() => setBulk(true)}>
-                إنشاء كلمات المرور لـ {needPassword.length} مقيّم
-              </button>
-            </div>
-          ) : (
-            <span className="muted small">كل المقيّمين المخصّصين جاهزون. تصل التغييرات إلى الهواتف مع المزامنة.</span>
-          )}
+          <div className="row">
+            <span className="muted small">
+              رابط التطبيق: <span className="ltr">{link}</span>
+            </span>
+            <button
+              className="btn btn-sm"
+              onClick={() => {
+                void navigator.clipboard.writeText(link);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2000);
+              }}
+            >
+              {copied ? "نُسخ ✓" : "نسخ الرابط"}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -159,13 +166,11 @@ export function EvaluatorsScreen() {
       )}
       <div className="ev-grid">
         {shown.map((e) => (
-          <EvaluatorCard key={e.id} e={e} courseId={courseId} choices={choices.data} onEdit={() => setEditing(e)} onPassword={() => setPasswordFor(e)} />
+          <EvaluatorCard key={e.id} e={e} phone={signedIn(e.id)} courseId={courseId} choices={choices.data} onEdit={() => setEditing(e)} />
         ))}
       </div>
 
       <EvaluatorDialog evaluator={editing} courseId={courseId} hospitals={choices.data?.hospitals ?? []} onClose={() => setEditing(null)} />
-      <PhonePasswordDialog evaluator={passwordFor} onClose={() => setPasswordFor(null)} />
-      <BulkPasswordsDialog open={bulk} evaluators={needPassword} onClose={() => setBulk(false)} />
       {courseId && <ImportDialog open={importing} courseId={courseId} onClose={() => setImporting(false)} onDone={(text) => setNote({ kind: "ok", text })} />}
     </div>
   );
@@ -173,16 +178,16 @@ export function EvaluatorsScreen() {
 
 function EvaluatorCard({
   e,
+  phone,
   courseId,
   choices,
   onEdit,
-  onPassword,
 }: {
   e: EvaluatorRow;
+  phone: PhoneSignIn | null;
   courseId: string | null;
   choices: Choices | undefined;
   onEdit: () => void;
-  onPassword: () => void;
 }) {
   const [adding, setAdding] = useState(false);
   const [pick, setPick] = useState({ hospitalId: "", groupId: "" });
@@ -215,7 +220,13 @@ function EvaluatorCard({
         </div>
         <div className="row ev-badges">
           {e.active ? <span className="badge badge-ok">فعّال</span> : <span className="badge">معطّل</span>}
-          {e.hasPhonePassword ? <span className="badge badge-ok">الهاتف جاهز</span> : <span className="badge badge-warn">بلا كلمة مرور</span>}
+          {phone ? (
+            <span className="badge badge-ok" title={"دخل بحساب Google" + (phone.googleName ? ": " + phone.googleName : "")}>
+              دخل من الهاتف
+            </span>
+          ) : (
+            <span className="badge badge-warn">لم يدخل من الهاتف بعد</span>
+          )}
           {e.openConflicts > 0 && <span className="badge badge-err">{e.openConflicts} تعارض</span>}
         </div>
       </div>
@@ -280,14 +291,15 @@ function EvaluatorCard({
 
       <div className="ev-foot">
         <span className="muted small">
-          {e.lastReceivedAt ? `آخر إرسال من الهاتف: ${when(e.lastReceivedAt)} · ${e.daysApplied} يوم معتمد` : "لم يرسل من الهاتف بعد"}
+          {e.lastReceivedAt
+            ? `آخر إرسال من الهاتف: ${when(e.lastReceivedAt)} · ${e.daysApplied} يوم معتمد`
+            : phone
+              ? `دخل من الهاتف: ${when(phone.lastLoginAt)} · لم يرسل أيامًا بعد`
+              : "يدخل من الهاتف بحساب Google لهذا البريد"}
         </span>
         <div className="row">
           <button className="btn btn-sm" onClick={onEdit}>
             تعديل
-          </button>
-          <button className="btn btn-sm" onClick={onPassword}>
-            {e.hasPhonePassword ? "كلمة مرور جديدة" : "كلمة مرور الهاتف"}
           </button>
           <button className="btn btn-sm" disabled={toggle.isPending} onClick={() => void onToggle()}>
             {e.active ? "تعطيل" : "تفعيل"}
@@ -298,8 +310,8 @@ function EvaluatorCard({
   );
 }
 
-// Add: name, email and whole-hospital covers. Edit: name and email (covers
-// are managed on the card, including single groups).
+// Add: the email (the evaluator's Google account), optionally a name and
+// whole-hospital covers. Edit: email and name (covers are on the card).
 function EvaluatorDialog({
   evaluator,
   courseId,
@@ -340,11 +352,11 @@ function EvaluatorDialog({
           save.mutate();
         }}
       >
-        <Field label="الاسم *" error={err("name")}>
-          <input className="input" value={form.name} onChange={(x) => setForm({ ...form, name: x.target.value })} required />
+        <Field label="البريد الإلكتروني (حساب Google) *" error={err("email")} hint="يدخل به المقيّم على الهاتف بحساب Google، دون كلمة مرور.">
+          <input className="input ltr-input" type="email" value={form.email} onChange={(x) => setForm({ ...form, email: x.target.value })} required autoFocus />
         </Field>
-        <Field label="البريد الإلكتروني *" error={err("email")} hint="يسجّل به المقيّم الدخول على الهاتف.">
-          <input className="input ltr-input" type="email" value={form.email} onChange={(x) => setForm({ ...form, email: x.target.value })} required />
+        <Field label="الاسم (اختياري)" error={err("name")} hint="إن تُرك فارغًا يُؤخذ من حساب Google عند أول دخول.">
+          <input className="input" value={form.name} onChange={(x) => setForm({ ...form, name: x.target.value })} />
         </Field>
         {!e && courseId && (
           <Field label="يغطي المستشفيات (كل مجموعاتها)" hint="لتخصيص مجموعة واحدة فقط استخدم «+ تخصيص» في بطاقة المقيّم بعد الحفظ.">
@@ -374,165 +386,6 @@ function EvaluatorDialog({
           </button>
         </div>
       </form>
-    </Dialog>
-  );
-}
-
-// Generates a strong password, stores only its hash, and shows it ONCE so
-// the admin can hand it to the evaluator. It reaches the phones' server at
-// the next sync (المزامنة); the evaluator's old phone sessions end then.
-function PhonePasswordDialog({ evaluator, onClose }: { evaluator: EvaluatorRow | null; onClose: () => void }) {
-  const [shown, setShown] = useState<{ id: string; password: string } | null>(null);
-  const make = useMutation({
-    mutationFn: async (id: string) => {
-      const password = generatePassword();
-      await setEvaluatorPasswordHash(r, id, await hashPassword(password));
-      return { id, password };
-    },
-    onSuccess: setShown,
-  });
-  const current = shown && evaluator && shown.id === evaluator.id ? shown.password : null;
-  const close = () => {
-    setShown(null);
-    make.reset();
-    onClose();
-  };
-  return (
-    <Dialog open={!!evaluator} title={`كلمة مرور الهاتف — ${evaluator?.name ?? ""}`} onClose={close}>
-      {evaluator && (
-        <div className="stack">
-          {!current ? (
-            <>
-              <p className="muted">تُنشأ كلمة مرور قوية جديدة.{evaluator.hasPhonePassword ? " تتوقف كلمة المرور السابقة عند المزامنة التالية." : ""}</p>
-              <div className="row">
-                <button className="btn btn-primary" disabled={make.isPending} onClick={() => make.mutate(evaluator.id)}>
-                  إنشاء كلمة المرور
-                </button>
-              </div>
-            </>
-          ) : (
-            <>
-              <p>أعطِ المقيّم هذه البيانات (تظهر مرة واحدة فقط):</p>
-              <div className="card">
-                <div>
-                  البريد: <span className="ltr">{evaluator.email}</span>
-                </div>
-                <div>
-                  كلمة المرور: <b className="ltr mono" style={{ fontSize: 18 }}>{current}</b>
-                </div>
-              </div>
-              <div className="row">
-                <button className="btn" onClick={() => void navigator.clipboard.writeText(evaluator.email + " / " + current)}>
-                  نسخ
-                </button>
-                <button className="btn btn-primary" onClick={close}>
-                  تم
-                </button>
-              </div>
-              <p className="muted">تصل إلى هاتفه بعد المزامنة (شاشة المزامنة ← مزامنة الآن).</p>
-            </>
-          )}
-          {make.error && <Notice kind="err">{errorText(make.error)}</Notice>}
-        </div>
-      )}
-    </Dialog>
-  );
-}
-
-type Login = { name: string; email: string; password: string; covers: string };
-
-// Passwords for everyone who covers something and has none yet, in one go;
-// shown once, with an Excel sheet to print or send.
-function BulkPasswordsDialog({ open, evaluators, onClose }: { open: boolean; evaluators: EvaluatorRow[]; onClose: () => void }) {
-  const [logins, setLogins] = useState<Login[] | null>(null);
-  const [saved, setSaved] = useState<string | null>(null);
-  const make = useMutation({
-    mutationFn: async () => {
-      const made = await Promise.all(
-        evaluators.map(async (e) => {
-          const password = generatePassword();
-          return { e, password, passwordHash: await hashPassword(password) };
-        })
-      );
-      await setEvaluatorPasswordHashes(r, made.map((m) => ({ accountId: m.e.id, passwordHash: m.passwordHash })));
-      return made.map((m) => ({ name: m.e.name, email: m.e.email, password: m.password, covers: m.e.hospitals.map(coverLabel).join("، ") }));
-    },
-    onSuccess: setLogins,
-  });
-  const close = () => {
-    setLogins(null);
-    setSaved(null);
-    make.reset();
-    onClose();
-  };
-  async function saveSheet(list: Login[]) {
-    const relay = await relayConfig();
-    const bytes = await buildLoginsSheet(relay?.url ?? null, list);
-    if (await saveFile("دخول المقيّمين.xlsx", bytes, XLSX)) setSaved("حُفظ الملف. احفظه في مكان آمن أو احذفه بعد التسليم.");
-  }
-  return (
-    <Dialog open={open} title="كلمات مرور الهاتف" onClose={close} wide>
-      <div className="stack">
-        {!logins ? (
-          <>
-            <p>ستُنشأ كلمة مرور جديدة لكل من:</p>
-            <div className="row">
-              {evaluators.map((e) => (
-                <span key={e.id} className="badge">
-                  {e.name}
-                </span>
-              ))}
-            </div>
-            <p className="muted">تظهر كلمات المرور مرة واحدة فقط، ويمكن حفظها كملف Excel لتسليمها.</p>
-            <div className="row">
-              <button className="btn btn-primary" disabled={make.isPending || evaluators.length === 0} onClick={() => make.mutate()}>
-                {make.isPending ? "جارٍ الإنشاء…" : `إنشاء ${evaluators.length} كلمة مرور`}
-              </button>
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="table-wrap">
-              <table className="list">
-                <thead>
-                  <tr>
-                    <th>الاسم</th>
-                    <th>البريد</th>
-                    <th>كلمة المرور</th>
-                    <th>يغطي</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {logins.map((l) => (
-                    <tr key={l.email}>
-                      <td>{l.name}</td>
-                      <td className="ltr">{l.email}</td>
-                      <td>
-                        <b className="ltr mono">{l.password}</b>
-                      </td>
-                      <td className="small-cell">{l.covers}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            {saved && <Notice kind="ok">{saved}</Notice>}
-            <div className="row">
-              <button className="btn btn-primary" onClick={() => void saveSheet(logins)}>
-                حفظ كملف Excel
-              </button>
-              <button className="btn" onClick={() => void navigator.clipboard.writeText(logins.map((l) => `${l.name}: ${l.email} / ${l.password}`).join("\n"))}>
-                نسخ الكل
-              </button>
-              <button className="btn" onClick={close}>
-                تم
-              </button>
-            </div>
-            <p className="muted">تصل إلى الهواتف بعد المزامنة (شاشة المزامنة ← مزامنة الآن).</p>
-          </>
-        )}
-        {make.error && <Notice kind="err">{errorText(make.error)}</Notice>}
-      </div>
     </Dialog>
   );
 }

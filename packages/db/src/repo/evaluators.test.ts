@@ -2,8 +2,7 @@ import { describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import * as t from "../schema";
 import { ValidationError } from "./common";
-import { addAssignment, coverage, importEvaluators, listEvaluators, previewEvaluatorImport, removeAssignment } from "./evaluators";
-import { setEvaluatorPasswordHashes } from "./sync";
+import { addAssignment, coverage, saveEvaluator, importEvaluators, listEvaluators, previewEvaluatorImport, removeAssignment } from "./evaluators";
 import { IDS, groupId, seeded } from "./testSeed";
 
 const sara = () => IDS.evaluators[0];
@@ -44,16 +43,18 @@ describe("evaluator covers", () => {
     expect(await count()).toEqual({ [IDS.hospitals[0]]: 0, [IDS.hospitals[1]]: 1, [IDS.hospitals[2]]: 0 });
   });
 
-  it("sets many phone passwords in one go", async () => {
+  it("adds an evaluator with the email only", async () => {
     const r = await seeded(0);
-    await setEvaluatorPasswordHashes(r, IDS.evaluators.map((accountId) => ({ accountId, passwordHash: "pbkdf2$1$a$b" })));
-    expect((await listEvaluators(r)).every((e) => e.hasPhonePassword)).toBe(true);
+    const id = await saveEvaluator(r, { email: " Huda.K@Uni.edu.iq " });
+    expect(await byId(r, id)).toMatchObject({ email: "huda.k@uni.edu.iq", name: "huda.k" });
+    await expect(saveEvaluator(r, { email: "huda.k@uni.edu.iq" })).rejects.toThrow("مستخدم لحساب آخر");
   });
 });
 
 describe("evaluator Excel import", () => {
   const rows = [
     { row: 2, name: "د. هدى", email: "Huda@X.iq", hospital: "مستشفى العلويه", group: "" }, // ة/ه spelling tolerated
+    { row: 6, name: "", email: "noname@x.iq", hospital: "مستشفى العلوية", group: "" }, // email only
     { row: 3, name: "", email: "huda@x.iq", hospital: "مستشفى اليرموك", group: "المجموعة الصباحية 2" }, // same person, 2nd cover
     { row: 4, name: "", email: "sara@x.iq", hospital: "مستشفى مدينة الطب", group: "" }, // existing evaluator
     { row: 5, name: "", email: "sara@x.iq", hospital: "مستشفى اليرموك", group: "" }, // already covered
@@ -62,8 +63,8 @@ describe("evaluator Excel import", () => {
   it("previews without writing, then applies everything in one go", async () => {
     const r = await seeded(0);
     const p = await previewEvaluatorImport(r, rows, IDS.course);
-    expect(p.lines.map((l) => l.action)).toEqual(["new", "assign", "assign", "exists"]);
-    expect(p).toMatchObject({ newEvaluators: 1, newCovers: 3, errors: 0 });
+    expect(p.lines.map((l) => l.action)).toEqual(["new", "new", "assign", "assign", "exists"]);
+    expect(p).toMatchObject({ newEvaluators: 2, newCovers: 4, errors: 0 });
     expect(await listEvaluators(r)).toHaveLength(2);
 
     await importEvaluators(r, rows, IDS.course);
@@ -72,6 +73,7 @@ describe("evaluator Excel import", () => {
     expect(huda.name).toBe("د. هدى");
     expect(huda.hospitals.map((h) => h.groupName ?? "كل")).toEqual(expect.arrayContaining(["كل", "المجموعة الصباحية 2"]));
     expect((await byId(r, sara())).hospitals).toHaveLength(2);
+    expect(all.find((e) => e.email === "noname@x.iq")?.name).toBe("noname");
     // importing the same file again changes nothing
     expect(await previewEvaluatorImport(r, rows, IDS.course)).toMatchObject({ newEvaluators: 0, newCovers: 0 });
   });

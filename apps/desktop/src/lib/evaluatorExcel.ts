@@ -6,8 +6,8 @@ import { normalizeArabic } from "@eva/core/text/arabic";
 import { loadExcel } from "./files";
 
 const COLUMNS = [
-  { key: "name", header: "الاسم", width: 28 },
-  { key: "email", header: "البريد الإلكتروني *", width: 32 },
+  { key: "email", header: "البريد الإلكتروني (حساب Google) *", width: 34 },
+  { key: "name", header: "الاسم (اختياري)", width: 28 },
   { key: "hospital", header: "المستشفى *", width: 24 },
   { key: "group", header: "المجموعة (فارغ = كل المجموعات)", width: 30 },
 ] as const;
@@ -67,9 +67,10 @@ export async function buildEvaluatorTemplate(
   help.getColumn(1).width = 100;
   [
     "صف واحد لكل تخصيص: المقيّم الذي يغطي مستشفيين يُكتب في صفين بنفس البريد.",
-    "الاسم مطلوب للمقيّم الجديد فقط. البريد هو ما يربط الصفوف بالمقيّم الموجود.",
+    "البريد هو حساب Google الذي يدخل به المقيّم على الهاتف، وهو ما يربط الصفوف بالمقيّم الموجود.",
+    "الاسم اختياري: إن تُرك فارغًا يُؤخذ من حساب Google عند أول دخول.",
     "اترك المجموعة فارغة ليغطي المقيّم كل مجموعات المستشفى حسب الجدول.",
-    "كلمات مرور الهاتف لا تُكتب هنا: تُنشأ من شاشة المقيّمين بعد الاستيراد.",
+    "لا توجد كلمات مرور: بعد الاستيراد تصل البيانات إلى الهواتف تلقائيًا.",
   ].forEach((line, i) => (help.getCell(`A${i + 1}`).value = line));
   return bytes(wb);
 }
@@ -110,23 +111,4 @@ export async function readEvaluatorTemplate(data: ArrayBuffer): Promise<{ rows: 
   });
   if (!rows.length) return { error: "لا توجد صفوف في الملف" };
   return { rows };
-}
-
-/** The phone logins to hand out (printable). */
-export async function buildLoginsSheet(relayUrl: string | null, list: Array<{ name: string; email: string; password: string; covers: string }>) {
-  const Excel = await loadExcel();
-  const wb = new Excel.Workbook();
-  wb.creator = "Eva";
-  const ws = wb.addWorksheet("دخول الهاتف", { views: [{ rightToLeft: true, state: "frozen", ySplit: 1 }] });
-  ws.columns = [
-    { header: "الاسم", key: "name", width: 26 },
-    { header: "البريد الإلكتروني", key: "email", width: 32 },
-    { header: "كلمة المرور", key: "password", width: 20 },
-    { header: "يغطي", key: "covers", width: 40 },
-    { header: "رابط التطبيق", key: "url", width: 40 },
-  ];
-  styleHeader(ws);
-  for (const x of list) ws.addRow({ ...x, url: relayUrl ?? "" });
-  ws.getColumn("password").font = { name: "Consolas", size: 12, bold: true };
-  return bytes(wb);
 }

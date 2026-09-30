@@ -20,8 +20,6 @@ export interface EvaluatorRow {
   name: string;
   email: string;
   active: boolean;
-  /** Has a phone password the relay can check (PBKDF2; old website bcrypt hashes don't count). */
-  hasPhonePassword: boolean;
   hospitals: EvaluatorAssignmentRow[];
   /** From the phone (sync inbox): last day received, days applied, conflicts waiting. */
   lastReceivedAt: string | null;
@@ -58,7 +56,6 @@ export async function listEvaluators(r: Repo, includeInactive = true): Promise<E
         name: acc.name,
         email: acc.email,
         active: acc.active,
-        hasPhonePassword: !!acc.passwordHash?.startsWith("pbkdf2$"),
         hospitals: assignments
           .filter((x) => x.a.accountId === acc.id)
           .map((x) => ({
@@ -82,11 +79,18 @@ const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const cleanName = (s: string) => s.replace(/\s+/g, " ").trim();
 const cleanEmail = (s: string) => s.trim().toLowerCase();
 
-export async function saveEvaluator(r: Repo, input: { id?: string; name: string; email: string }): Promise<string> {
-  const name = cleanName(input.name);
+/**
+ * The name given to an evaluator added with the email only. It is replaced
+ * by the name on their Google account when they first sign in on the phone
+ * (sync.ts recordPhoneSignIns).
+ */
+export const autoName = (email: string) => email.split("@")[0];
+
+/** The name is optional: left empty, it comes from the Google account at first sign-in. */
+export async function saveEvaluator(r: Repo, input: { id?: string; name?: string; email: string }): Promise<string> {
   const email = cleanEmail(input.email);
-  if (!name) throw new ValidationError("الاسم مطلوب", "name");
   if (!EMAIL.test(email)) throw new ValidationError("البريد الإلكتروني غير صالح", "email");
+  const name = cleanName(input.name ?? "") || autoName(email);
   const [clash] = await r.db.select({ id: t.accounts.id }).from(t.accounts).where(eq(t.accounts.email, email));
   if (clash && clash.id !== input.id) throw new ValidationError("هذا البريد مستخدم لحساب آخر", "email");
   const plan = new Plan(r);
@@ -293,10 +297,9 @@ async function resolveImport(r: Repo, rows: EvaluatorImportRow[], courseId: stri
     let accountId = account?.id ?? created.get(email);
     let isNew = false;
     if (!accountId) {
-      if (!name) { line("error", "الاسم مطلوب لمقيّم جديد"); continue; }
       accountId = newId();
       created.set(email, accountId);
-      plan.add(r.db.insert(t.accounts).values({ id: accountId, name, email, role: "EVALUATOR", active: true }));
+      plan.add(r.db.insert(t.accounts).values({ id: accountId, name: name || autoName(email), email, role: "EVALUATOR", active: true }));
       newEvaluators++;
       isNew = true;
     }

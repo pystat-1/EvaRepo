@@ -6,11 +6,12 @@ import { and, eq, inArray } from "drizzle-orm";
 import { applyItemScores, normalizeScoresForAttendance, round2, validateScores } from "@eva/core/grading/validation";
 import { pickPlacement } from "@eva/core/grading/placement";
 import { BUNDLE_FORMAT, checkDaySubmission, type DaySubmission, type EvaluatorBundle, type SubmissionResult } from "@eva/core/sync/contract";
-import { sha256Hex } from "@eva/core/sync/password";
+import { sha256Hex } from "@eva/core/sync/tokens";
 import { compareArabic } from "@eva/core/text/arabic";
 import * as t from "../schema";
 import { Plan, ValidationError, newId, nowISO, type Repo } from "./common";
 import { currentCourse } from "./students";
+import { autoName } from "./evaluators";
 
 // ---- publishing ----------------------------------------------------------
 
@@ -18,7 +19,6 @@ export interface PublishedEvaluator {
   id: string;
   email: string;
   name: string;
-  passwordHash: string | null;
   active: boolean;
 }
 
@@ -40,15 +40,9 @@ async function rubricWithItems(r: Repo) {
 export async function buildPublication(r: Repo): Promise<{ evaluators: PublishedEvaluator[]; bundles: EvaluatorBundle[] }> {
   const course = await currentCourse(r);
   const accounts = await r.db.select().from(t.accounts).where(eq(t.accounts.role, "EVALUATOR"));
-  // Only phone (PBKDF2) hashes leave this computer; old website bcrypt
-  // hashes can't be checked by the relay anyway.
-  const evaluators = accounts.map((a) => ({
-    id: a.id,
-    email: a.email,
-    name: a.name,
-    passwordHash: a.passwordHash?.startsWith("pbkdf2$") ? a.passwordHash : null,
-    active: a.active,
-  }));
+  // Evaluators sign in with the Google account of this email: only the
+  // email, name and active flag leave this computer.
+  const evaluators = accounts.map((a) => ({ id: a.id, email: a.email, name: a.name, active: a.active }));
   if (!course) return { evaluators, bundles: [] };
 
   const rubric = await rubricWithItems(r);
@@ -100,22 +94,41 @@ export async function buildPublication(r: Repo): Promise<{ evaluators: Published
   return { evaluators, bundles };
 }
 
-/** Stores a new phone password hash for an evaluator (the plain password is never kept). */
-export async function setEvaluatorPasswordHash(r: Repo, accountId: string, passwordHash: string) {
-  const plan = new Plan(r);
-  plan.add(r.db.update(t.accounts).set({ passwordHash, updatedAt: nowISO() }).where(eq(t.accounts.id, accountId)));
-  plan.audit("Evaluator", accountId, "update", undefined, { phonePassword: "reset" });
-  await plan.commit();
+// ---- phone sign-ins ------------------------------------------------------
+
+/** An evaluator who has signed in on a phone (reported by the relay). */
+export interface PhoneSignIn {
+  id: string;
+  googleName: string | null;
+  lastLoginAt: string;
+  lastSeenAt: string | null;
 }
 
-/** Several at once (one transaction), e.g. "passwords for everyone without one". */
-export async function setEvaluatorPasswordHashes(r: Repo, list: Array<{ accountId: string; passwordHash: string }>) {
+/**
+ * Remembers who has signed in on a phone, and gives an evaluator added
+ * with the email only (name = the email's user part) the name on their
+ * Google account.
+ */
+export async function recordPhoneSignIns(r: Repo, phones: PhoneSignIn[]): Promise<number> {
+  await setSetting(r, "relay.phones", JSON.stringify(phones));
+  const accounts = await r.db.select().from(t.accounts).where(eq(t.accounts.role, "EVALUATOR"));
   const plan = new Plan(r);
-  for (const x of list) {
-    plan.add(r.db.update(t.accounts).set({ passwordHash: x.passwordHash, updatedAt: nowISO() }).where(eq(t.accounts.id, x.accountId)));
-    plan.audit("Evaluator", x.accountId, "update", undefined, { phonePassword: "reset" });
+  for (const p of phones) {
+    const acc = accounts.find((a) => a.id === p.id);
+    const googleName = p.googleName?.replace(/\s+/g, " ").trim();
+    if (!acc || !googleName || acc.name !== autoName(acc.email)) continue;
+    plan.add(r.db.update(t.accounts).set({ name: googleName, updatedAt: nowISO() }).where(eq(t.accounts.id, acc.id)));
+    plan.audit("Evaluator", acc.id, "update", { name: acc.name }, { name: googleName });
   }
-  await plan.commit();
+  const renamed = plan.statements.length / 2; // one update + one audit entry each
+  if (renamed) await plan.commit();
+  return renamed;
+}
+
+export async function phoneSignIns(r: Repo): Promise<Map<string, PhoneSignIn>> {
+  const raw = await getSetting(r, "relay.phones");
+  const list = raw ? (JSON.parse(raw) as PhoneSignIn[]) : [];
+  return new Map(list.map((p) => [p.id, p]));
 }
 
 // ---- applying pulled submissions ------------------------------------------

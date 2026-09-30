@@ -14,6 +14,9 @@
   },
   "d1_databases": [
     { "binding": "DB", "database_name": "eva-relay", "database_id": "3a752794-cc9d-4d93-952b-bad958136072", "migrations_dir": "migrations" }
-  ]
+  ],
+  // Evaluators sign in on their phones with Google. The OAuth web client ID
+  // is public (it is in every sign-in page); empty = phone sign-in is off.
+  "vars": { "GOOGLE_CLIENT_ID": "" }
   // Secret (set once with `wrangler secret put ADMIN_TOKEN`): ADMIN_TOKEN
 }

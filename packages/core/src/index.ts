@@ -12,4 +12,4 @@ export * from "./students/importRows";
 export * from "./text/arabic";
 export * from "./students/excelTemplate";
 export * from "./sync/contract";
-export * from "./sync/password";
+export * from "./sync/tokens";

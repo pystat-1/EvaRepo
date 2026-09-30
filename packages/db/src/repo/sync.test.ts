@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import type { DaySubmission } from "@eva/core/sync/contract";
 import * as t from "../schema";
-import { applyConflictAnyway, applyDaySubmission, buildPublication, inbox, markReported, setEvaluatorPasswordHash, unreportedResults } from "./sync";
+import { applyConflictAnyway, applyDaySubmission, buildPublication, inbox, markReported, phoneSignIns, recordPhoneSignIns, unreportedResults } from "./sync";
 import { listEvaluations } from "./grading";
 import { IDS, groupId, seeded } from "./testSeed";
 
@@ -48,11 +48,25 @@ describe("buildPublication", () => {
     expect((await buildPublication(r)).bundles[0].version).not.toBe(v1);
   });
 
-  it("publishes password hashes, never passwords", async () => {
+  it("publishes emails and names only (no password hashes)", async () => {
     const r = await seeded(0);
-    await setEvaluatorPasswordHash(r, IDS.evaluators[0], "pbkdf2$20000$salt$hash");
+    await r.db.update(t.accounts).set({ passwordHash: "$2b$10$old-website-hash" }).where(eq(t.accounts.id, IDS.evaluators[0]));
     const sara = (await buildPublication(r)).evaluators.find((e) => e.id === IDS.evaluators[0])!;
-    expect(sara.passwordHash).toBe("pbkdf2$20000$salt$hash");
+    expect(sara).toEqual({ id: IDS.evaluators[0], email: "sara@x.iq", name: "د. سارة", active: true });
+  });
+
+  it("records phone sign-ins; an email-only evaluator takes the Google name", async () => {
+    const r = await seeded(0);
+    await r.db.update(t.accounts).set({ name: "ali" }).where(eq(t.accounts.id, IDS.evaluators[1])); // added as ali@x.iq, no name
+    const renamed = await recordPhoneSignIns(r, [
+      { id: IDS.evaluators[0], googleName: "Sara Google", lastLoginAt: "2026-10-01T08:00:00Z", lastSeenAt: null },
+      { id: IDS.evaluators[1], googleName: "Ali  Al-Rubaie", lastLoginAt: "2026-10-01T09:00:00Z", lastSeenAt: null },
+    ]);
+    const [sara, ali] = await Promise.all(IDS.evaluators.map(async (id) => (await r.db.select().from(t.accounts).where(eq(t.accounts.id, id)))[0]));
+    expect(sara.name).toBe("د. سارة"); // a name the admin typed is kept
+    expect(ali.name).toBe("Ali Al-Rubaie");
+    expect(renamed).toBe(1);
+    expect((await phoneSignIns(r)).get(IDS.evaluators[1])?.lastLoginAt).toBe("2026-10-01T09:00:00Z");
   });
 });
 

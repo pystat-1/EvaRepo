@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { EvaluatorBundle } from "@eva/core/sync/contract";
 import { getBundle, getSession, setSession, type Session } from "./lib/store";
 import { AuthError, OfflineError, logout, syncNow, type SyncReport } from "./lib/sync";
-import { Login } from "./screens/Login";
+import { Login, markSignedOut } from "./screens/Login";
 import { Home } from "./screens/Home";
 import { DayScreen } from "./screens/DayScreen";
 
@@ -74,6 +74,7 @@ export function App() {
   const signOut = async () => {
     if (!window.confirm("تسجيل الخروج؟ تبقى مسوداتك والأيام غير المرسلة محفوظة على هذا الهاتف وتُرسل عند الدخول مجددًا.")) return;
     await logout(session.token);
+    markSignedOut(true);
     await setSession(null);
     setSess(null);
   };

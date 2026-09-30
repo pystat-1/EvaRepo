@@ -3,7 +3,8 @@
 // is tested with real SQLite in Node and runs unchanged on Cloudflare.
 // Every handler does a few indexed queries: a few ms of CPU.
 import { checkDaySubmission, type DaySubmission, type EvaluatorBundle, type SubmissionResult } from "@eva/core/sync/contract";
-import { randomToken, sha256Hex, verifyPassword } from "@eva/core/sync/password";
+import { randomToken, sha256Hex } from "@eva/core/sync/tokens";
+import { GoogleTokenError, googleKeys, verifyGoogleIdToken, type KeyLookup } from "./google";
 
 export interface Stmt {
   bind(...values: unknown[]): Stmt;
@@ -18,10 +19,13 @@ export interface DB {
 export interface Env {
   DB: DB;
   ADMIN_TOKEN: string;
+  /** Google OAuth web client ID (public). Unset = phone sign-in is off. */
+  GOOGLE_CLIENT_ID?: string;
+  /** Tests pass their own signing keys; production uses Google's. */
+  googleKeys?: KeyLookup;
 }
 
-const SESSION_DAYS = 30;
-const MAX_LOGIN_ATTEMPTS = 10; // per email per 15 minutes
+const SESSION_DAYS = 90; // sliding: an evaluator who uses the app never has to sign in again
 const MAX_SUBMISSIONS_PER_CALL = 20;
 
 const json = (body: unknown, status = 200) =>
@@ -72,34 +76,37 @@ async function session(env: Env, req: Request): Promise<{ evaluatorId: string } 
   return { evaluatorId: row.evaluatorId };
 }
 
-async function login(env: Env, req: Request) {
-  const body = await readJson<{ email?: string; password?: string }>(req, 10_000);
-  const email = String(body?.email ?? "").trim().toLowerCase();
-  const password = String(body?.password ?? "");
-  if (!email || !password) return fail(400, "أدخل البريد الإلكتروني وكلمة المرور");
+function config(env: Env) {
+  return json({ googleClientId: env.GOOGLE_CLIENT_ID || null });
+}
 
-  const t = now();
-  const windowStart = iso(new Date(Math.floor(t.getTime() / 900_000) * 900_000));
-  const attempts = await env.DB.prepare(`SELECT count FROM login_attempts WHERE email = ? AND windowStart = ?`).bind(email, windowStart).first<{ count: number }>();
-  if ((attempts?.count ?? 0) >= MAX_LOGIN_ATTEMPTS) return fail(429, "محاولات كثيرة — حاول بعد ربع ساعة");
-
-  const ev = await env.DB.prepare(`SELECT id, name, passwordHash, active FROM evaluators WHERE email = ?`)
-    .bind(email)
-    .first<{ id: string; name: string; passwordHash: string | null; active: number }>();
-  const ok = !!ev && !!ev.active && !!ev.passwordHash && (await verifyPassword(password, ev.passwordHash));
-  if (!ok) {
-    await env.DB.prepare(
-      `INSERT INTO login_attempts (email, windowStart, count) VALUES (?, ?, 1) ON CONFLICT(email, windowStart) DO UPDATE SET count = count + 1`
-    )
-      .bind(email, windowStart)
-      .run();
-    return fail(401, "البريد الإلكتروني أو كلمة المرور غير صحيحة");
+// The phone sends the ID token Google gave it; the email in it must be an
+// active evaluator's. The session token that comes back is the phone's key.
+async function loginGoogle(env: Env, req: Request) {
+  if (!env.GOOGLE_CLIENT_ID) return fail(503, "الدخول بحساب Google غير مفعَّل بعد — تواصل مع المدير");
+  const body = await readJson<{ credential?: string }>(req, 20_000);
+  const credential = String(body?.credential ?? "");
+  if (!credential) return fail(400, "طلب غير صالح");
+  let who;
+  try {
+    who = await verifyGoogleIdToken(credential, env.GOOGLE_CLIENT_ID, env.googleKeys ?? googleKeys);
+  } catch (e) {
+    if (e instanceof GoogleTokenError) return fail(401, e.message);
+    throw e;
   }
+  const ev = await env.DB.prepare(`SELECT id, name, active FROM evaluators WHERE email = ?`)
+    .bind(who.email)
+    .first<{ id: string; name: string; active: number }>();
+  if (!ev || !ev.active) return fail(403, `الحساب ${who.email} غير مسجَّل كمقيّم — اطلب من المدير إضافة هذا البريد`);
+  const t = now();
   const token = randomToken();
-  await env.DB.prepare(`INSERT INTO sessions (tokenHash, evaluatorId, createdAt, lastSeenAt, expiresAt) VALUES (?, ?, ?, ?, ?)`)
-    .bind(await sha256Hex(token), ev!.id, iso(t), iso(t), iso(new Date(t.getTime() + SESSION_DAYS * 86400_000)))
-    .run();
-  return json({ token, evaluator: { id: ev!.id, name: ev!.name } });
+  await env.DB.batch([
+    env.DB.prepare(`INSERT INTO sessions (tokenHash, evaluatorId, createdAt, lastSeenAt, expiresAt) VALUES (?, ?, ?, ?, ?)`).bind(
+      await sha256Hex(token), ev.id, iso(t), iso(t), iso(new Date(t.getTime() + SESSION_DAYS * 86400_000))
+    ),
+    env.DB.prepare(`UPDATE evaluators SET googleName = ?, lastLoginAt = ? WHERE id = ?`).bind(who.name, iso(t), ev.id),
+  ]);
+  return json({ token, evaluator: { id: ev.id, name: ev.name }, email: who.email });
 }
 
 async function logout(env: Env, req: Request) {
@@ -153,7 +160,7 @@ async function getResults(env: Env, who: { evaluatorId: string }) {
 // ---- admin (Eva Desktop) --------------------------------------------------
 
 interface PublishBody {
-  evaluators: Array<{ id: string; email: string; name: string; passwordHash: string | null; active: boolean }>;
+  evaluators: Array<{ id: string; email: string; name: string; active: boolean }>;
   bundles: EvaluatorBundle[];
 }
 
@@ -161,7 +168,7 @@ async function publish(env: Env, req: Request) {
   const body = await readJson<PublishBody>(req, 20_000_000);
   if (!body || !Array.isArray(body.evaluators) || !Array.isArray(body.bundles)) return fail(400, "طلب غير صالح");
   const stamp = iso(now());
-  const before = await env.DB.prepare(`SELECT id, passwordHash, active FROM evaluators`).all<{ id: string; passwordHash: string | null; active: number }>();
+  const before = await env.DB.prepare(`SELECT id, email, active FROM evaluators`).all<{ id: string; email: string; active: number }>();
   const prev = new Map(before.results.map((e) => [e.id, e]));
   const stmts: Stmt[] = [];
   const listed = new Set<string>();
@@ -169,13 +176,16 @@ async function publish(env: Env, req: Request) {
     listed.add(e.id);
     stmts.push(
       env.DB.prepare(
-        `INSERT INTO evaluators (id, email, name, passwordHash, active, updatedAt) VALUES (?, ?, ?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET email = excluded.email, name = excluded.name, passwordHash = excluded.passwordHash, active = excluded.active, updatedAt = excluded.updatedAt`
-      ).bind(e.id, e.email.toLowerCase(), e.name, e.passwordHash, e.active ? 1 : 0, stamp)
+        `INSERT INTO evaluators (id, email, name, active, updatedAt) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET email = excluded.email, name = excluded.name, active = excluded.active, updatedAt = excluded.updatedAt`
+      ).bind(e.id, e.email.toLowerCase(), e.name, e.active ? 1 : 0, stamp)
     );
     const p = prev.get(e.id);
-    // A new password or deactivation signs the evaluator out everywhere.
-    if (p && (!e.active || p.passwordHash !== e.passwordHash)) stmts.push(env.DB.prepare(`DELETE FROM sessions WHERE evaluatorId = ?`).bind(e.id));
+    // Deactivation or a changed email signs the evaluator out everywhere.
+    if (p && (!e.active || p.email !== e.email.toLowerCase())) {
+      stmts.push(env.DB.prepare(`DELETE FROM sessions WHERE evaluatorId = ?`).bind(e.id));
+      if (p.email !== e.email.toLowerCase()) stmts.push(env.DB.prepare(`UPDATE evaluators SET googleName = NULL, lastLoginAt = NULL WHERE id = ?`).bind(e.id));
+    }
   }
   for (const p of before.results) {
     if (!listed.has(p.id)) {
@@ -230,6 +240,15 @@ async function status(env: Env) {
     bundles: await q(`SELECT COUNT(*) AS n FROM bundles`),
     submissions: await q(`SELECT COUNT(*) AS n FROM submissions`),
     lastSeq: await q(`SELECT COALESCE(MAX(seq), 0) AS n FROM submissions`),
+    googleSignIn: !!env.GOOGLE_CLIENT_ID,
+    // Who has signed in on a phone, and when the phone was last active.
+    phones: (
+      await env.DB.prepare(
+        `SELECT e.id, e.googleName, e.lastLoginAt, MAX(s.lastSeenAt) AS lastSeenAt
+         FROM evaluators e LEFT JOIN sessions s ON s.evaluatorId = e.id
+         WHERE e.lastLoginAt IS NOT NULL GROUP BY e.id`
+      ).all<{ id: string; googleName: string | null; lastLoginAt: string; lastSeenAt: string | null }>()
+    ).results,
   });
 }
 
@@ -280,7 +299,8 @@ async function route(req: Request, env: Env): Promise<Response> {
       if (p === "/admin/status" && req.method === "GET") return await status(env);
       return fail(404, "غير موجود");
     }
-    if (p === "/api/login" && req.method === "POST") return await login(env, req);
+    if (p === "/api/config" && req.method === "GET") return config(env);
+    if (p === "/api/login/google" && req.method === "POST") return await loginGoogle(env, req);
     if (p === "/api/logout" && req.method === "POST") return await logout(env, req);
     if (p.startsWith("/api/")) {
       const who = await session(env, req);

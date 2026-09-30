@@ -8,15 +8,13 @@ import {
   importStudentBatchAction,
 } from "@/lib/actions/studentImport";
 import type { ImportContext } from "@/lib/models/studentImport";
+import { buildStudentTemplate, readStudentTemplate } from "@eva/core/students/excelTemplate";
 import {
-  TEMPLATE_COLUMNS,
   groupKey,
-  headerKey,
   validateRows,
   type RowIssue,
   type StudentRow,
   type StudentRowInput,
-  type TemplateKey,
 } from "@/lib/studentImport/rows";
 
 const BATCH = 40;
@@ -42,8 +40,8 @@ async function loadExcel() {
   return (mod as unknown as { default?: typeof mod }).default ?? mod;
 }
 
-function download(buffer: ArrayBuffer, name: string) {
-  const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+function download(buffer: Uint8Array, name: string) {
+  const blob = new Blob([buffer as BlobPart], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -52,68 +50,13 @@ function download(buffer: ArrayBuffer, name: string) {
   setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
 
-// Builds the template workbook: an RTL "الطلاب" sheet with the columns,
-// dropdowns for shift and group number, and an instructions sheet.
-async function buildWorkbook(ctx: ImportContext, data: Array<Record<TemplateKey, string>> = []) {
-  const ExcelJS = await loadExcel();
-  const wb = new ExcelJS.Workbook();
-  wb.creator = "Eva";
-  const ws = wb.addWorksheet("الطلاب", { views: [{ rightToLeft: true, state: "frozen", ySplit: 1 }] });
-  ws.columns = TEMPLATE_COLUMNS.map((c) => ({ header: c.header + (c.required ? " *" : ""), key: c.key, width: c.width }));
-  const header = ws.getRow(1);
-  header.height = 22;
-  header.eachCell((cell) => {
-    cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
-    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0E5C6B" } };
-    cell.alignment = { vertical: "middle", horizontal: "center" };
-  });
-  ws.getColumn("universityNumber").numFmt = "@"; // keep leading zeros
-  for (const row of data) ws.addRow(row);
-
-  const groupNumbers = Array.from(new Set(ctx.groups.map((g) => g.number))).sort((a, b) => a - b);
-  const lastRow = Math.max(1000, data.length + 200);
-  for (let r = 2; r <= lastRow; r++) {
-    ws.getCell(`D${r}`).dataValidation = {
-      type: "list",
-      allowBlank: true,
-      formulae: ['"صباحي,مسائي"'],
-      showErrorMessage: true,
-      errorTitle: "الدوام",
-      error: "اختر صباحي أو مسائي",
-    };
-    ws.getCell(`E${r}`).dataValidation = {
-      type: "list",
-      allowBlank: true,
-      formulae: [`"${groupNumbers.join(",")}"`],
-      showErrorMessage: true,
-      errorTitle: "المجموعة",
-      error: `اختر رقم مجموعة: ${groupNumbers.join("، ")}`,
-    };
-  }
-
-  const help = wb.addWorksheet("تعليمات", { views: [{ rightToLeft: true }] });
-  help.getColumn(1).width = 110;
-  const lines = [
-    `قالب طلاب ${ctx.course?.label ?? "الدورة"} — نوع الدراسة: ${ctx.studyType?.name ?? "—"}`,
-    "",
-    "• املأ ورقة «الطلاب» فقط، صفًا لكل طالب، دون تغيير عناوين الأعمدة.",
-    "• الأعمدة المعلّمة بـ * إلزامية: الرقم الجامعي، الاسم الكامل، الدوام، المجموعة.",
-    "• الرقم الجامعي هو المعرّف الثابت للطالب: إعادة الاستيراد تحدّث بيانات الطالب ولا تكرره.",
-    "• الدوام: صباحي أو مسائي (اختر من القائمة).",
-    `• المجموعة: رقم المجموعة داخل الدوام (${groupNumbers.join(" أو ")}). المجموعات وجدول دورانها على المستشفيات معرّفة في الدورة.`,
-    "• الاسم بالإنكليزية والبريد الإلكتروني اختياريان.",
-    "• بعد الحفظ: صفحة الطلاب ← استيراد من Excel ← اختر الملف ← راجع المعاينة ← استيراد.",
-    "",
-    "مجموعات الدورة الحالية:",
-    ...ctx.groups.map((g) => `   ${SHIFT_AR[g.shift]} — المجموعة ${g.number}  (${g.name})`),
-  ];
-  lines.forEach((text, i) => {
-    const cell = help.getCell(`A${i + 1}`);
-    cell.value = text;
-    if (i === 0) cell.font = { bold: true, size: 13 };
-  });
-  return wb;
-}
+// Template building/reading is shared with the desktop app
+// (@eva/core/students/excelTemplate).
+const templateContext = (ctx: ImportContext) => ({
+  courseLabel: ctx.course?.label ?? "الدورة",
+  studyTypeName: ctx.studyType?.name ?? "—",
+  groups: ctx.groups.map((g) => ({ shift: g.shift, number: g.number, name: g.name })),
+});
 
 export function ExcelStudentImport({ ctx }: { ctx: ImportContext }) {
   const router = useRouter();
@@ -139,9 +82,8 @@ export function ExcelStudentImport({ ctx }: { ctx: ImportContext }) {
     setBusy(withStudents ? "list" : "template");
     try {
       const data = withStudents ? await exportCourseStudentsAction(courseId) : [];
-      const wb = await buildWorkbook(ctx, data);
-      const buf = await wb.xlsx.writeBuffer();
-      download(buf as ArrayBuffer, withStudents ? "قائمة-الطلاب.xlsx" : "قالب-الطلاب.xlsx");
+      const buf = await buildStudentTemplate(await loadExcel(), templateContext(ctx), data);
+      download(buf, withStudents ? "قائمة-الطلاب.xlsx" : "قالب-الطلاب.xlsx");
     } catch (e) {
       setPhase({ kind: "error", message: e instanceof Error ? e.message : "تعذّر إنشاء الملف" });
     } finally {
@@ -152,47 +94,9 @@ export function ExcelStudentImport({ ctx }: { ctx: ImportContext }) {
   async function readFile(file: File) {
     setPhase({ kind: "reading" });
     try {
-      const ExcelJS = await loadExcel();
-      const wb = new ExcelJS.Workbook();
-      await wb.xlsx.load(await file.arrayBuffer());
-      // The sheet whose first row has the template headers (normally «الطلاب»).
-      const ws =
-        wb.worksheets.find((s) => {
-          const keys = new Set<string>();
-          s.getRow(1).eachCell((c) => {
-            const k = headerKey(String(c.text ?? ""));
-            if (k) keys.add(k);
-          });
-          return keys.has("universityNumber") && keys.has("nameAr");
-        }) ?? null;
-      if (!ws) throw new Error("لم يُعثر على ورقة بعناوين القالب (الرقم الجامعي، الاسم…) — استخدم القالب المنزَّل من هنا.");
-      const colOf = new Map<TemplateKey, number>();
-      ws.getRow(1).eachCell((c, col) => {
-        const k = headerKey(String(c.text ?? ""));
-        if (k && !colOf.has(k)) colOf.set(k, col);
-      });
-      const missing = TEMPLATE_COLUMNS.filter((c) => c.required && !colOf.has(c.key)).map((c) => c.header);
-      if (missing.length) throw new Error(`أعمدة ناقصة في الملف: ${missing.join("، ")}`);
-
-      const rows: Parsed["rows"] = [];
-      ws.eachRow({ includeEmpty: false }, (r, rowNumber) => {
-        if (rowNumber === 1) return;
-        const get = (k: TemplateKey) => {
-          const col = colOf.get(k);
-          return col ? String(r.getCell(col).text ?? "").trim() : "";
-        };
-        const item = {
-          row: rowNumber,
-          universityNumber: get("universityNumber"),
-          nameAr: get("nameAr"),
-          nameEn: get("nameEn"),
-          shift: get("shift"),
-          group: get("group"),
-          email: get("email"),
-        };
-        if (Object.entries(item).some(([k, v]) => k !== "row" && v)) rows.push(item);
-      });
-      if (rows.length === 0) throw new Error("الملف لا يحتوي على طلاب.");
+      const read = await readStudentTemplate(await loadExcel(), await file.arrayBuffer());
+      if ("error" in read) throw new Error(read.error);
+      const rows = read.rows;
       const { valid, issues } = validateRows(rows, groupKeys);
       setPhase({ kind: "preview", parsed: { fileName: file.name, rows, valid, issues } });
     } catch (e) {

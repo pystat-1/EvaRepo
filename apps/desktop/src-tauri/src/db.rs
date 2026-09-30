@@ -107,6 +107,26 @@ pub fn db_run(state: tauri::State<DbState>, sql: String, params: Vec<Value>) -> 
     })
 }
 
+#[derive(serde::Deserialize)]
+pub struct Stmt {
+    sql: String,
+    #[serde(default)]
+    params: Vec<Value>,
+}
+
+/// Several statements in ONE transaction: all applied or none.
+#[tauri::command]
+pub fn db_batch(state: tauri::State<DbState>, statements: Vec<Stmt>) -> Res<()> {
+    let mut guard = state.conn.lock().map_err(|_| "lock".to_string())?;
+    let conn = guard.as_mut().ok_or("قاعدة البيانات غير مفتوحة")?;
+    let tx = conn.transaction().map_err(err("SQL"))?;
+    for s in &statements {
+        let mut stmt = tx.prepare_cached(&s.sql).map_err(err("SQL"))?;
+        stmt.execute(params_from_iter(s.params.iter().map(to_sql))).map_err(err("SQL"))?;
+    }
+    tx.commit().map_err(err("SQL"))
+}
+
 #[tauri::command]
 pub fn db_values(state: tauri::State<DbState>, sql: String, params: Vec<Value>) -> Res<Vec<Vec<Value>>> {
     with_conn(&state, |c| {

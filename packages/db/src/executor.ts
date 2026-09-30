@@ -11,4 +11,15 @@ export interface SqlExecutor {
   values(sql: string, params?: unknown[]): Promise<unknown[][]>;
   /** Runs one statement that changes data. */
   run(sql: string, params?: unknown[]): Promise<{ changes: number }>;
+  /**
+   * Runs several data-changing statements as ONE transaction: all of them
+   * or none. Every multi-row change in Eva goes through here, so a crash
+   * or an error mid-way can never leave half a change behind.
+   */
+  batch(statements: Statement[]): Promise<void>;
+}
+
+export interface Statement {
+  sql: string;
+  params?: unknown[];
 }

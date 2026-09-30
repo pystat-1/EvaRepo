@@ -9,3 +9,5 @@ export * from "./schedule/rotationGenerator";
 export * from "./schedule/attendanceDates";
 export * from "./schedule/conflictChecker";
 export * from "./students/importRows";
+export * from "./text/arabic";
+export * from "./students/excelTemplate";

@@ -14,6 +14,7 @@ export const exec: SqlExecutor = {
   query: (sql, params) => invoke("db_query", { sql, params: bind(params) }),
   values: (sql, params) => invoke("db_values", { sql, params: bind(params) }),
   run: async (sql, params) => ({ changes: await invoke<number>("db_run", { sql, params: bind(params) }) }),
+  batch: (statements) => invoke("db_batch", { statements: statements.map((s) => ({ sql: s.sql, params: bind(s.params) })) }),
 };
 
 export const orm = drizzleFor(exec);

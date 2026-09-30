@@ -25,6 +25,11 @@ export function openBetterSqlite(file: string): { db: Database.Database; exec: S
     async run(sql, params) {
       return { changes: db.prepare(sql).run(...bind(params)).changes };
     },
+    async batch(statements) {
+      db.transaction(() => {
+        for (const s of statements) db.prepare(s.sql).run(...bind(s.params));
+      })();
+    },
   };
   return { db, exec };
 }

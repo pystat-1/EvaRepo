@@ -1,6 +1,6 @@
 # Eva Desktop: plan to turn Eva into installable, local-first software
 
-> **Status:** ACCEPTED, 2026-09-30. Phase 1 done; phase 2 done (see §10). Next: phase 3 (admin screens).
+> **Status:** ACCEPTED, 2026-09-30. Phases 1–3 done (see §10). Next: phase 4 (sync relay + evaluator phone app).
 > **Goal (from the owner):** a top-tier, reliable **complete student data management system** that runs as an **installed desktop app** (no dependence on web hosting), with the **evaluator app** kept as a separate, simple, installable phone app **linked** to it.
 > **Constraint:** free and open-source tools only.
 > **Relation to other plans:** replaces the hosting model of `FINAL_PLAN.md`; keeps its product rules (courses → shifts → groups → rotations, rubric, validation, grading center). `EVALUATOR_APP_PLAN.md` rules (7-day window, conflicts, drafts) carry over to the new evaluator app.
@@ -172,3 +172,8 @@ Architecture decisions are recorded in `docs/adr/`; flow diagrams are in `docs/F
   - `apps/desktop`: Tauri 2 app. The Rust side owns `eva.db` (WAL, foreign keys, online backups, validated import/restore, backup-name checks, panic logging to a log file); React shell with per-screen crash boundaries, a recovery screen for damaged or too-new files, and the النظام screen (health, counts, backups, backup now, restore, import).
   - Windows installer: 3.24 MB (NSIS). Tested in the real window: first run, manual backup, import of the exported data (158 students / 387 grades), restore, rejection of non-Eva files and of path-traversal backup names.
   - `.github/workflows/desktop.yml` builds the installer on GitHub's Windows machines.
+- **Phase 3 (2026-09-30):**
+  - Data layer `packages/db/src/repo/`: students (Arabic-aware search, add/edit with validation and codes, activate, whole-file Excel import in ONE transaction with a chosen target course), courses (overview grid, move a schedule cell, create a course with groups and a fair rotation), evaluators (add/edit, hospitals per course, activate), grading (validated grades with filters, student record, group grade sheet, statistics), audit log. Every write is a single atomic batch (`db_batch`) that includes its audit entry. 104 tests.
+  - Shared `@eva/core`: Arabic search normalisation; the Excel template builder/reader (the website now uses it too).
+  - Desktop screens: الطلاب، الدورات والجدول، مركز الدرجات (list + group sheet + Excel export)، الإحصائيات، المقيّمون، سجل التغييرات، النظام. Virtualized tables, Ctrl+K palette, Ctrl+1..7, per-screen crash boundaries, save dialogs for Excel files (Rust `file_write`, xlsx/csv/db only).
+  - End-to-end test in the real window with 120 students / 600 grades: every screen, dialog, import, schedule edit, new course, palette; integrity ok, no page errors. Installer 4.07 MB.

@@ -1,4 +1,5 @@
 mod db;
+mod files;
 
 use tauri::Manager;
 
@@ -28,6 +29,7 @@ pub fn run() {
             db::db_open,
             db::db_exec,
             db::db_run,
+            db::db_batch,
             db::db_values,
             db::db_query,
             db::db_integrity,
@@ -36,6 +38,7 @@ pub fn run() {
             db::backup_delete,
             db::backup_restore,
             db::db_import_file,
+            files::file_write,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Eva");

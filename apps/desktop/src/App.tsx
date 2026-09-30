@@ -1,20 +1,29 @@
 import { useCallback, useEffect, useState } from "react";
 import { ErrorBoundary, type FallbackProps } from "react-error-boundary";
-import { startup, type StartupResult } from "@eva/db/startup";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { startup, takeBackup, type StartupResult } from "@eva/db/startup";
 import { backups, exec, openDatabase, type DbInfo } from "./lib/db";
 import { logScreenCrash } from "./lib/crashLog";
 import { SystemScreen } from "./screens/SystemScreen";
 import { RecoveryScreen } from "./screens/RecoveryScreen";
+import { StudentsScreen } from "./screens/StudentsScreen";
+import { CoursesScreen } from "./screens/CoursesScreen";
+import { GradingScreen } from "./screens/GradingScreen";
+import { StatisticsScreen } from "./screens/StatisticsScreen";
+import { AuditScreen, EvaluatorsScreen } from "./screens/EvaluatorsScreen";
+import { CommandPalette, type PaletteAction } from "./components/CommandPalette";
+import { queryClient } from "./lib/repo";
 
-// Tabs of the admin app. Phase 3 of docs/DESKTOP_APP_PLAN.md fills in the
-// ones marked `soon`; النظام (system) is the first working screen.
+// The admin app's screens. Ctrl+1..7 jumps to them; Ctrl+K opens the
+// command palette.
 const TABS = [
-  { key: "students", label: "الطلاب", soon: true },
-  { key: "courses", label: "الدورات والجدول", soon: true },
-  { key: "grading", label: "مركز الدرجات", soon: true },
-  { key: "statistics", label: "الإحصائيات", soon: true },
-  { key: "evaluators", label: "المقيّمون", soon: true },
-  { key: "system", label: "النظام", soon: false },
+  { key: "students", label: "الطلاب" },
+  { key: "courses", label: "الدورات والجدول" },
+  { key: "grading", label: "مركز الدرجات" },
+  { key: "statistics", label: "الإحصائيات" },
+  { key: "evaluators", label: "المقيّمون" },
+  { key: "audit", label: "سجل التغييرات" },
+  { key: "system", label: "النظام" },
 ] as const;
 type TabKey = (typeof TABS)[number]["key"];
 
@@ -25,7 +34,20 @@ type Boot =
 
 export function App() {
   const [boot, setBoot] = useState<Boot>({ stage: "starting" });
-  const [tab, setTab] = useState<TabKey>("system");
+  const [tab, setTab] = useState<TabKey>("students");
+  const [openStudent, setOpenStudent] = useState<string | null>(null);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const n = Number(e.key);
+      if (e.ctrlKey && n >= 1 && n <= TABS.length) {
+        e.preventDefault();
+        setTab(TABS[n - 1].key);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   // Bumped to run the start-up sequence again (after a restore, or retry).
   const [attempt, setAttempt] = useState(0);
@@ -62,38 +84,51 @@ export function App() {
     return <RecoveryScreen problem={boot.result} info={boot.info} onRetry={retry} />;
   }
 
+  const paletteActions: PaletteAction[] = [
+    ...TABS.map((t, i) => ({ id: `tab-${t.key}`, label: t.label, hint: `Ctrl+${i + 1}`, run: () => setTab(t.key) })),
+    {
+      id: "backup",
+      label: "نسخة احتياطية الآن",
+      run: () => void takeBackup(backups, "manual").then(() => queryClient.invalidateQueries()),
+    },
+  ];
+
   return (
-    <div className="shell">
-      <nav className="sidebar" aria-label="أقسام التطبيق">
-        <div className="brand">
-          Eva <small>إدارة بيانات التدريب السريري</small>
-        </div>
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            className="nav-item"
-            aria-current={tab === t.key ? "page" : undefined}
-            aria-disabled={t.soon}
-            disabled={t.soon}
-            onClick={() => setTab(t.key)}
-          >
-            {t.label}
-            {t.soon && <span className="soon">قريبًا</span>}
-          </button>
-        ))}
-      </nav>
-      <main className="main">
-        {/* Each screen has its own boundary: a bug in one screen shows a
-            recovery panel there and never takes down the whole app. */}
-        <ErrorBoundary
-          key={tab}
-          FallbackComponent={ScreenCrash}
-          onError={(err, info) => logScreenCrash(tab, err, info.componentStack)}
-        >
-          {tab === "system" && <SystemScreen info={boot.info} startup={boot.result} />}
-        </ErrorBoundary>
-      </main>
-    </div>
+    <QueryClientProvider client={queryClient}>
+      <div className="shell">
+        <nav className="sidebar" aria-label="أقسام التطبيق">
+          <div className="brand">
+            Eva <small>إدارة بيانات التدريب السريري</small>
+          </div>
+          {TABS.map((t, i) => (
+            <button key={t.key} className="nav-item" aria-current={tab === t.key ? "page" : undefined} onClick={() => setTab(t.key)} title={`Ctrl+${i + 1}`}>
+              {t.label}
+            </button>
+          ))}
+          <div className="sidebar-foot muted-light">Ctrl+K للبحث والأوامر</div>
+        </nav>
+        <main className="main">
+          {/* Each screen has its own boundary: a bug in one screen shows a
+              recovery panel there and never takes down the whole app. */}
+          <ErrorBoundary key={tab} FallbackComponent={ScreenCrash} onError={(err, info) => logScreenCrash(tab, err, info.componentStack)}>
+            {tab === "students" && <StudentsScreen openStudentId={openStudent} onOpened={() => setOpenStudent(null)} />}
+            {tab === "courses" && <CoursesScreen />}
+            {tab === "grading" && <GradingScreen />}
+            {tab === "statistics" && <StatisticsScreen />}
+            {tab === "evaluators" && <EvaluatorsScreen />}
+            {tab === "audit" && <AuditScreen />}
+            {tab === "system" && <SystemScreen info={boot.info} startup={boot.result} />}
+          </ErrorBoundary>
+        </main>
+      </div>
+      <CommandPalette
+        actions={paletteActions}
+        onOpenStudent={(id) => {
+          setTab("students");
+          setOpenStudent(id);
+        }}
+      />
+    </QueryClientProvider>
   );
 }
 

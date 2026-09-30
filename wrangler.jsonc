@@ -4,14 +4,10 @@
   "name": "evarepo",
   "compatibility_date": "2026-09-01",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
-  // Run the Worker next to the Neon database (AWS us-west-2) instead of at
-  // the edge nearest the user. Every page and every grade save makes many
-  // sequential database round trips; from the edge each one cost ~270 ms
-  // (a single autosave took several seconds), next to the database each
-  // is a few ms. The user pays the long hop once per request instead.
-  "placement": {
-    "region": "aws:us-west-2"
-  },
+  // No "placement" setting: a targeted placement (aws:us-west-2, near the
+  // database) was tried on 2026-09-30 and made some requests hang or 503
+  // before ever reaching the Worker, which broke pages with React error
+  // #412 ("Connection closed"). Don't re-add it without testing live.
   "assets": {
     "directory": ".open-next/assets",
     "binding": "ASSETS",

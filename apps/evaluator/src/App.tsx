@@ -51,6 +51,12 @@ export function App() {
     );
   }, [session, tick, open]);
 
+  useEffect(() => {
+    const onPop = () => setOpen(null);
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
   const entries = useMemo(() => (bundle ? dayEntries(bundle, local.drafts, local.results) : []), [bundle, local]);
 
   const runSync = useCallback(async () => {
@@ -109,24 +115,34 @@ export function App() {
     setSess(null);
   };
 
-  if (open && bundle)
-    return (
-      <DayScreen
-        session={session}
-        bundle={bundle}
-        groupId={open.groupId}
-        dateISO={open.dateISO}
-        entries={entries}
-        onBack={() => setOpen(null)}
-        onValidated={() => {
-          setOpen(null);
-          void runSync();
-        }}
-      />
-    );
+  // A group's day opens inside the app (the tabs stay); the phone's back
+  // button closes it.
+  const openDay = (x: { groupId: string; dateISO: string }) => {
+    history.pushState({ evaDay: true }, "");
+    setOpen(x);
+  };
+  const closeDay = () => {
+    if (history.state?.evaDay) history.back();
+    else setOpen(null);
+  };
 
   return (
     <div className="screen with-nav">
+      {open && bundle ? (
+        <DayScreen
+          session={session}
+          bundle={bundle}
+          groupId={open.groupId}
+          dateISO={open.dateISO}
+          entries={entries}
+          onBack={closeDay}
+          onValidated={() => {
+            closeDay();
+            void runSync();
+          }}
+        />
+      ) : (
+        <>
       <header className="top">
         <div>
           <b>{bundle?.evaluator.name ?? session.evaluator.name}</b>
@@ -146,17 +162,27 @@ export function App() {
       {!bundle ? (
         <p className="note warn">لم يُنزَّل جدولك بعد — افتح التطبيق وأنت متصل بالإنترنت.</p>
       ) : tab === "today" ? (
-        <Home bundle={bundle} drafts={local.drafts} results={local.results} onOpen={setOpen} />
+        <Home bundle={bundle} drafts={local.drafts} results={local.results} onOpen={openDay} />
       ) : tab === "schedule" ? (
-        <Schedule bundle={bundle} entries={entries} drafts={local.drafts} lastSync={local.lastSync} onOpen={setOpen} />
+        <Schedule bundle={bundle} entries={entries} drafts={local.drafts} lastSync={local.lastSync} onOpen={openDay} />
       ) : tab === "records" ? (
-        <Records bundle={bundle} entries={entries} onOpen={setOpen} />
+        <Records bundle={bundle} entries={entries} onOpen={openDay} />
       ) : (
         <Students bundle={bundle} entries={entries} />
       )}
+        </>
+      )}
       <nav className="tabbar" aria-label="أقسام التطبيق">
         {TABS.map((t) => (
-          <button key={t.key} aria-current={tab === t.key ? "page" : undefined} onClick={() => (setTab(t.key), window.scrollTo(0, 0))}>
+          <button
+            key={t.key}
+            aria-current={tab === t.key && !open ? "page" : undefined}
+            onClick={() => {
+              if (open) closeDay();
+              setTab(t.key);
+              window.scrollTo(0, 0);
+            }}
+          >
             <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
               <path d={t.icon} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
             </svg>

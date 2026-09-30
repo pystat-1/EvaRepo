@@ -21,6 +21,8 @@ export interface EvaluationRow {
   locked: boolean;
   notes: string | null;
   sections: Record<string, number>; // rubricSectionId -> score
+  /** rubricItemId -> score (null for older grades recorded by section only). */
+  items: Record<string, number> | null;
 }
 
 export interface EvaluationFilter {
@@ -34,9 +36,13 @@ export interface EvaluationFilter {
   studentId?: string;
 }
 
+/** The criteria in form order, each with its sub-criteria (items). */
 export async function rubric(r: Repo) {
   const rows = await r.db.select().from(t.rubricSections).where(eq(t.rubricSections.active, true));
-  return rows.sort((a, b) => a.sortOrder - b.sortOrder);
+  const items = await r.db.select().from(t.rubricItems).where(eq(t.rubricItems.active, true));
+  return rows
+    .sort((a, b) => a.sortOrder - b.sortOrder)
+    .map((s) => ({ ...s, items: items.filter((i) => i.sectionId === s.id).sort((a, b) => a.sortOrder - b.sortOrder) }));
 }
 
 function evaluationWhere(f: EvaluationFilter) {
@@ -79,6 +85,7 @@ export async function listEvaluations(r: Repo, f: EvaluationFilter = {}, limit?:
       total: t.evaluations.total,
       locked: t.evaluations.locked,
       notes: t.evaluations.notes,
+      items: t.evaluations.itemScores,
       studentName: t.students.nameAr,
       universityNumber: t.students.universityNumber,
       groupName: t.groups.name,

@@ -7,6 +7,7 @@ import { ValidationError } from "@eva/db/repo/common";
 import * as schema from "@eva/db/schema";
 import { Dialog, Empty, Field, Notice, PageHeader, SHIFT_AR } from "../components/ui";
 import { errorText, r } from "../lib/repo";
+import { AttendanceDaysCard, CalendarByHospital } from "../components/AttendanceDays";
 
 // A few distinct, readable fills for hospitals in the schedule grid.
 const HOSPITAL_COLORS = ["#dcece9", "#f4ecd6", "#e8e2f3", "#e2f0e7", "#f6e5e3", "#e3ecf6"];
@@ -29,7 +30,7 @@ export function CoursesScreen() {
     <div className="stack">
       <PageHeader
         title="الدورات والجدول"
-        subtitle="جدول الدوران: كل خانة هي أسبوع مجموعة في مستشفى — غيّرها من القائمة."
+        subtitle="جدول الدوران: كل خانة هي أسبوع مجموعة في مستشفى — غيّرها من القائمة. الجدول للتوضيح ولا يمنع التقييم في أي يوم."
         actions={
           <>
             <select className="input" value={courseId} onChange={(e) => setPicked(e.target.value)} aria-label="الدورة">
@@ -104,6 +105,8 @@ export function CoursesScreen() {
               </tbody>
             </table>
           </div>
+          <AttendanceDaysCard courseId={courseId} />
+          <CalendarByHospital courseId={courseId} />
         </>
       )}
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { DaySubmission } from "@eva/core/sync/contract";
 import * as t from "../schema";
 import { applyConflictAnyway, applyDaySubmission, buildPublication, inbox, markReported, phoneSignIns, recordPhoneSignIns, unreportedResults } from "./sync";
@@ -97,9 +97,12 @@ describe("applyDaySubmission", () => {
     expect(await r.db.select().from(t.evaluations)).toHaveLength(2);
   });
 
-  it("rejects out-of-scope, outsiders and invalid scores, applying nothing", async () => {
+  it("rejects outsiders, invalid scores and inactive evaluators, applying nothing", async () => {
     const r = await seeded(2);
-    expect((await applyDaySubmission(r, pulled(day({ clientId: "a", dateISO: "2027-03-01" })))).message).toMatch(/ليست في مستشفيات/);
+    // a group the evaluator never covers (no rotation at their hospital)
+    await r.db.update(t.rotationBlocks).set({ active: false }).where(and(eq(t.rotationBlocks.groupId, groupId("MORNING", 1)), eq(t.rotationBlocks.hospitalId, IDS.hospitals[0])));
+    expect((await applyDaySubmission(r, pulled(day({ clientId: "a" })))).message).toMatch(/ليست في مستشفيات/);
+    await r.db.update(t.rotationBlocks).set({ active: true });
     expect((await applyDaySubmission(r, pulled(day({ clientId: "b", records: [{ studentId: "s3", attendance: "present", dailyNote: null, scores: {} }] })))).message).toMatch(/ليس في هذه المجموعة/);
     expect((await applyDaySubmission(r, pulled(day({ clientId: "c", records: [{ studentId: "s1", attendance: "present", dailyNote: null, scores: { "ri-pat": 0.1 } }] })))).message).toMatch(/درجات غير صالحة/);
     expect((await applyDaySubmission(r, pulled(day({ clientId: "d", evaluatorId: "nobody" })))).message).toMatch(/غير فعّال/);
@@ -150,5 +153,15 @@ describe("bundle history", () => {
     expect(s1.items).toMatchObject(full); // plus zeros for items left empty
     expect(d.records.find((x) => x.studentId === "s2")).toMatchObject({ attendance: "absent", dailyNote: null, total: 0 });
     expect(ali.history).toEqual([]); // another hospital
+  });
+});
+
+describe("dates never limit grading", () => {
+  it("applies a day months away from the rotation, recorded as off-schedule on its real date", async () => {
+    const r = await seeded(2);
+    const res = await applyDaySubmission(r, pulled(day({ clientId: "far", dateISO: "2027-03-01" })));
+    expect(res).toMatchObject({ outcome: "applied", message: "اعتُمد 2 تقييم (يوم خارج الجدول)" });
+    const [wd] = await r.db.select().from(t.groupWorkDays);
+    expect(wd).toMatchObject({ dateISO: "2027-03-01", scheduled: false });
   });
 });

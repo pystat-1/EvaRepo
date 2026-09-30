@@ -70,3 +70,26 @@ describe("createCourse", () => {
     expect(h.name).toBe("مستشفى الكندي");
   });
 });
+
+describe("attendance days", () => {
+  it("sets the course's days, overrides one hospital, and lays the calendar out by hospital", async () => {
+    const { attendanceDays, setAttendanceDays, attendanceCalendar } = await import("./courses");
+    const r = await seeded(1);
+    await setAttendanceDays(r, IDS.course, ["tue", "MON"]);
+    let days = await attendanceDays(r, IDS.course);
+    expect(days.course).toEqual(["MON", "TUE"]);
+    expect(days.hospitals.every((h) => h.days.join() === "MON,TUE" && !h.own)).toBe(true);
+
+    await setAttendanceDays(r, IDS.course, ["WED"], IDS.hospitals[2]);
+    days = await attendanceDays(r, IDS.course);
+    expect(days.hospitals.find((h) => h.hospitalId === IDS.hospitals[2])).toMatchObject({ days: ["WED"], own: true });
+
+    const cal = await attendanceCalendar(r, IDS.course);
+    const yarmouk = cal.find((h) => h.hospitalId === IDS.hospitals[0])!;
+    // week 1 (from Sunday 2026-10-04): Monday and Tuesday only, with the groups there
+    expect(yarmouk.weeks[0].days.map((d) => [d.dateISO, d.weekday])).toEqual([["2026-10-05", "MON"], ["2026-10-06", "TUE"]]);
+    expect(yarmouk.weeks[0].days[0].groups.map((g) => g.name)).toEqual(["المجموعة الصباحية 1", "المجموعة المسائية 1"]);
+    expect(cal.find((h) => h.hospitalId === IDS.hospitals[2])!.weeks[0].days.map((d) => d.weekday)).toEqual(["WED"]);
+    await expect(setAttendanceDays(r, IDS.course, [])).rejects.toThrow("يومًا واحدًا");
+  });
+});

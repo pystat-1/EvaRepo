@@ -1,13 +1,15 @@
 // Where a group is on a given date, for grading purposes. The rotation
-// schedule is the default, but real days move (holidays, cancelled days),
-// so an evaluator may also work with one of their groups on a day the
-// schedule doesn't list, as long as it is near that group's rotation with
-// them. Pure so it can be unit-tested; the DB lookups live in workDays.ts.
+// schedule is guidance, never a limit: real days move (holidays, cancelled
+// days, catch-up days), so an evaluator may work with any of their groups
+// on any date. A day the schedule lists is "scheduled"; any other day is
+// recorded as off-schedule at the hospital of the nearest rotation block.
+// Pure so it can be unit-tested; the DB lookups live in workDays.ts.
 import { addDaysISO } from "../date";
 import { isDateInScheduledDays } from "../weekdays";
 
-// How far outside a rotation's dates an off-schedule day is still accepted.
-export const OFF_SCHEDULE_GRACE_DAYS = 21;
+// How far outside a rotation's dates an off-schedule day is accepted:
+// without limit (callers may still pass a number, e.g. to rank suggestions).
+export const OFF_SCHEDULE_GRACE_DAYS = Infinity;
 
 export interface StintForPlacement {
   groupId: string;
@@ -43,7 +45,7 @@ export function pickPlacement(
   let best: StintForPlacement | null = null;
   let bestDistance = Infinity;
   for (const s of mine) {
-    if (dateISO < addDaysISO(s.startDate, -graceDays) || dateISO > addDaysISO(s.endDate, graceDays)) continue;
+    if (Number.isFinite(graceDays) && (dateISO < addDaysISO(s.startDate, -graceDays) || dateISO > addDaysISO(s.endDate, graceDays))) continue;
     const distance =
       dateISO >= s.startDate && dateISO <= s.endDate
         ? 0

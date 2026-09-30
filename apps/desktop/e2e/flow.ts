@@ -59,23 +59,27 @@ export async function flow(browser: Browser, out: string) {
   // ---- phone: grade a group today, offline, then validate ----
   await p.evaluate('document.querySelectorAll("details.others").forEach((d) => (d.open = true))');
   await p.locator("button.group").first().click();
-  await p.waitForSelector("table.grid");
+  await p.waitForSelector(".scard"); // phones open one student at a time
+  check((await p.locator("nav.tabbar").isVisible()) === true, "tabs stay visible inside a day");
   await phone.ctx.setOffline(true);
-  const rows = p.locator("table.grid tbody tr");
-  const n = await rows.count();
+  const n = await p.locator(".picker .pick").count();
   for (let i = 0; i < n; i++) {
-    const row = rows.nth(i);
+    const card = p.locator(".scard");
     if (i === 1) {
-      await row.locator("select").nth(0).selectOption("absent");
-      continue;
+      await card.locator("button.choice.absent").click();
+    } else {
+      await card.locator(i % 5 === 0 ? "button.choice.late" : "button.choice.present").click();
+      await card.locator(".choice2 button", { hasText: "سلّم" }).first().click();
+      const full = card.locator("button:has-text('كامل')"); // each turns into "مسح" once pressed
+      while ((await full.count()) > 0) await full.first().click();
+      const nums = card.locator('.numrow input[type="number"]');
+      await nums.nth(0).fill("2.5"); // form order: discussion (case, group), then the daily note
+      await nums.nth(1).fill("3");
+      await nums.nth(2).fill("4");
     }
-    await row.locator("select").nth(0).selectOption(i % 5 === 0 ? "late" : "present");
-    await row.locator("select").nth(1).selectOption("1");
-    const nums = row.locator('input[type="number"]');
-    await nums.nth(0).fill("4");
-    await nums.nth(1).fill("3");
-    await nums.nth(2).fill("2.5");
+    if (i < n - 1) await card.locator("button:has-text('التالي')").click();
   }
+  check((await p.locator(".picker .pick.done").count()) === n - 1 && (await p.locator(".picker .pick.absent").count()) === 1, "every student graded (one absent)");
   await p.click("button:has-text('اعتماد اليوم وإرساله للمدير')");
   await p.click("button:has-text('نعم، اعتماد')");
   await p.waitForSelector("text=/بانتظار الإرسال/", { timeout: 30_000 });
@@ -109,10 +113,10 @@ export async function flow(browser: Browser, out: string) {
   await p.click('nav.tabbar button:has-text("السجلات")');
   await p.click(".seg button:has-text('التقييمات السابقة')");
   await p.locator(".card.group").first().click();
-  await p.waitForSelector("table.grid");
-  check((await p.locator("table.grid input:not([disabled])").count()) === 0, "validated day is read-only");
-  for (const item of ["درجات اليوم — Excel", "درجات اليوم — Word", "قالب فارغ للطباعة — Word", "قالب فارغ للطباعة — Excel"]) {
-    await p.click("header.top .dl > button");
+  await p.waitForSelector(".scard");
+  check((await p.locator(".scard button.choice:not([disabled])").count()) === 0, "validated day is read-only");
+  for (const item of ["التقييم اليومي — Excel", "التقييم اليومي — Word", "قالب فارغ للطباعة — Word", "قالب فارغ للطباعة — Excel"]) {
+    await p.click(".day-head .dl > button");
     const [dl] = await Promise.all([p.waitForEvent("download"), p.click(`.dl-item:has-text("${item}")`)]);
     const f = path.join(out, dl.suggestedFilename());
     await dl.saveAs(f);

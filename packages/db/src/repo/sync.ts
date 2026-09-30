@@ -28,11 +28,12 @@ async function rubricWithItems(r: Repo) {
   return sections.map((s) => ({
     id: s.id,
     labelAr: s.labelAr,
+    labelEn: s.labelEn,
     maxScore: s.maxScore,
     items: items
       .filter((i) => i.sectionId === s.id)
       .sort((a, b) => a.sortOrder - b.sortOrder)
-      .map((i) => ({ id: i.id, labelAr: i.labelAr, maxScore: i.maxScore, kind: i.kind })),
+      .map((i) => ({ id: i.id, labelAr: i.labelAr, labelEn: i.labelEn, maxScore: i.maxScore, kind: i.kind })),
   }));
 }
 

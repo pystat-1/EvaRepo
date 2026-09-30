@@ -25,10 +25,10 @@ const bundle: EvaluatorBundle = {
 const draft = (rows: Draft["rows"]): Draft => ({ key: "gm1:2026-10-04", groupId: "gm1", dateISO: "2026-10-04", rows, status: "draft", updatedAt: "t" });
 
 describe("groupsForDate", () => {
-  it("shows the scheduled group first, and a nearby group as off-schedule", () => {
+  it("shows the scheduled group first, and every other group of the evaluator on any date", () => {
     const gs = groupsForDate(bundle, "2026-10-05");
     expect(gs.map((g) => [g.id, g.scheduled])).toEqual([["gm1", true], ["ge3", false]]);
-    expect(groupsForDate(bundle, "2027-06-01")).toEqual([]);
+    expect(groupsForDate(bundle, "2027-06-01").map((g) => [g.id, g.scheduled])).toEqual([["gm1", false], ["ge3", false]]);
   });
 });
 

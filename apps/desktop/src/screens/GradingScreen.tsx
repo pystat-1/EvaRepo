@@ -9,6 +9,7 @@ import { DataTable } from "../components/DataTable";
 import { ATTENDANCE_AR, Empty, Notice, PageHeader, fmt2 } from "../components/ui";
 import { errorText, r } from "../lib/repo";
 import { loadExcel, saveFile } from "../lib/files";
+import { SubCriteriaHost, showSubCriteria } from "../components/SubCriteria";
 
 const PAGE = 1500; // grades shown when the screen opens (newest first)
 
@@ -50,7 +51,33 @@ export function GradingScreen() {
           header: `${s.labelAr} /${s.maxScore}`,
           size: 90,
           accessorFn: (e) => e.sections[s.id],
-          cell: (c) => <span className="tabular">{c.row.original.attendance === "absent" ? "—" : fmt2(c.getValue() as number)}</span>,
+          cell: (c) => {
+            const e = c.row.original;
+            if (e.attendance === "absent") return <span className="tabular">—</span>;
+            const value = c.getValue() as number;
+            if (s.items.length < 2) return <span className="tabular">{fmt2(value)}</span>;
+            // Criteria with sub-criteria: click for the breakdown.
+            return (
+              <button
+                className="subcrit-cell tabular"
+                title="عرض البنود الفرعية"
+                onClick={(ev) => {
+                  const box = (ev.currentTarget as HTMLElement).getBoundingClientRect();
+                  showSubCriteria({
+                    x: box.left + box.width / 2,
+                    y: box.bottom,
+                    title: s.labelAr,
+                    student: `${e.studentName} · ${e.dateISO}`,
+                    max: s.maxScore,
+                    score: value ?? 0,
+                    items: s.items.map((i) => ({ label: i.labelAr, labelEn: i.labelEn, max: i.maxScore, score: e.items ? (e.items[i.id] ?? 0) : null })),
+                  });
+                }}
+              >
+                {fmt2(value)}
+              </button>
+            );
+          },
         })
       ),
       { accessorKey: "total", header: "المجموع", size: 80, cell: (c) => <b className="tabular">{c.row.original.attendance === "absent" ? "—" : fmt2(c.getValue() as number)}</b> },
@@ -86,6 +113,7 @@ export function GradingScreen() {
 
   return (
     <div className="stack">
+      <SubCriteriaHost />
       <PageHeader
         title="مركز الدرجات"
         subtitle="الدرجات المعتمدة فقط (بعد اعتماد المقيّم لليوم)."

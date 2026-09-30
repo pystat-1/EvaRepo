@@ -41,13 +41,29 @@ const BREAK = /-->\s*statement-breakpoint/g;
  * it). The caller takes a backup first when the file already has data
  * (see backup.ts `shouldBackupBeforeMigrating`).
  */
-export async function migrate(db: SqlExecutor, all: Migration[] = MIGRATIONS): Promise<string[]> {
+export function migrate(db: SqlExecutor, all: Migration[] = MIGRATIONS): Promise<string[]> {
+  // One at a time: a second start-up waits, then finds nothing pending
+  // (both share one connection, which cannot hold two transactions).
+  const run = queue.then(() => migrateNow(db, all));
+  queue = run.catch(() => undefined);
+  return run;
+}
+let queue: Promise<unknown> = Promise.resolve();
+
+async function migrateNow(db: SqlExecutor, all: Migration[]): Promise<string[]> {
   const pending = await pendingMigrations(db, all);
   for (const m of pending) {
     const body = m.sql.replace(BREAK, "");
     const stamp = new Date().toISOString();
     try {
-      await db.exec(`BEGIN IMMEDIATE;\n${body}\n;INSERT INTO "_migrations" ("name","appliedAt") VALUES ('${m.name.replace(/'/g, "''")}','${stamp}');\nCOMMIT;`);
+      await db.exec("BEGIN IMMEDIATE");
+      // Re-checked under the write lock: another start-up may have just applied it.
+      const again = await db.query<{ n: number }>(`SELECT COUNT(*) AS "n" FROM "_migrations" WHERE "name" = ?`, [m.name]);
+      if (again[0]?.n) {
+        await db.exec("COMMIT");
+        continue;
+      }
+      await db.exec(`${body}\n;INSERT INTO "_migrations" ("name","appliedAt") VALUES ('${m.name.replace(/'/g, "''")}','${stamp}');\nCOMMIT;`);
     } catch (err) {
       await db.exec("ROLLBACK").catch(() => undefined);
       throw new Error(`فشل ترقية قاعدة البيانات (${m.name}): ${err instanceof Error ? err.message : String(err)}`);

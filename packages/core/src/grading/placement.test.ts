@@ -26,8 +26,9 @@ describe("pickPlacement", () => {
     expect(pickPlacement(stints, "g1", "2026-10-28")?.hospitalId).toBe("h2");
   });
 
-  it("rejects a day far from any rotation of the group", () => {
-    expect(pickPlacement(stints, "g1", "2027-01-20")).toBeNull();
+  it("never limits by date: a far day goes to the nearest rotation, off-schedule", () => {
+    expect(pickPlacement(stints, "g1", "2027-01-20")).toMatchObject({ scheduled: false });
+    expect(pickPlacement(stints, "g1", "2027-01-20", 21)).toBeNull(); // a caller may still ask for a window
   });
 
   it("rejects a group that is not on the evaluator's schedule", () => {

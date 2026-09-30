@@ -191,3 +191,30 @@ thead .sticky-col { z-index: 3; background: var(--paper-100); }
 .check-warn .check-dot { background: #d18b1f; }
 .check-err .check-dot { background: var(--red-700); }
 .recovery-code { font-family: Consolas, "Cascadia Mono", monospace; font-size: 19px; font-weight: 700; letter-spacing: .04em; background: var(--paper-100); border: 1px dashed var(--border-strong); border-radius: var(--radius); padding: 12px 14px; margin: 0; word-break: break-all; user-select: all; }
+
+/* Attendance days and the schedule by hospital */
+.daypicker { display: flex; flex-wrap: wrap; gap: 4px; }
+.daybtn { all: unset; cursor: pointer; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--border-strong); font-size: 13.5px; background: #fff; }
+.daybtn.on { background: var(--brand); border-color: var(--brand); color: #fff; font-weight: 600; }
+.daybtn:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.daybtn:disabled { opacity: .6; cursor: default; }
+.cal { display: flex; flex-direction: column; gap: 12px; }
+.cal-week { display: flex; gap: 12px; align-items: flex-start; border-top: 1px solid var(--border); padding-top: 10px; }
+.cal-week-title { min-width: 86px; font-weight: 700; color: var(--brand-dark); }
+.cal-days { display: flex; flex-wrap: wrap; gap: 8px; }
+.cal-day { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 10px; min-width: 170px; }
+.cal-date { margin-bottom: 4px; }
+.cal-group { font-size: 13px; }
+.cal-group small { color: var(--ink-muted); }
+
+/* Grading center: sub-criteria window */
+.subcrit-cell { all: unset; cursor: pointer; padding: 2px 8px; border-radius: 6px; border-bottom: 1px dashed var(--brand); }
+.subcrit-cell:hover, .subcrit-cell:focus-visible { background: var(--brand-tint); outline: none; }
+.subcrit-backdrop { position: fixed; inset: 0; z-index: 60; }
+.subcrit { position: fixed; background: var(--surface-raised); border: 1px solid var(--border-strong); border-radius: var(--radius); box-shadow: 0 12px 32px rgba(6, 51, 61, .2); padding: 10px 12px; }
+.subcrit-head { display: flex; justify-content: space-between; gap: 8px; }
+.subcrit table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+.subcrit td { padding: 5px 2px; border-top: 1px solid var(--border); font-size: 13.5px; }
+.subcrit td:last-child { text-align: end; white-space: nowrap; }
+.subcrit tr.full td:last-child { color: var(--green-700); font-weight: 700; }
+.subcrit p { margin: 6px 0 0; }

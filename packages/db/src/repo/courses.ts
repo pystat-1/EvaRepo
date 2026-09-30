@@ -181,3 +181,104 @@ export async function createCourse(r: Repo, input: NewCourseInput): Promise<stri
   await plan.commit();
   return courseId;
 }
+
+// ---- attendance days (which weekdays each hospital's groups attend) -------
+// Descriptive, never limiting: they set the schedule's dates (shown to the
+// admin and on the evaluators' phones) and mark days as "scheduled"; any
+// group can still be graded on any date. Changeable at any time.
+
+const DAY_ORDER = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
+const DEFAULT_DAYS = "SUN,MON,TUE,WED,THU";
+const normDays = (days: string[]) => DAY_ORDER.filter((d) => days.map((x) => x.trim().toUpperCase()).includes(d));
+
+export interface AttendanceDays {
+  /** The course's own days (used by every hospital without its own). */
+  course: string[];
+  hospitals: Array<{ hospitalId: string; hospitalName: string; days: string[]; own: boolean }>;
+}
+
+export async function attendanceDays(r: Repo, courseId: string): Promise<AttendanceDays> {
+  const [pattern] = await r.db
+    .select()
+    .from(t.courseAttendancePatterns)
+    .where(eq(t.courseAttendancePatterns.courseId, courseId));
+  const course = normDays((pattern?.daysOfWeek ?? DEFAULT_DAYS).split(","));
+  const blocks = await r.db
+    .select({ hospitalId: t.rotationBlocks.hospitalId, days: t.rotationBlocks.daysOfWeek, name: t.hospitals.name })
+    .from(t.rotationBlocks)
+    .innerJoin(t.hospitals, eq(t.hospitals.id, t.rotationBlocks.hospitalId))
+    .where(and(eq(t.rotationBlocks.courseId, courseId), eq(t.rotationBlocks.active, true)));
+  const byHospital = new Map<string, { name: string; days: string[] }>();
+  for (const b of blocks) if (!byHospital.has(b.hospitalId)) byHospital.set(b.hospitalId, { name: b.name, days: normDays((b.days ?? DEFAULT_DAYS).split(",")) });
+  return {
+    course,
+    hospitals: [...byHospital]
+      .map(([hospitalId, h]) => ({ hospitalId, hospitalName: h.name, days: h.days, own: h.days.join() !== course.join() }))
+      .sort((a, b) => compareArabic(a.hospitalName, b.hospitalName)),
+  };
+}
+
+/** Sets the attendance days for the whole course, or for one hospital's blocks only. */
+export async function setAttendanceDays(r: Repo, courseId: string, days: string[], hospitalId?: string | null) {
+  const clean = normDays(days);
+  if (clean.length === 0) throw new ValidationError("اختر يومًا واحدًا على الأقل");
+  const value = clean.join(",");
+  const [course] = await r.db.select().from(t.courses).where(eq(t.courses.id, courseId));
+  if (!course) throw new ValidationError("الدورة غير موجودة");
+  const plan = new Plan(r);
+  plan.add(
+    r.db
+      .update(t.rotationBlocks)
+      .set({ daysOfWeek: value, updatedAt: nowISO() })
+      .where(and(eq(t.rotationBlocks.courseId, courseId), hospitalId ? eq(t.rotationBlocks.hospitalId, hospitalId) : undefined))
+  );
+  if (!hospitalId) {
+    const [pattern] = await r.db.select().from(t.courseAttendancePatterns).where(eq(t.courseAttendancePatterns.courseId, courseId));
+    if (pattern) plan.add(r.db.update(t.courseAttendancePatterns).set({ daysOfWeek: value }).where(eq(t.courseAttendancePatterns.id, pattern.id)));
+    else plan.add(r.db.insert(t.courseAttendancePatterns).values({ id: newId(), courseId, daysOfWeek: value }));
+  }
+  plan.add(r.db.update(t.courses).set({ scheduleVersion: course.scheduleVersion + 1, updatedAt: nowISO() }).where(eq(t.courses.id, courseId)));
+  plan.audit("Course", courseId, "update", undefined, { name: `أيام الحضور${hospitalId ? " (مستشفى)" : ""}: ${value}` });
+  await plan.commit();
+}
+
+export interface CalendarHospital {
+  hospitalId: string;
+  hospitalName: string;
+  weeks: Array<{ index: number; days: Array<{ dateISO: string; weekday: string; groups: Array<{ id: string; name: string; shift: t.Shift | null }> }> }>;
+}
+
+/** The schedule by hospital: week → attendance days → date → groups there. */
+export async function attendanceCalendar(r: Repo, courseId: string): Promise<CalendarHospital[]> {
+  const blocks = await r.db
+    .select({ b: t.rotationBlocks, hospitalName: t.hospitals.name, groupName: t.groups.name, shift: t.groups.shift })
+    .from(t.rotationBlocks)
+    .innerJoin(t.hospitals, eq(t.hospitals.id, t.rotationBlocks.hospitalId))
+    .innerJoin(t.groups, eq(t.groups.id, t.rotationBlocks.groupId))
+    .where(and(eq(t.rotationBlocks.courseId, courseId), eq(t.rotationBlocks.active, true)));
+  const out = new Map<string, CalendarHospital>();
+  for (const { b, hospitalName, groupName, shift } of blocks) {
+    const h = out.get(b.hospitalId) ?? { hospitalId: b.hospitalId, hospitalName, weeks: [] };
+    out.set(b.hospitalId, h);
+    const days = new Set((b.daysOfWeek ?? DEFAULT_DAYS).split(",").map((d) => d.trim().toUpperCase()));
+    for (let d = b.startDate; d <= b.endDate; d = addDaysISO(d, 1)) {
+      const code = DAY_ORDER[new Date(`${d}T00:00:00Z`).getUTCDay()];
+      if (!days.has(code)) continue;
+      const wi = b.weekIndex ?? 0;
+      let week = h.weeks.find((w) => w.index === wi);
+      if (!week) h.weeks.push((week = { index: wi, days: [] }));
+      let day = week.days.find((x) => x.dateISO === d);
+      if (!day) week.days.push((day = { dateISO: d, weekday: code, groups: [] }));
+      day.groups.push({ id: b.groupId, name: groupName, shift });
+    }
+  }
+  const shiftRank = (s: t.Shift | null) => (s === "MORNING" ? 0 : s === "EVENING" ? 1 : 2);
+  for (const h of out.values()) {
+    h.weeks.sort((a, b) => a.index - b.index);
+    for (const w of h.weeks) {
+      w.days.sort((a, b) => a.dateISO.localeCompare(b.dateISO));
+      for (const d of w.days) d.groups.sort((a, b) => shiftRank(a.shift) - shiftRank(b.shift) || a.name.localeCompare(b.name, "ar", { numeric: true }));
+    }
+  }
+  return [...out.values()].sort((a, b) => compareArabic(a.hospitalName, b.hospitalName));
+}

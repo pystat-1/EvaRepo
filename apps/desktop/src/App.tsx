@@ -41,6 +41,28 @@ type Boot =
   | { stage: "ready"; info: DbInfo; result: Extract<StartupResult, { ok: true }> }
   | { stage: "problem"; info: DbInfo | null; result: Exclude<StartupResult, { ok: true }> | { ok: false; reason: "open-failed"; detail: string } };
 
+// Opening the database and upgrading it must happen once per attempt, even
+// if the component mounts twice (React's development mode does that): two
+// concurrent upgrades would both try the same migration.
+const boots = new Map<number, Promise<Boot>>();
+function bootOnce(attempt: number): Promise<Boot> {
+  let p = boots.get(attempt);
+  if (!p) {
+    p = (async (): Promise<Boot> => {
+      let info: DbInfo | null = null;
+      try {
+        info = await openDatabase();
+        const result = await startup(exec, backups);
+        return result.ok ? { stage: "ready", info, result } : { stage: "problem", info, result };
+      } catch (e) {
+        return { stage: "problem", info, result: { ok: false, reason: "open-failed", detail: e instanceof Error ? e.message : String(e) } };
+      }
+    })();
+    boots.set(attempt, p);
+  }
+  return p;
+}
+
 export function App() {
   const [boot, setBoot] = useState<Boot>({ stage: "starting" });
   const [tab, setTab] = useState<TabKey>("students");
@@ -67,16 +89,7 @@ export function App() {
 
   useEffect(() => {
     let alive = true;
-    (async (): Promise<Boot> => {
-      let info: DbInfo | null = null;
-      try {
-        info = await openDatabase();
-        const result = await startup(exec, backups);
-        return result.ok ? { stage: "ready", info, result } : { stage: "problem", info, result };
-      } catch (e) {
-        return { stage: "problem", info, result: { ok: false, reason: "open-failed", detail: e instanceof Error ? e.message : String(e) } };
-      }
-    })().then((next) => alive && setBoot(next));
+    bootOnce(attempt).then((next) => alive && setBoot(next));
     return () => {
       alive = false;
     };

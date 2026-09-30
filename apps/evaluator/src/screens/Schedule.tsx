@@ -17,8 +17,8 @@ const MARK: Record<DayMark, { text: string; cls: string }> = {
 const WHEN = { past: "منتهية", current: "حالية", future: "قادمة" } as const;
 
 // جدولي: the whole course for this evaluator — every group block at their
-// hospitals, week by week, each day marked. Tapping a past or current day
-// opens it for grading (or to view what was graded). All offline.
+// hospitals, week by week, on the attendance days the admin set, each day
+// marked. Any day opens (past, today or ahead): dates guide, never limit.
 export function Schedule({
   bundle,
   entries,
@@ -63,12 +63,10 @@ export function Schedule({
                   <div className="days">
                     {w.map((d) => {
                       const m = MARK[d.mark];
-                      const can = d.mark !== "future";
                       return (
                         <button
                           key={d.dateISO}
                           className={`dayc ${m.cls}`}
-                          disabled={!can}
                           onClick={() => onOpen({ groupId: s.groupId, dateISO: d.dateISO })}
                           aria-label={`${s.groupName} ${d.weekday} ${d.dateISO}: ${m.text}`}
                         >

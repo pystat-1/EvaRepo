@@ -22,11 +22,13 @@ export interface EvaluatorBundle {
   }>;
   /** Rotation blocks at this evaluator's hospitals (same shape as @eva/core placement stints). */
   stints: Array<{ groupId: string; hospitalId: string; hospitalName: string; startDate: string; endDate: string; daysOfWeek: string | null }>;
+  /** In the order of the college's paper form (right to left). labelEn = the form's wording. */
   rubric: Array<{
     id: string;
     labelAr: string;
+    labelEn?: string | null;
     maxScore: number;
-    items: Array<{ id: string; labelAr: string; maxScore: number; kind: "check" | "number" }>;
+    items: Array<{ id: string; labelAr: string; labelEn?: string | null; maxScore: number; kind: "check" | "number" }>;
   }>;
   /**
    * Validated days already on the desktop for this evaluator's groups at

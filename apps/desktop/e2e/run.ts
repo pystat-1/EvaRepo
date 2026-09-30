@@ -22,7 +22,14 @@ try {
     for (const name of run) {
       log(`\n── ${name} ──`);
       const t0 = Date.now();
-      await TESTS[name](browser, out);
+      await TESTS[name](browser, out).catch(async (e) => {
+        // keep what each open page showed, for the report
+        const shots = process.env.EVA_E2E_SHOTS ?? out;
+        let n = 0;
+        for (const ctx of browser.contexts()) for (const pg of ctx.pages()) await pg.screenshot({ path: path.join(shots, `fail-${name}-${++n}.png`) }).catch(() => undefined);
+        console.error(`screenshots: ${shots}`);
+        throw e;
+      });
       log(`── ${name} passed in ${Math.round((Date.now() - t0) / 1000)}s`);
     }
   } finally {

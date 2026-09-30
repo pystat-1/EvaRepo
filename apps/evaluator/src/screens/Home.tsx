@@ -51,8 +51,8 @@ export function Home({
 
       <div className="row date-row">
         <button className="btn" onClick={() => setDate(addDaysISO(date, -1))} aria-label="اليوم السابق">‹</button>
-        <input className="input" type="date" value={date} max={today} onChange={(e) => setDate(e.target.value || today)} />
-        <button className="btn" onClick={() => setDate(addDaysISO(date, 1))} disabled={date >= today} aria-label="اليوم التالي">›</button>
+        <input className="input" type="date" value={date} onChange={(e) => setDate(e.target.value || today)} />
+        <button className="btn" onClick={() => setDate(addDaysISO(date, 1))} aria-label="اليوم التالي">›</button>
         {date !== today && <button className="btn" onClick={() => setDate(today)}>اليوم</button>}
       </div>
 
@@ -64,7 +64,7 @@ export function Home({
 
       {others.length > 0 && (
         <details className="others">
-          <summary>مجموعة أخرى (إذا تغيّر الموعد بسبب عطلة)</summary>
+          <summary>مجموعات أخرى — يمكن تقييم أي مجموعة في أي يوم ({others.length})</summary>
           {others.map((g) => (
             <GroupCard key={g.id} g={g} draft={byKey.get(draftKey(g.id, date))} result={resultOf(byKey.get(draftKey(g.id, date)))} onOpen={() => onOpen({ groupId: g.id, dateISO: date })} />
           ))}

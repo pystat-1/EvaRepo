@@ -1,8 +1,20 @@
 import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { eq } from "drizzle-orm";
-import { courseOverview, createCourse, listCourses, listHospitals, saveHospital, setBlockHospital } from "@eva/db/repo/courses";
-import { currentCourse } from "@eva/db/repo/students";
+import {
+  courseDeletionImpact,
+  courseLabel,
+  courseOverview,
+  createCourse,
+  deleteCourse,
+  listCourses,
+  listHospitals,
+  saveHospital,
+  setBlockHospital,
+} from "@eva/db/repo/courses";
+import { currentCourse, setCurrentCourse } from "@eva/db/repo/students";
+import { takeBackup } from "@eva/db/startup";
+import { backups } from "../lib/db";
 import { ValidationError } from "@eva/db/repo/common";
 import * as schema from "@eva/db/schema";
 import { Dialog, Empty, Field, Notice, PageHeader, SHIFT_AR } from "../components/ui";
@@ -16,12 +28,17 @@ export function CoursesScreen() {
   const courses = useQuery({ queryKey: ["courses"], queryFn: () => listCourses(r) });
   const current = useQuery({ queryKey: ["currentCourse"], queryFn: () => currentCourse(r) });
   const [picked, setPicked] = useState("");
-  const courseId = picked || current.data?.id || courses.data?.[0]?.id || "";
+  // The course shown here; it starts on the current course. Viewing another
+  // one (e.g. to set up the next course) does not make it current.
+  const courseId = (courses.data?.some((c) => c.id === picked) && picked) || current.data?.id || courses.data?.[0]?.id || "";
+  const isCurrent = !!courseId && courseId === current.data?.id;
   const overview = useQuery({ queryKey: ["courseOverview", courseId], queryFn: () => courseOverview(r, courseId), enabled: !!courseId });
   const allHospitals = useQuery({ queryKey: ["hospitals"], queryFn: () => listHospitals(r) });
   const move = useMutation({ mutationFn: (v: { blockId: string; hospitalId: string }) => setBlockHospital(r, v.blockId, v.hospitalId) });
+  const makeCurrent = useMutation({ mutationFn: (id: string) => setCurrentCourse(r, id) });
   const [creating, setCreating] = useState(false);
   const [addingHospital, setAddingHospital] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const o = overview.data;
   const colorOf = (hid: string) => HOSPITAL_COLORS[Math.max(0, (o?.hospitals ?? allHospitals.data ?? []).findIndex((h) => h.id === hid)) % HOSPITAL_COLORS.length];
@@ -36,18 +53,35 @@ export function CoursesScreen() {
             <select className="input" value={courseId} onChange={(e) => setPicked(e.target.value)} aria-label="الدورة">
               {(courses.data ?? []).map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.label ?? `${c.year}-${c.number}`}
+                  {courseLabel(c)}
+                  {c.id === current.data?.id ? " (الحالية)" : ""}
                 </option>
               ))}
             </select>
             <button className="btn btn-primary" onClick={() => setCreating(true)}>
               دورة جديدة…
             </button>
+            {courseId && (
+              <button className="btn" onClick={() => setDeleting(true)}>
+                حذف الدورة…
+              </button>
+            )}
           </>
         }
       />
       {!courseId && <Empty>لا توجد دورات بعد — أنشئ دورة جديدة.</Empty>}
       {move.error && <Notice kind="err">{errorText(move.error)}</Notice>}
+      {makeCurrent.error && <Notice kind="err">{errorText(makeCurrent.error)}</Notice>}
+      {o && !isCurrent && current.data && (
+        <div className="note note-warn row" role="status" style={{ justifyContent: "space-between" }}>
+          <span>
+            تعرض الآن «{courseLabel(o.course)}»، وليست الدورة الحالية: الشاشات الأخرى وهواتف المقيّمين تعمل على «{courseLabel(current.data)}».
+          </span>
+          <button className="btn btn-sm" onClick={() => makeCurrent.mutate(courseId)} disabled={makeCurrent.isPending}>
+            اجعلها الدورة الحالية
+          </button>
+        </div>
+      )}
 
       {o && (
         <>
@@ -128,6 +162,7 @@ export function CoursesScreen() {
 
       <NewCourseDialog open={creating} onClose={() => setCreating(false)} onCreated={(id) => (setCreating(false), setPicked(id))} />
       <HospitalDialog open={addingHospital} onClose={() => setAddingHospital(false)} />
+      <DeleteCourseDialog open={deleting} courseId={courseId} onClose={() => setDeleting(false)} onDeleted={() => (setDeleting(false), setPicked(""))} />
     </div>
   );
 }
@@ -217,6 +252,60 @@ function HospitalDialog({ open, onClose }: { open: boolean; onClose: () => void 
           <button className="btn" type="button" onClick={onClose}>إلغاء</button>
         </div>
       </form>
+    </Dialog>
+  );
+}
+
+// Deleting a course removes its groups, schedule, students and their grades.
+// The impact is shown first, the name must be typed, and a backup is taken
+// just before (restorable from النظام).
+function DeleteCourseDialog({ open, courseId, onClose, onDeleted }: { open: boolean; courseId: string; onClose: () => void; onDeleted: () => void }) {
+  const impact = useQuery({ queryKey: ["courseDeletionImpact", courseId], queryFn: () => courseDeletionImpact(r, courseId), enabled: open && !!courseId });
+  const [typed, setTyped] = useState("");
+  const remove = useMutation({
+    mutationFn: async () => {
+      await takeBackup(backups, "before-delete");
+      await deleteCourse(r, courseId);
+    },
+    onSuccess: () => (setTyped(""), onDeleted()),
+  });
+  const close = () => (setTyped(""), remove.reset(), onClose());
+  const i = impact.data;
+  const matches = !!i && typed.replace(/\s+/g, " ").trim() === i.label;
+
+  return (
+    <Dialog open={open} title="حذف الدورة" onClose={close}>
+      {i && (
+        <form className="stack" onSubmit={(e) => (e.preventDefault(), matches && remove.mutate())}>
+          <p style={{ margin: 0 }}>
+            سيُحذف من «{i.label}» نهائيًا:
+          </p>
+          <ul style={{ margin: 0 }}>
+            <li className="tabular">{i.groups} مجموعات وجدول الدوران وأيام الحضور</li>
+            <li className="tabular">{i.students} طالب مع درجاتهم وحضورهم</li>
+            <li className="tabular">{i.gradedDays} يوم تقييم مسجَّل</li>
+            <li className="tabular">{i.assignments} تكليف للمقيّمين في هذه الدورة</li>
+          </ul>
+          <p className="muted" style={{ margin: 0 }}>
+            المستشفيات وحسابات المقيّمين تبقى. تُؤخذ نسخة احتياطية قبل الحذف، ويمكن الاستعادة منها في «النظام».
+          </p>
+          {i.isCurrent && (
+            <Notice kind="warn">هذه هي الدورة الحالية: بعد حذفها تصبح أحدث دورة متبقية هي الحالية، وتنتقل إليها هواتف المقيّمين.</Notice>
+          )}
+          <Field label={`اكتب اسم الدورة للتأكيد: ${i.label}`}>
+            <input className="input" value={typed} onChange={(e) => setTyped(e.target.value)} autoFocus />
+          </Field>
+          {remove.error && <Notice kind="err">{errorText(remove.error)}</Notice>}
+          <div className="row">
+            <button className="btn btn-danger" type="submit" disabled={!matches || remove.isPending}>
+              {remove.isPending ? "جارٍ الحذف…" : "حذف الدورة نهائيًا"}
+            </button>
+            <button className="btn" type="button" onClick={close}>
+              إلغاء
+            </button>
+          </div>
+        </form>
+      )}
     </Dialog>
   );
 }

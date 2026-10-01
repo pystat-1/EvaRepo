@@ -1,6 +1,6 @@
 [package]
 name = "eva-desktop"
-version = "0.4.0"
+version = "0.4.1"
 license = "MIT"
 description = "Eva Desktop: clinical training student data management"
 edition = "2021"

@@ -16,6 +16,7 @@ import { queryClient } from "./lib/repo";
 import { ConfirmHost } from "./components/confirm";
 import { SyncScreen } from "./screens/SyncScreen";
 import { SyncBadge } from "./components/SyncBadge";
+import { CourseSwitcher } from "./components/CourseSwitcher";
 import { startAutoSync } from "./lib/autoSync";
 import { startUpdateChecks } from "./lib/updater";
 import { startCloudBackups } from "./lib/cloud/cloudBackup";
@@ -157,6 +158,7 @@ function Ready({
             ))}
           </nav>
           <div className="topbar-tools">
+            <CourseSwitcher />
             <SyncBadge onOpen={() => setTab("sync")} />
             <span className="muted-light kbd-hint" title="البحث والأوامر">
               Ctrl+K

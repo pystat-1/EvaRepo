@@ -800,7 +800,7 @@ dependencies = [
 
 [[package]]
 name = "eva-desktop"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "fs2",
  "log",

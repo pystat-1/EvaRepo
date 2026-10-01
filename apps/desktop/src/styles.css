@@ -40,6 +40,12 @@ button, input, select, textarea { font: inherit; }
 .tab:hover { color: #fff; background: rgba(255,255,255,.06); }
 .tab[aria-current="page"] { color: #fff; font-weight: 700; border-bottom-color: #7fd1c1; }
 .topbar-tools { display: flex; align-items: center; gap: 10px; flex: none; }
+.course-switch { display: flex; align-items: center; gap: 6px; font-size: 13px; color: rgba(255,255,255,.8); }
+.course-switch select { background: rgba(255,255,255,.1); color: #fff; border: 1px solid rgba(255,255,255,.25); border-radius: 6px; padding: 3px 8px; max-width: 220px; }
+.course-switch select option { color: var(--ink); background: #fff; }
+.course-switch select:focus-visible { outline: 2px solid #7fd1c1; outline-offset: 1px; }
+.btn-danger { background: var(--red-700); border-color: var(--red-700); color: #fff; }
+.btn-danger:hover { background: #7d2424; }
 .kbd-hint { font-size: 12px; border: 1px solid rgba(255,255,255,.25); border-radius: 6px; padding: 2px 7px; }
 .tab:focus-visible { outline: 2px solid #fff; outline-offset: -4px; }
 .soon { font-size: 11px; opacity: .8; }

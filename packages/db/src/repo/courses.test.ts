@@ -93,3 +93,78 @@ describe("attendance days", () => {
     await expect(setAttendanceDays(r, IDS.course, [])).rejects.toThrow("يومًا واحدًا");
   });
 });
+
+describe("current course", () => {
+  const next = {
+    year: 2026, number: 2, label: "الدورة الثانية", startDate: "2027-01-03", weekCount: 6, weeksPerHospital: 2,
+    daysOfWeek: "SUN,MON,TUE,WED,THU", groupsPerShift: { MORNING: 3, EVENING: 3 }, hospitalIds: IDS.hospitals, studyTypeId: "st-n",
+  };
+
+  it("stays the chosen course: a newer course does not take over until chosen", async () => {
+    const { currentCourse, setCurrentCourse } = await import("./students");
+    const r = await seeded(1);
+    expect((await currentCourse(r))!.id).toBe(IDS.course);
+    const second = await createCourse(r, next);
+    expect((await currentCourse(r))!.id).toBe(IDS.course);
+    await setCurrentCourse(r, second);
+    expect((await currentCourse(r))!.id).toBe(second);
+    await createCourse(r, { ...next, number: 3, label: "الثالثة" });
+    expect((await currentCourse(r))!.id).toBe(second);
+    await setCurrentCourse(r, IDS.course);
+    expect((await currentCourse(r))!.id).toBe(IDS.course);
+  });
+
+  it("the first course ever becomes current", async () => {
+    const { currentCourse } = await import("./students");
+    const r = await seeded(0);
+    await r.db.delete(t.evaluatorAssignments);
+    await r.db.delete(t.rotationBlocks);
+    await r.db.delete(t.groups);
+    await r.db.delete(t.courseStudyTypes);
+    await r.db.delete(t.courseHospitals);
+    await r.db.delete(t.courses);
+    const id = await createCourse(r, next);
+    expect((await currentCourse(r))!.id).toBe(id);
+  });
+});
+
+describe("deleteCourse", () => {
+  it("removes the course and everything in it, and nothing of another course", async () => {
+    const { addEvaluation } = await import("./testSeed");
+    const { courseDeletionImpact, deleteCourse } = await import("./courses");
+    const { currentCourse, setCurrentCourse } = await import("./students");
+    const r = await seeded(2);
+    await addEvaluation(r, { id: "ev1", studentId: "s1", dateISO: "2026-10-05", scores: [5, 7, 1, 1, 1], groupId: groupId("MORNING", 1) });
+    await r.db.insert(t.attendanceRecords).values({ id: "ar1", studentId: "s1", dateISO: "2026-10-05", groupId: groupId("MORNING", 1), status: "present", markedById: IDS.evaluators[0] });
+    await r.db.insert(t.flags).values({ id: "f1", studentId: "s1", ruleId: "r", severity: "low", msg: "m", dateISO: "2026-10-05" });
+    const other = await createCourse(r, {
+      year: 2026, number: 2, label: "الثانية", startDate: "2027-01-03", weekCount: 4, weeksPerHospital: 2,
+      daysOfWeek: "SUN,MON", groupsPerShift: { MORNING: 2, EVENING: 0 }, hospitalIds: IDS.hospitals, studyTypeId: "st-n",
+    });
+
+    expect(await courseDeletionImpact(r, IDS.course)).toEqual({
+      label: "دورة التمريض الأولى 2026", groups: 6, students: 12, gradedDays: 1, assignments: 2, isCurrent: true,
+    });
+    await deleteCourse(r, IDS.course);
+
+    expect(await r.db.select().from(t.courses).where(eq(t.courses.id, IDS.course))).toHaveLength(0);
+    for (const table of [t.students, t.evaluations, t.evaluationScores, t.attendanceRecords, t.flags, t.evaluatorAssignments, t.courseHospitals]) {
+      expect(await r.db.select().from(table)).toHaveLength(table === t.courseHospitals ? 3 : 0);
+    }
+    expect((await courseOverview(r, other))!.groups).toHaveLength(2);
+    expect(await r.db.select().from(t.hospitals)).toHaveLength(3);
+    expect(await r.db.select().from(t.accounts)).toHaveLength(2);
+    // The deleted course was current: the remaining one takes over.
+    expect((await currentCourse(r))!.id).toBe(other);
+
+    // Deleting a course that is not current leaves the choice alone.
+    const third = await createCourse(r, {
+      year: 2026, number: 3, label: "الثالثة", startDate: "2027-03-07", weekCount: 2, weeksPerHospital: 1,
+      daysOfWeek: "SUN", groupsPerShift: { MORNING: 1, EVENING: 0 }, hospitalIds: IDS.hospitals, studyTypeId: "st-n",
+    });
+    await setCurrentCourse(r, other);
+    await deleteCourse(r, third);
+    expect((await currentCourse(r))!.id).toBe(other);
+    await expect(deleteCourse(r, third)).rejects.toThrow(/غير موجودة/);
+  });
+});

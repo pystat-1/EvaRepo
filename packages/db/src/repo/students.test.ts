@@ -68,7 +68,10 @@ describe("Excel import", () => {
       year: 2027, number: 1, label: "2027", startDate: "2027-01-03", weekCount: 2, weeksPerHospital: 1,
       daysOfWeek: "SUN", groupsPerShift: { MORNING: 1, EVENING: 0 }, hospitalIds: ["h-yarmouk"], studyTypeId: "st-n",
     });
-    expect((await importContext(r)).course?.id).toBe(newer); // default: newest
+    expect((await importContext(r)).course?.id).toBe("c1"); // default: the current course, not the newest
+    const { setCurrentCourse } = await import("./students");
+    await setCurrentCourse(r, newer);
+    expect((await importContext(r)).course?.id).toBe(newer);
     const res = await importStudents(r, [row(1)], { removeSamples: false, deactivateMissing: false, courseId: "c1" });
     expect(res.created).toBe(1);
     const [s] = await listStudents(r, { search: "4410001" });

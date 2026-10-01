@@ -1,10 +1,11 @@
 // Courses, hospitals, groups and the rotation schedule.
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, or, sql } from "drizzle-orm";
 import { generateRotation } from "@eva/core/schedule/rotationGenerator";
 import { addDaysISO } from "@eva/core/date";
 import { compareArabic } from "@eva/core/text/arabic";
 import * as t from "../schema";
 import { Plan, ValidationError, newId, nowISO, type Repo } from "./common";
+import { CURRENT_COURSE_KEY, currentCourse } from "./students";
 
 export async function listCourses(r: Repo) {
   const rows = await r.db.select().from(t.courses);
@@ -142,6 +143,10 @@ export async function createCourse(r: Repo, input: NewCourseInput): Promise<stri
 
   const courseId = newId();
   const plan = new Plan(r);
+  // A new course never takes over: the course in use stays current until
+  // the admin chooses another (pinned here if it was only the default).
+  const before = await currentCourse(r);
+  if (before) plan.add(r.db.insert(t.meta).values({ key: CURRENT_COURSE_KEY, value: before.id }).onConflictDoNothing());
   plan.add(
     r.db.insert(t.courses).values({
       id: courseId, year: input.year, number: input.number, label: input.label.trim() || null, status: "PUBLISHED",
@@ -281,4 +286,80 @@ export async function attendanceCalendar(r: Repo, courseId: string): Promise<Cal
     }
   }
   return [...out.values()].sort((a, b) => compareArabic(a.hospitalName, b.hospitalName));
+}
+
+// ---- deleting a course ------------------------------------------------------
+// Everything that belongs to the course goes: its groups, schedule, students
+// with their grades and attendance, evaluator covers and phone submissions.
+// Hospitals and evaluator accounts are shared and stay.
+
+export interface CourseDeletionImpact {
+  label: string;
+  groups: number;
+  students: number;
+  gradedDays: number;
+  assignments: number;
+  isCurrent: boolean;
+}
+
+export async function courseDeletionImpact(r: Repo, courseId: string): Promise<CourseDeletionImpact | null> {
+  const [course] = await r.db.select().from(t.courses).where(eq(t.courses.id, courseId));
+  if (!course) return null;
+  const { groupIds, studentIds } = courseScope(r, courseId);
+  const count = async (q: Promise<Array<{ n: number }>>) => (await q)[0]?.n ?? 0;
+  const n = sql<number>`count(*)`;
+  return {
+    label: courseLabel(course),
+    groups: await count(r.db.select({ n }).from(t.groups).where(eq(t.groups.courseId, courseId))),
+    students: await count(r.db.select({ n }).from(t.students).where(inArray(t.students.id, studentIds))),
+    gradedDays: await count(
+      r.db.select({ n: sql<number>`count(distinct ${t.evaluations.groupId} || ':' || ${t.evaluations.dateISO})` }).from(t.evaluations)
+        .where(or(eq(t.evaluations.courseId, courseId), inArray(t.evaluations.studentId, studentIds), inArray(t.evaluations.groupId, groupIds)))
+    ),
+    assignments: await count(
+      r.db.select({ n }).from(t.evaluatorAssignments)
+        .where(and(eq(t.evaluatorAssignments.active, true), or(eq(t.evaluatorAssignments.courseId, courseId), inArray(t.evaluatorAssignments.groupId, groupIds))))
+    ),
+    isCurrent: (await currentCourse(r))?.id === courseId,
+  };
+}
+
+export const courseLabel = (c: { label: string | null; year: number; number: number }) => c.label ?? `${c.year}-${c.number}`;
+
+// The course's groups and students as subqueries (no long id lists).
+function courseScope(r: Repo, courseId: string) {
+  const groupIds = r.db.select({ id: t.groups.id }).from(t.groups).where(eq(t.groups.courseId, courseId));
+  const studentIds = r.db.select({ id: t.students.id }).from(t.students).where(or(eq(t.students.courseId, courseId), inArray(t.students.groupId, groupIds)));
+  return { groupIds, studentIds };
+}
+
+/** Deletes the course and everything in it, in one transaction. Take a backup first. */
+export async function deleteCourse(r: Repo, courseId: string): Promise<void> {
+  const [course] = await r.db.select().from(t.courses).where(eq(t.courses.id, courseId));
+  if (!course) throw new ValidationError("الدورة غير موجودة");
+  const { groupIds, studentIds } = courseScope(r, courseId);
+  const evaluationIds = r.db.select({ id: t.evaluations.id }).from(t.evaluations)
+    .where(or(eq(t.evaluations.courseId, courseId), inArray(t.evaluations.studentId, studentIds), inArray(t.evaluations.groupId, groupIds)));
+  const plan = new Plan(r);
+  // Children before parents: the database refuses orphaned rows.
+  plan.add(r.db.delete(t.evaluationScores).where(inArray(t.evaluationScores.evaluationId, evaluationIds)));
+  plan.add(r.db.delete(t.evaluations).where(or(eq(t.evaluations.courseId, courseId), inArray(t.evaluations.studentId, studentIds), inArray(t.evaluations.groupId, groupIds))));
+  plan.add(r.db.delete(t.attendanceRecords).where(or(inArray(t.attendanceRecords.studentId, studentIds), inArray(t.attendanceRecords.groupId, groupIds))));
+  plan.add(r.db.delete(t.groupWorkDays).where(inArray(t.groupWorkDays.groupId, groupIds)));
+  plan.add(r.db.delete(t.syncInbox).where(inArray(t.syncInbox.groupId, groupIds)));
+  plan.add(r.db.delete(t.flags).where(inArray(t.flags.studentId, studentIds)));
+  plan.add(r.db.update(t.accounts).set({ studentId: null }).where(inArray(t.accounts.studentId, studentIds)));
+  plan.add(r.db.delete(t.evaluatorAssignments).where(or(eq(t.evaluatorAssignments.courseId, courseId), inArray(t.evaluatorAssignments.groupId, groupIds))));
+  plan.add(r.db.delete(t.rotationBlocks).where(or(eq(t.rotationBlocks.courseId, courseId), inArray(t.rotationBlocks.groupId, groupIds))));
+  plan.add(r.db.delete(t.students).where(inArray(t.students.id, studentIds)));
+  plan.add(r.db.delete(t.groups).where(eq(t.groups.courseId, courseId)));
+  plan.add(r.db.delete(t.courseStudyTypes).where(eq(t.courseStudyTypes.courseId, courseId)));
+  plan.add(r.db.delete(t.courseHospitals).where(eq(t.courseHospitals.courseId, courseId)));
+  plan.add(r.db.delete(t.courseAttendancePatterns).where(eq(t.courseAttendancePatterns.courseId, courseId)));
+  plan.add(r.db.delete(t.courseHolidays).where(eq(t.courseHolidays.courseId, courseId)));
+  plan.add(r.db.delete(t.courses).where(eq(t.courses.id, courseId)));
+  // If it was the chosen course, the most recent remaining one takes over.
+  plan.add(r.db.delete(t.meta).where(and(eq(t.meta.key, CURRENT_COURSE_KEY), eq(t.meta.value, courseId))));
+  plan.audit("Course", courseId, "delete", { year: course.year, number: course.number, label: course.label });
+  await plan.commit();
 }

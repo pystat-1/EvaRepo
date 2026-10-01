@@ -7,7 +7,7 @@
 //             12 months, so a mistake noticed weeks later can still be
 //             undone from a monthly copy.
 
-export type BackupReason = "daily" | "manual" | "before-migrate" | "before-import" | "before-restore" | "before-update";
+export type BackupReason = "daily" | "manual" | "before-migrate" | "before-import" | "before-restore" | "before-update" | "before-delete";
 
 export interface BackupFile {
   name: string;

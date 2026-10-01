@@ -167,9 +167,26 @@ export interface ImportContext {
 }
 
 /** The course imports go into: the most recent published one. */
+/** Where the admin's choice of current course is kept (meta key). */
+export const CURRENT_COURSE_KEY = "course.current";
+
+/**
+ * The course every screen and the phones work on: the one the admin chose
+ * (it stays until they choose another), or else the most recent published one.
+ */
 export async function currentCourse(r: Repo) {
   const rows = await r.db.select().from(t.courses).where(and(eq(t.courses.status, "PUBLISHED"), eq(t.courses.active, true)));
-  return rows.sort((a, b) => b.year - a.year || b.number - a.number)[0] ?? null;
+  const [chosen] = await r.db.select().from(t.meta).where(eq(t.meta.key, CURRENT_COURSE_KEY));
+  return rows.find((c) => c.id === chosen?.value) ?? rows.sort((a, b) => b.year - a.year || b.number - a.number)[0] ?? null;
+}
+
+export async function setCurrentCourse(r: Repo, courseId: string) {
+  const [course] = await r.db.select().from(t.courses).where(eq(t.courses.id, courseId));
+  if (!course) throw new ValidationError("الدورة غير موجودة");
+  const plan = new Plan(r);
+  plan.add(r.db.insert(t.meta).values({ key: CURRENT_COURSE_KEY, value: courseId }).onConflictDoUpdate({ target: t.meta.key, set: { value: courseId } }));
+  plan.audit("Course", courseId, "update", undefined, { name: `الدورة الحالية: ${course.label ?? `${course.year}-${course.number}`}` });
+  await plan.commit();
 }
 
 /** Import target: the given course, or else the most recent published one. */

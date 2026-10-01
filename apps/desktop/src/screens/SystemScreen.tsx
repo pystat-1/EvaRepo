@@ -23,6 +23,7 @@ const REASON_AR: Record<string, string> = {
   "before-import": "قبل الاستيراد",
   "before-restore": "قبل الاستعادة",
   "before-update": "قبل التحديث",
+  "before-delete": "قبل حذف دورة",
 };
 
 export function formatBackupTime(name: string): string {

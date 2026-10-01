@@ -181,6 +181,13 @@ async function publish(env: Env, req: Request) {
   const before = await env.DB.prepare(`SELECT id, email, active FROM evaluators`).all<{ id: string; email: string; active: number }>();
   const prev = new Map(before.results.map((e) => [e.id, e]));
   const stmts: Stmt[] = [];
+  // Emails are unique here, and one can move to another evaluator (removed and
+  // re-added on the desktop, or two swapped): release every email that is
+  // leaving its row before any row takes one.
+  const next = new Map(body.evaluators.map((e) => [e.id, String(e.email ?? "").toLowerCase()]));
+  for (const p of before.results) {
+    if (next.get(p.id) !== p.email) stmts.push(env.DB.prepare(`UPDATE evaluators SET email = '#' || id WHERE id = ?`).bind(p.id));
+  }
   const listed = new Set<string>();
   for (const e of body.evaluators) {
     listed.add(e.id);

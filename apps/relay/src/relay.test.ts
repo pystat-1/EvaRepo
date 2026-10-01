@@ -149,6 +149,21 @@ describe("relay", () => {
     expect(results).toMatchObject([{ clientId: "a", outcome: "applied" }]);
   });
 
+  it("an email can move to another evaluator (removed and re-added, or swapped)", async () => {
+    expect((await publishSara()).status).toBe(200);
+    const put = (evaluators: Array<{ id: string; email: string }>) =>
+      call("/admin/publish", {
+        method: "PUT", token: ADMIN,
+        body: JSON.stringify({ evaluators: evaluators.map((e) => ({ ...e, name: "د. سارة", active: true })), bundles: evaluators.map((e) => bundle(e.id)) }),
+      });
+    // Sara removed on the desktop and added again: a new id, the same email.
+    expect((await put([{ id: "e2", email: "sara@x.iq" }])).status).toBe(200);
+    expect((await googleLogin({ email: "sara@x.iq" })).status).toBe(200);
+    // Two evaluators swap emails in one publish.
+    expect((await put([{ id: "e2", email: "a@x.iq" }, { id: "e3", email: "b@x.iq" }])).status).toBe(200);
+    expect((await put([{ id: "e2", email: "b@x.iq" }, { id: "e3", email: "a@x.iq" }])).status).toBe(200);
+  });
+
   it("deactivation or a changed email signs the evaluator out", async () => {
     await publishSara();
     let { token } = await loginSara();

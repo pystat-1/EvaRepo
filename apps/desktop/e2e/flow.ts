@@ -59,7 +59,9 @@ export async function flow(browser: Browser, out: string) {
   // ---- phone: grade a group today, offline, then validate ----
   await p.evaluate('document.querySelectorAll("details.others").forEach((d) => (d.open = true))');
   await p.locator("button.group").first().click();
-  await p.waitForSelector(".scard"); // phones open one student at a time
+  await p.waitForSelector(".name-btn"); // the day opens on the group's table
+  await p.locator(".name-btn").first().click(); // a name opens that student's card
+  await p.waitForSelector(".scard");
   check((await p.locator("nav.tabbar").isVisible()) === true, "tabs stay visible inside a day");
   await phone.ctx.setOffline(true);
   const n = await p.locator(".picker .pick").count();
@@ -80,6 +82,8 @@ export async function flow(browser: Browser, out: string) {
     if (i < n - 1) await card.locator("button:has-text('التالي')").click();
   }
   check((await p.locator(".picker .pick.done").count()) === n - 1 && (await p.locator(".picker .pick.absent").count()) === 1, "every student graded (one absent)");
+  await p.click("[role=tab]:has-text('تقييم اليوم')"); // the final review holds the validate button
+  check((await p.locator(".review tbody tr").count()) === n, "the day's review lists every student");
   await p.click("button:has-text('اعتماد اليوم وإرساله للمدير')");
   await p.click("button:has-text('نعم، اعتماد')");
   await p.waitForSelector("text=/بانتظار الإرسال/", { timeout: 30_000 });
@@ -113,6 +117,9 @@ export async function flow(browser: Browser, out: string) {
   await p.click('nav.tabbar button:has-text("السجلات")');
   await p.click(".seg button:has-text('التقييمات السابقة')");
   await p.locator(".card.group").first().click();
+  await p.waitForSelector(".review"); // a validated day opens on its review (تقييم اليوم)
+  check((await p.locator("button:has-text('اعتماد اليوم')").count()) === 0, "no validate button on a validated day");
+  await p.locator(".review .name-btn").first().click();
   await p.waitForSelector(".scard");
   check((await p.locator(".scard button.choice:not([disabled])").count()) === 0, "validated day is read-only");
   for (const item of ["التقييم اليومي — Excel", "التقييم اليومي — Word", "قالب فارغ للطباعة — Word", "قالب فارغ للطباعة — Excel"]) {
@@ -131,6 +138,29 @@ export async function flow(browser: Browser, out: string) {
 
   // ---- desktop: grading center and self-check ----
   await d.click("nav >> text=مركز الدرجات");
+  // opens on the grading matrix (التصميم المدمج); the list is one tab away
+  await d.waitForSelector("main >> text=التصميم المدمج", { timeout: 30_000 });
+  // The day's grades show in a grid cell, or (graded on a date the schedule
+  // doesn't list) in the "outside the schedule" note — in one of the programs.
+  const shown = async () => {
+    for (const prog of ["البرنامج الصباحي", "البرنامج المسائي"]) {
+      await d.click(`main [role=tab] >> text=${prog}`);
+      const txt = await d.locator("main").innerText();
+      if (txt.includes(`${n} تقييمًا معتمدًا في أيام خارج جدول الدوران`) || !/مُقيَّم 0 من/.test(txt)) return true;
+    }
+    return false;
+  };
+  if (!(await shown())) {
+    console.log("grading matrix shows:", (await d.locator("main").innerText()).replace(/\s+/g, " ").slice(0, 600));
+    throw new Error("the validated day is not in the grading matrix");
+  }
+  await d.screenshot({ path: path.join(process.env.EVA_E2E_SHOTS ?? out, "grading-matrix.png"), fullPage: true });
+  for (const v of ["الشبكة الدورانية", "الخريطة الحرارية"]) {
+    await d.click(`main [role=tab] >> text=${v}`);
+    await d.waitForSelector("main >> text=SMP-001");
+    await d.screenshot({ path: path.join(process.env.EVA_E2E_SHOTS ?? out, `grading-${v === "الشبكة الدورانية" ? "rotation" : "heatmap"}.png`), fullPage: true });
+  }
+  await d.click("main [role=tab] >> text=قائمة التقييمات");
   await d.waitForSelector("main table tbody tr:has-text('Noor E2E')", { timeout: 30_000 }).catch(async (e) => {
     console.log("grading center shows:", (await d.locator("main").innerText()).replace(/\s+/g, " ").slice(0, 600));
     await d.screenshot({ path: path.join(process.cwd(), "e2e-fail-grading.png") });

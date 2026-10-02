@@ -1,0 +1,419 @@
+/* Grading Center matrix. Layout values that change per view (column
+   templates, colors per cell) are inline; everything static lives here. */
+
+.scroller {
+  --student-col: 236px;
+  position: relative;
+  overflow: auto;
+  max-height: calc(100vh - 150px);
+  min-height: 240px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+  overscroll-behavior: contain;
+}
+.scroller:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+.table {
+  width: max-content;
+  min-width: 100%;
+  font-size: 13px;
+}
+
+.head {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: grid;
+  background: var(--surface-raised);
+  border-bottom: 1px solid var(--border-strong);
+  box-shadow: 0 2px 4px -3px rgba(11, 26, 31, 0.25);
+}
+
+.hcell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 5px 4px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink);
+  text-align: center;
+  line-height: 1.25;
+  border-inline-start: 1px solid #eceee9;
+  border-bottom: 1px solid #eceee9;
+  background: var(--surface-raised);
+}
+.hcellSub {
+  display: block;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--ink-muted);
+}
+.hcellSummary {
+  background: #f8f9f6;
+}
+.hcellHoliday {
+  background: #eceee9;
+  color: var(--ink-muted);
+}
+
+.stickyStart {
+  position: sticky;
+  inset-inline-start: 0;
+  z-index: 2;
+}
+.head .stickyStart {
+  z-index: 6;
+}
+
+.row {
+  display: grid;
+  border-bottom: 1px solid #eceee9;
+}
+.row:hover .nameCell {
+  background: var(--brand-tint);
+}
+
+.band {
+  display: grid;
+  background: var(--brand-tint);
+  border-bottom: 1px solid var(--border);
+}
+.bandCell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+  border-inline-start: 1px solid var(--border);
+  background: var(--brand-tint);
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bandName {
+  font-weight: 800;
+  font-size: 13px;
+  font-family: var(--font-display);
+}
+
+.nameCell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--surface-raised);
+  border-inline-end: 1px solid var(--border);
+  min-width: 0;
+}
+.nameText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.name {
+  font-weight: 700;
+  font-size: 13.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.meta {
+  font-size: 11px;
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  margin: 0;
+  padding: 3px 2px;
+  border: 0;
+  border-inline-start: 1px solid #eceee9;
+  font: inherit;
+  color: inherit;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+  cursor: pointer;
+  min-width: 0;
+}
+button.cell:hover {
+  filter: brightness(0.94);
+}
+button.cell:focus-visible {
+  outline: 2px solid var(--brand-dark);
+  outline-offset: -3px;
+  z-index: 1;
+}
+.cellStatic {
+  cursor: default;
+}
+.cellMain {
+  font-weight: 800;
+}
+.cellTag {
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.cellSub {
+  font-size: 10px;
+  color: var(--ink-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.cellEmpty {
+  background: repeating-linear-gradient(-45deg, #f6f7f4, #f6f7f4 4px, #eef0ec 4px, #eef0ec 8px);
+  border-inline-start: 1px solid #eceee9;
+}
+
+.num {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  border-inline-start: 1px solid #eceee9;
+  background: #f8f9f6;
+}
+
+.critRow {
+  display: grid;
+  border-bottom: 1px solid #f1f2ee;
+  background: #fcfcfa;
+}
+.critLabel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 3px 10px 3px 12px;
+  font-size: 12px;
+  background: #fcfcfa;
+  border-inline-end: 1px solid var(--border);
+}
+.bar {
+  height: 6px;
+  border-radius: 3px;
+  background: #eceee9;
+  overflow: hidden;
+}
+.barFill {
+  height: 100%;
+  border-radius: 3px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 4px 12px;
+  border-radius: 9999px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-raised);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.chip[aria-pressed="true"] {
+  background: var(--brand-dark);
+  border-color: var(--brand-dark);
+  color: white;
+}
+.chip:focus-visible,
+.seg button:focus-visible,
+.tab:focus-visible,
+.toggle:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+.chipCount {
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  opacity: 0.85;
+}
+
+.seg {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-strong);
+  background: var(--surface-raised);
+}
+.seg button {
+  min-height: 34px;
+  padding: 4px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink-muted);
+  cursor: pointer;
+}
+.seg button[aria-pressed="true"],
+.seg button[aria-selected="true"] {
+  background: var(--brand-dark);
+  color: white;
+}
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border-strong);
+  overflow-x: auto;
+}
+.tab {
+  min-height: 40px;
+  padding: 8px 14px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink-muted);
+  border-bottom: 3px solid transparent;
+  margin-bottom: -1px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.tab[aria-selected="true"] {
+  color: var(--brand-dark);
+  border-bottom-color: var(--brand);
+}
+
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  border-radius: 6px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-raised);
+  color: var(--brand-dark);
+  cursor: pointer;
+}
+.toggle[aria-expanded="true"] {
+  background: var(--brand-tint-strong);
+}
+.toggle svg {
+  transition: transform 0.15s ease;
+}
+.toggle[aria-expanded="true"] svg {
+  transform: rotate(180deg);
+}
+
+.dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.popover {
+  position: fixed;
+  z-index: 60;
+  width: 380px;
+  max-width: calc(100vw - 24px);
+  max-height: min(640px, calc(100vh - 24px));
+  overflow: auto;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  box-shadow: var(--shadow-raised);
+  color: var(--ink);
+}
+.popoverSheet {
+  inset-inline: 0;
+  bottom: 0;
+  width: 100%;
+  max-width: 100%;
+  max-height: 80vh;
+  border-radius: 14px 14px 0 0;
+}
+.popoverClose {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  color: var(--ink-muted);
+  cursor: pointer;
+}
+.popoverClose:hover {
+  background: var(--paper-100);
+}
+.popoverClose:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 1px;
+}
+
+.card {
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+  padding: 12px;
+  min-width: 0;
+}
+.mini {
+  display: grid;
+  gap: 2px;
+  width: max-content;
+}
+.miniCell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  border: 0;
+  border-radius: 3px;
+  padding: 0;
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+button.miniCell:focus-visible {
+  outline: 2px solid var(--brand-dark);
+  outline-offset: 1px;
+}
+
+@media (max-width: 640px) {
+  .scroller {
+    --student-col: 156px;
+    max-height: calc(100vh - 96px);
+  }
+  .nameCell {
+    padding: 6px;
+    gap: 6px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toggle svg {
+    transition: none;
+  }
+}

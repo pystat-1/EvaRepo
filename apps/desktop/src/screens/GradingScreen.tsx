@@ -4,17 +4,19 @@ import type { ColumnDef } from "@tanstack/react-table";
 import { courseOverview, listCourses, listHospitals } from "@eva/db/repo/courses";
 import { countEvaluations, groupGradeSheet, listEvaluations, rubric, type EvaluationRow, type EvaluationFilter } from "@eva/db/repo/grading";
 import { listEvaluators } from "@eva/db/repo/evaluators";
+import { gradeMatrix } from "@eva/db/repo/gradeMatrix";
 import { currentCourse } from "@eva/db/repo/students";
 import { DataTable } from "../components/DataTable";
 import { ATTENDANCE_AR, Empty, Notice, PageHeader, fmt2 } from "../components/ui";
 import { errorText, r } from "../lib/repo";
 import { loadExcel, saveFile } from "../lib/files";
 import { SubCriteriaHost, showSubCriteria } from "../components/SubCriteria";
+import { GradeMatrix } from "../components/gradeMatrix/GradeMatrix";
 
 const PAGE = 1500; // grades shown when the screen opens (newest first)
 
 export function GradingScreen() {
-  const [view, setView] = useState<"list" | "sheet">("list");
+  const [view, setView] = useState<"matrix" | "list" | "sheet">("matrix");
   const [f, setF] = useState({ courseId: "", groupId: "", hospitalId: "", evaluatorId: "", from: "", to: "", search: "" });
   const [note, setNote] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
   const courses = useQuery({ queryKey: ["courses"], queryFn: () => listCourses(r) });
@@ -24,6 +26,7 @@ export function GradingScreen() {
   const hospitals = useQuery({ queryKey: ["hospitals"], queryFn: () => listHospitals(r) });
   const evaluators = useQuery({ queryKey: ["evaluators"], queryFn: () => listEvaluators(r) });
   const sections = useQuery({ queryKey: ["rubric"], queryFn: () => rubric(r) });
+  const matrix = useQuery({ queryKey: ["gradeMatrix", courseId], queryFn: () => gradeMatrix(r, courseId), enabled: view === "matrix" && !!courseId, placeholderData: (prev) => prev });
   // A full course holds tens of thousands of grades: the newest ones open
   // instantly; search, "show all" and the Excel export read everything.
   const [showAll, setShowAll] = useState(false);
@@ -33,8 +36,8 @@ export function GradingScreen() {
     evaluatorId: f.evaluatorId || undefined, from: f.from || undefined, to: f.to || undefined, search: search || undefined,
   };
   const limit = showAll || search ? undefined : PAGE;
-  const rows = useQuery({ queryKey: ["evaluations", filter, limit], queryFn: () => listEvaluations(r, filter, limit), placeholderData: (prev) => prev });
-  const total = useQuery({ queryKey: ["evaluationCount", { ...filter, search: undefined }], queryFn: () => countEvaluations(r, { ...filter, search: undefined }) });
+  const rows = useQuery({ queryKey: ["evaluations", filter, limit], queryFn: () => listEvaluations(r, filter, limit), enabled: view === "list", placeholderData: (prev) => prev });
+  const total = useQuery({ queryKey: ["evaluationCount", { ...filter, search: undefined }], queryFn: () => countEvaluations(r, { ...filter, search: undefined }), enabled: view === "list" });
   const shown = rows.data ?? [];
   const partial = !search && !showAll && total.data !== undefined && total.data > shown.length;
 
@@ -116,10 +119,13 @@ export function GradingScreen() {
       <SubCriteriaHost />
       <PageHeader
         title="مركز الدرجات"
-        subtitle="الدرجات المعتمدة فقط (بعد اعتماد المقيّم لليوم)."
+        subtitle={view === "matrix" ? "كل طالب عبر أيام دورانه: المجموع أو كل المعايير، مع الحالات والتفاصيل. الدرجات المعتمدة فقط." : "الدرجات المعتمدة فقط (بعد اعتماد المقيّم لليوم)."}
         actions={
           <>
             <div className="seg" role="tablist">
+              <button role="tab" aria-selected={view === "matrix"} className={view === "matrix" ? "on" : ""} onClick={() => setView("matrix")}>
+                مركز التقييم
+              </button>
               <button role="tab" aria-selected={view === "list"} className={view === "list" ? "on" : ""} onClick={() => setView("list")}>
                 قائمة التقييمات
               </button>
@@ -140,10 +146,12 @@ export function GradingScreen() {
         <select className="input" value={courseId} onChange={(e) => setF({ ...f, courseId: e.target.value, groupId: "" })} aria-label="الدورة">
           {(courses.data ?? []).map((c) => <option key={c.id} value={c.id}>{c.label ?? `${c.year}-${c.number}`}</option>)}
         </select>
+        {view !== "matrix" && (
         <select className="input" value={f.groupId} onChange={set("groupId")} aria-label="المجموعة">
           <option value="">{view === "sheet" ? "اختر مجموعة…" : "كل المجموعات"}</option>
           {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
         </select>
+        )}
         {view === "list" && (
           <>
             <select className="input" value={f.hospitalId} onChange={set("hospitalId")} aria-label="المستشفى">
@@ -170,7 +178,11 @@ export function GradingScreen() {
           (التصدير يشمل الكل دائمًا).
         </p>
       )}
-      {view === "list" ? (
+      {view === "matrix" ? (
+        matrix.isError ? <Notice kind="err">{errorText(matrix.error)}</Notice>
+        : matrix.data ? <GradeMatrix key={courseId} data={matrix.data} busy={matrix.isFetching} />
+        : <p className="muted">{courseId ? "جارٍ التحميل…" : "لا توجد دورة بعد."}</p>
+      ) : view === "list" ? (
         <DataTable rows={shown} columns={columns} getRowId={(e) => e.id} empty={rows.isLoading ? "جارٍ التحميل…" : "لا توجد درجات معتمدة لهذا الاختيار"} />
       ) : f.groupId ? (
         <GroupSheet groupId={f.groupId} />

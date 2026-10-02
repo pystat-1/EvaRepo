@@ -336,3 +336,10 @@ Built on the existing tables (no schema change) and shipped as the default `/gra
 **Code:** `src/lib/gradeMatrix/` (pure builders + `build.test.ts`), `src/lib/models/gradeMatrix.ts` (loader), `src/components/gradeMatrix/` (views, popover).
 
 **Not built yet** (still per Part A/B build order): dispute approval and other admin actions (G-6), the review queue, Excel and print exports from these views (G-8), live updates (G-9) and virtualization for very large courses.
+
+## Eva Desktop (2026-10-02, desktop 0.5.0)
+
+The same three views are now the default tab of Eva Desktop's **مركز الدرجات** (tab **مركز التقييم**; **قائمة التقييمات** and **كشف المجموعة** stay beside it).
+- The pure rules (`types`, `build`, `visual`) moved to `packages/core/src/gradeMatrix`, shared by the website (`src/lib/gradeMatrix/*` re-export them) and the desktop.
+- The desktop loader is `packages/db/src/repo/gradeMatrix.ts` (SQLite). Differences from the website's: the desktop stores one rotation block per week, so back-to-back blocks at one hospital are merged into one stint (this keeps the period tabs per hospital stay); a disputed day is an evaluation with `status = 'DISPUTED'`; weekdays fall back to the course's attendance pattern.
+- The views are copied into `apps/desktop/src/components/gradeMatrix` with links to website pages removed; `gm.css` supplies the few tokens and layout utilities the website gets from Tailwind.

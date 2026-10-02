@@ -1,6 +1,8 @@
 {
   "$schema": "../../node_modules/wrangler/config-schema.json",
   "name": "eva-relay",
+  // The EvaRepo Cloudflare account (the login sees more than one).
+  "account_id": "9db2b1bedabd416a8c7f0a2fe58d9cfa",
   "main": "src/index.ts",
   "compatibility_date": "2026-09-01",
   "compatibility_flags": ["nodejs_compat"],

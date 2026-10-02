@@ -362,3 +362,21 @@ Why these backups: Neon's free plan only keeps a **6-hour** restore window, and 
 - Concurrency: [Prisma transactions and optimistic concurrency](https://www.prisma.io/docs/orm/prisma-client/queries/transactions)
 - Backups: [Neon plans (free restore window)](https://neon.com/docs/introduction/plans) · [Neon: automate pg_dump backups](https://neon.com/docs/manage/backup-pg-dump-automate) · [Neon: nightly backups with GitHub Actions](https://neon.com/docs/manage/backups-aws-s3-backup-part-2) · [Cloudflare R2 free tier](https://nubbo.app/blog/cloudflare-r2-free-tier/)
 - Excel: [exceljs on npm](https://www.npmjs.com/package/exceljs)
+
+---
+
+# Addendum (2026-10-02): the combined UI design
+
+Interactive mockup: https://claude.ai/artifact/SgxBDaHvbaqwrBHgYcPBfV (opens on "التصميم المدمج"; the 5 source designs stay on the same canvas for comparison). It **supersedes Part B's layout details** where they differ.
+
+| Feature | Taken from | What it does |
+|---|---|---|
+| Program tabs (Morning / Evening) | all | Separate programs, never mixed; switching resets filters and expansions |
+| Scope tabs: whole course · period 1 · period 2 · period 3 · course summary | Design 4 | Whole course = 12 day columns; a period = 4 wide columns with the evaluator's name; summary = per-hospital and per-criterion averages |
+| Column order: by hospital / by date | Designs 1 + 2 | Hospital → week → day (your table; group row shows real dates) or calendar weeks (header shows real dates; group row shows each group's hospital) |
+| Day cells: color by % + number + status tag | Designs 1 + 5 | Sequential navy scale; tags for absent / late / disputed / missing / corrected / below 60% |
+| "All criteria" = rows, not columns | Design 3 | Each student expands into 5 criterion rows (per student, or all at once); columns never multiply |
+| Criterion row summary | Designs 3 + 2 | Average per criterion with a small bar |
+| Student summary columns | Designs 1 + 5 | Average per hospital, trend sparkline, course %, absences |
+| Status filter chips + search | new | All · needs attention · disputed · missing · absent · below 60% · late · corrected; matching cells get a navy ring; search by name / university number / code |
+| Day popover | shared | Criteria with bars, attendance, evaluator, notes, phone vs server times; dispute comparison with approve buttons |

@@ -12,7 +12,7 @@ const BUDGET_MS = 200 * Number(process.env.EVA_PERF_FACTOR ?? 1);
 const SCREENS: Array<[string, string]> = [
   ["الطلاب", "text=/5[0-9]{3} طالب|طالب/"],
   ["الدورات والجدول", "table"],
-  ["مركز الدرجات", "table tbody tr"],
+  ["مركز الدرجات", "[data-cell]"],
   ["الإحصائيات", ".card"],
   ["المقيّمون", ".ev-card"],
   ["المزامنة", "text=رابط تطبيق المقيّم"],
@@ -60,6 +60,12 @@ export async function perf(browser: Browser, out: string) {
     }
   }
   for (const [tab, ms] of results) log(`${ms <= BUDGET_MS ? "✓" : "✗"} ${tab}: ${ms} ms`);
+  // A big course draws its students in steps of 60.
+  await page.click("nav >> text=مركز الدرجات");
+  await page.waitForSelector("text=/يُعرض أول 60 طالب من 2502/");
+  await page.click("main button:has-text('عرض المزيد')");
+  await page.waitForSelector("text=/يُعرض أول 120 طالب من 2502/");
+  log("✓ grading center: draws 60 students at a time, «عرض المزيد» adds 60");
   const slow = results.filter(([, ms]) => ms > BUDGET_MS);
   if (errors.length) throw new Error(`page errors: ${errors.join(" | ")}`);
   await page.close();

@@ -33,7 +33,7 @@ import {
   cellId,
   type HeadItem,
 } from "./parts";
-import { STUDENT_COL, dayAria, gridCols, shortHospital, visibleStudents, type ViewProps } from "./common";
+import { STUDENT_COL, capRows, dayAria, gridCols, shortHospital, visibleStudents, lazyStats, type ViewProps } from "./common";
 import styles from "./gradeMatrix.module.css";
 
 export type Scope = "all" | "sum" | `p${number}`;
@@ -58,11 +58,8 @@ export function CombinedView(
   const byHosp = isAll && p.order === "hosp";
 
   const hospitals = useMemo(() => programHospitals(program, hospitalOrder), [program, hospitalOrder]);
-  const stats = useMemo(() => {
-    const m = new Map<string, ReturnType<typeof studentStats>>();
-    for (const g of program.groups) for (const s of g.students) m.set(s.id, studentStats(s.days, criteria.length, maxTotal));
-    return m;
-  }, [program, criteria.length, maxTotal]);
+  // Worked out only for the students actually drawn (a big course draws in steps).
+  const stats = useMemo(() => lazyStats(program, criteria.length, maxTotal), [program, criteria.length, maxTotal]);
 
   const layout: Layout | null = useMemo(() => {
     if (isSum) return null;
@@ -161,8 +158,9 @@ export function CombinedView(
   const scopeDaysOf = (groupId: string, days: MatrixDay[]) =>
     layout ? (layout.slots[groupId].filter((i) => i !== null) as number[]).map((i) => days[i]) : days;
   const isOpen = (studentId: string) => !isSum && (p.expanded[studentId] ?? mode === "criteria");
-  const visibleByGroup = program.groups.map((g) =>
-    visibleStudents(g.students, query, filter, maxTotal, (s) => scopeDaysOf(g.id, s.days))
+  const visibleByGroup = capRows(
+    program.groups.map((g) => visibleStudents(g.students, query, filter, maxTotal, (s) => scopeDaysOf(g.id, s.days))),
+    p.limit
   );
   const shown = visibleByGroup.reduce((n, rows) => n + rows.length, 0);
   // Arrow-key row numbers: each student row, then its criteria rows if open.

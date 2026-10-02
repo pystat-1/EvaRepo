@@ -3,7 +3,7 @@
 // the same data the website builds from Postgres. Read-only. Only validated
 // grades (pendingValidation = false) carry numbers; a day the evaluator saved
 // but has not validated shows as "awaiting".
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { todayISO } from "@eva/core/date";
 import { compareArabic } from "@eva/core/text/arabic";
 import { HOSPITAL_PALETTE, SUBMIT_WINDOW_DAYS, addDays, asAttendance, groupDates, resolveDayState } from "@eva/core/gradeMatrix/build";
@@ -78,14 +78,13 @@ export async function gradeMatrix(r: Repo, courseId: string, today = todayISO())
         attendance: t.evaluations.attendance, total: t.evaluations.total, dailyNote: t.evaluations.dailyNoteSubmitted, locked: t.evaluations.locked,
         notes: t.evaluations.notes, feedback: t.evaluations.feedback, pending: t.evaluations.pendingValidation, status: t.evaluations.status,
         updatedAt: t.evaluations.updatedAt, evaluatorName: t.accounts.name,
+        // One string per evaluation ("sectionId=score,…"): a full course has
+        // ~5 scores per grade, and one row per grade is far cheaper to read.
+        scores: sql<string | null>`(SELECT group_concat(${t.evaluationScores.rubricSectionId} || '=' || ${t.evaluationScores.score}, ',') FROM ${t.evaluationScores} WHERE ${t.evaluationScores.evaluationId} = ${t.evaluations.id})`,
       })
       .from(t.evaluations)
       .leftJoin(t.accounts, eq(t.accounts.id, t.evaluations.evaluatorId))
       .where(inArray(t.evaluations.studentId, ids))
-  );
-  const scores = await inChunks(
-    evaluations.map((e) => e.id),
-    (ids) => r.db.select({ evaluationId: t.evaluationScores.evaluationId, sectionId: t.evaluationScores.rubricSectionId, score: t.evaluationScores.score }).from(t.evaluationScores).where(inArray(t.evaluationScores.evaluationId, ids))
   );
   const attendance = await inChunks(studentIds, (ids) =>
     r.db.select({ studentId: t.attendanceRecords.studentId, dateISO: t.attendanceRecords.dateISO, status: t.attendanceRecords.status, dailyNote: t.attendanceRecords.dailyNote }).from(t.attendanceRecords).where(inArray(t.attendanceRecords.studentId, ids))
@@ -96,12 +95,15 @@ export async function gradeMatrix(r: Repo, courseId: string, today = todayISO())
   const holidays = await r.db.select({ dateISO: t.courseHolidays.dateISO, label: t.courseHolidays.label }).from(t.courseHolidays).where(eq(t.courseHolidays.courseId, courseId));
 
   const scoresBy = new Map<string, (number | null)[]>();
-  for (const s of scores) {
-    const ci = criteriaIndex.get(s.sectionId);
-    if (ci === undefined) continue;
-    let row = scoresBy.get(s.evaluationId);
-    if (!row) scoresBy.set(s.evaluationId, (row = criteria.map(() => null)));
-    row[ci] = s.score;
+  for (const e of evaluations) {
+    if (!e.scores || e.pending) continue;
+    const row: (number | null)[] = criteria.map(() => null);
+    for (const pair of e.scores.split(",")) {
+      const at = pair.lastIndexOf("=");
+      const ci = criteriaIndex.get(pair.slice(0, at));
+      if (ci !== undefined) row[ci] = Number(pair.slice(at + 1));
+    }
+    scoresBy.set(e.id, row);
   }
   const evalBy = new Map(evaluations.map((e) => [`${e.studentId}|${e.dateISO}`, e]));
   const attendanceBy = new Map(attendance.map((a) => [`${a.studentId}|${a.dateISO}`, a]));

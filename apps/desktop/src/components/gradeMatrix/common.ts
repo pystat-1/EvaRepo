@@ -1,4 +1,4 @@
-import { dayMatches, fullDate, matchesSearch, type FilterId } from "@eva/core/gradeMatrix/build";
+import { dayMatches, fullDate, matchesSearch, studentStats, type FilterId } from "@eva/core/gradeMatrix/build";
 import { cellVisual } from "@eva/core/gradeMatrix/visual";
 import type { GradeMatrixData, MatrixDay, MatrixHospital, MatrixProgram, MatrixStudent } from "@eva/core/gradeMatrix/types";
 
@@ -12,6 +12,18 @@ export interface ViewProps {
   mode: Mode;
   filter: FilterId;
   query: string;
+  /** Desktop: at most this many student rows are drawn (a big course draws in steps). */
+  limit?: number;
+}
+
+/** Keeps the first `limit` rows across the groups, in order. */
+export function capRows<T>(lists: T[][], limit = Infinity): T[][] {
+  let left = limit;
+  return lists.map((rows) => {
+    const kept = rows.slice(0, Math.max(0, left));
+    left -= kept.length;
+    return kept;
+  });
 }
 
 // The sticky student column; narrower on phones (see gradeMatrix.module.css).
@@ -56,4 +68,20 @@ export function visibleStudents(
     .map((student, index) => ({ student, index }))
     .filter(({ student }) => matchesSearch(query, [student.name, student.uni, student.code]))
     .filter(({ student }) => filter === "all" || days(student).some((d) => dayMatches(filter, d, maxTotal)));
+}
+
+export type StatsLookup = { get(studentId: string): ReturnType<typeof studentStats> | undefined };
+
+/** Per-student statistics, computed the first time a row asks for them. */
+export function lazyStats(program: MatrixProgram, criteriaCount: number, maxTotal: number): StatsLookup {
+  const byId = new Map(program.groups.flatMap((g) => g.students.map((s) => [s.id, s] as const)));
+  const cache = new Map<string, ReturnType<typeof studentStats>>();
+  return {
+    get(id) {
+      let v = cache.get(id);
+      const s = v ? undefined : byId.get(id);
+      if (s) cache.set(id, (v = studentStats(s.days, criteriaCount, maxTotal)));
+      return v;
+    },
+  };
 }

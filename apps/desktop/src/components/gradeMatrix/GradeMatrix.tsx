@@ -5,6 +5,7 @@ import {
   useMemo,
   useRef,
   useState,
+  startTransition,
   type CSSProperties,
   type KeyboardEvent,
   type MouseEvent,
@@ -25,11 +26,14 @@ import { RotationView } from "./RotationView";
 import { HeatmapView } from "./HeatmapView";
 import { DayPopover } from "./DayPopover";
 import { Dot, EmptyState } from "./parts";
-import type { Mode } from "./common";
+import { visibleStudents, type Mode } from "./common";
 import styles from "./gradeMatrix.module.css";
 import "./gm.css";
 
 export type ViewId = "combined" | "rotation" | "heatmap";
+
+const STEP = 60;
+const FIRST = 12; // about a screenful: drawn at once, the rest of the step right after
 
 const VIEWS: { id: ViewId; label: string; hint: string }[] = [
   { id: "combined", label: "التصميم المدمج", hint: "الدورة كاملة أو فترة أو ملخص، مع التصفية والبحث" },
@@ -65,6 +69,13 @@ export function GradeMatrix({ data, busy = false }: { data: GradeMatrixData; bus
   const [order, setOrder] = useState<Order>("hosp");
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [pop, setPop] = useState<Pop | null>(null);
+  // A big course draws its students in steps (search and filters see everyone).
+  const [limit, setLimit] = useState(FIRST);
+  useEffect(() => {
+    if (limit !== FIRST) return;
+    const id = setTimeout(() => startTransition(() => setLimit(STEP)), 0);
+    return () => clearTimeout(id);
+  }, [limit]);
   const gridRef = useRef<HTMLDivElement>(null);
 
   const program = data.programs.find((p) => p.id === programId) ?? null;
@@ -87,6 +98,10 @@ export function GradeMatrix({ data, busy = false }: { data: GradeMatrixData; bus
     return out;
   }, [allDays, data.maxTotal]);
   const studentCount = program ? program.groups.reduce((n, g) => n + g.students.length, 0) : 0;
+  const matching = useMemo(
+    () => (program ? program.groups.reduce((n, g) => n + visibleStudents(g.students, query, filter, data.maxTotal).length, 0) : 0),
+    [program, query, filter, data.maxTotal]
+  );
   const due = allDays.filter((d) => d.state !== "holiday" && d.state !== "future").length;
   const done = allDays.filter((d) => d.state === "ok" || d.state === "late" || d.state === "absent" || d.state === "disputed").length;
   const unplaced = program
@@ -106,6 +121,7 @@ export function GradeMatrix({ data, busy = false }: { data: GradeMatrixData; bus
 
   function reset(next: () => void) {
     setPop(null);
+    setLimit(FIRST);
     next();
   }
 
@@ -155,7 +171,7 @@ export function GradeMatrix({ data, busy = false }: { data: GradeMatrixData; bus
       : null;
 
   const viewProps = program
-    ? { data, program, hospitalBy, hospitalOrder, mode, filter, query }
+    ? { data, program, hospitalBy, hospitalOrder, mode, filter, query, limit }
     : null;
 
   return (
@@ -343,12 +359,28 @@ export function GradeMatrix({ data, busy = false }: { data: GradeMatrixData; bus
                       scope={scope}
                       order={order}
                       expanded={expanded}
-                      onToggle={(id, open) => reset(() => setExpanded((e) => ({ ...e, [id]: open })))}
+                      onToggle={(id, open) => {
+                        setPop(null);
+                        setExpanded((e) => ({ ...e, [id]: open }));
+                      }}
                     />
                   )}
                   {view === "rotation" && <RotationView {...viewProps} />}
                   {view === "heatmap" && <HeatmapView {...viewProps} />}
                 </div>
+                {matching > limit && limit !== FIRST && (
+                  <div className="flex items-center gap-3 flex-wrap text-sm">
+                    <span>
+                      يُعرض أول {limit} طالب من {matching}. ابحث أو صفِّ لتضييق القائمة، أو
+                    </span>
+                    <button type="button" className="btn" onClick={() => setLimit((n) => n + STEP)}>
+                      عرض المزيد
+                    </button>
+                    <button type="button" className="btn" onClick={() => setLimit(Infinity)}>
+                      عرض الكل
+                    </button>
+                  </div>
+                )}
               </>
             )
           )}

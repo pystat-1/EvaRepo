@@ -27,7 +27,7 @@ import {
   cellId,
   type HeadItem,
 } from "./parts";
-import { STUDENT_COL, dayAria, gridCols, shortHospital, visibleStudents, type ViewProps } from "./common";
+import { STUDENT_COL, capRows, dayAria, gridCols, shortHospital, visibleStudents, lazyStats, type StatsLookup, type ViewProps } from "./common";
 import styles from "./gradeMatrix.module.css";
 
 // Design 5 · الخريطة الحرارية: the whole course at a glance in calendar
@@ -38,11 +38,8 @@ export function HeatmapView(p: ViewProps) {
   const { maxTotal, criteria, holidays } = data;
 
   const layout = useMemo(() => dateLayout(program, holidays), [program, holidays]);
-  const stats = useMemo(() => {
-    const m = new Map<string, ReturnType<typeof studentStats>>();
-    for (const g of program.groups) for (const s of g.students) m.set(s.id, studentStats(s.days, criteria.length, maxTotal));
-    return m;
-  }, [program, criteria.length, maxTotal]);
+  // Worked out only for the students actually drawn (a big course draws in steps).
+  const stats = useMemo(() => lazyStats(program, criteria.length, maxTotal), [program, criteria.length, maxTotal]);
 
   if (mode === "criteria") return <HeatCards {...p} stats={stats} />;
 
@@ -64,7 +61,7 @@ export function HeatmapView(p: ViewProps) {
     });
   });
 
-  const visibleByGroup = program.groups.map((g) => visibleStudents(g.students, query, filter, maxTotal));
+  const visibleByGroup = capRows(program.groups.map((g) => visibleStudents(g.students, query, filter, maxTotal)), p.limit);
   const shown = visibleByGroup.reduce((n, rows) => n + rows.length, 0);
   const navBase: number[] = [];
   for (let gi = 0, n = 0; gi < visibleByGroup.length; n += visibleByGroup[gi].length, gi++) navBase.push(n);
@@ -132,11 +129,10 @@ export function HeatmapView(p: ViewProps) {
   );
 }
 
-function HeatCards(p: ViewProps & { stats: Map<string, ReturnType<typeof studentStats>> }) {
+function HeatCards(p: ViewProps & { stats: StatsLookup }) {
   const { program, filter, query, data } = p;
-  const groups = program.groups
-    .map((g, gi) => ({ g, gi, visible: visibleStudents(g.students, query, filter, data.maxTotal) }))
-    .filter((x) => x.visible.length > 0);
+  const capped = capRows(program.groups.map((g) => visibleStudents(g.students, query, filter, data.maxTotal)), p.limit);
+  const groups = program.groups.map((g, gi) => ({ g, gi, visible: capped[gi] })).filter((x) => x.visible.length > 0);
   if (groups.length === 0) return <EmptyState title="لا يوجد طلاب يطابقون البحث أو التصفية" />;
   return (
     <div className="flex flex-col gap-6">
@@ -174,7 +170,7 @@ function StudentCard({
   student,
   si,
 }: ViewProps & {
-  stats: Map<string, ReturnType<typeof studentStats>>;
+  stats: StatsLookup;
   group: MatrixGroup;
   gi: number;
   student: MatrixStudent;

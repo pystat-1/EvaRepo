@@ -12,7 +12,7 @@ import {
   studentStats,
 } from "@eva/core/gradeMatrix/build";
 import { BandCellView, BandRow, CritCell, DayCell, EmptyState, HeadGrid, NameCell, NumCell, cellId, type HeadItem } from "./parts";
-import { STUDENT_COL, dayAria, gridCols, visibleStudents, type ViewProps } from "./common";
+import { STUDENT_COL, capRows, dayAria, gridCols, visibleStudents, lazyStats, type ViewProps } from "./common";
 import styles from "./gradeMatrix.module.css";
 
 const CRIT_W = 34;
@@ -31,11 +31,8 @@ export function RotationView(p: ViewProps) {
     () => rotationLayout(program, hospitalOrder, { avgColumns: true, avgLabel: "المعدل", avgSub: `من ${maxTotal}` }),
     [program, hospitalOrder, maxTotal]
   );
-  const stats = useMemo(() => {
-    const m = new Map<string, ReturnType<typeof studentStats>>();
-    for (const g of program.groups) for (const s of g.students) m.set(s.id, studentStats(s.days, C, maxTotal));
-    return m;
-  }, [program, C, maxTotal]);
+  // Worked out only for the students actually drawn (a big course draws in steps).
+  const stats = useMemo(() => lazyStats(program, C, maxTotal), [program, C, maxTotal]);
 
   const dayW = crit ? C * CRIT_W + DAY_TOTAL_W : 66;
   const widths = [STUDENT_COL, ...layout.columns.map((c) => (c.kind === "day" ? dayW : 70)), 64, 56];
@@ -91,7 +88,7 @@ export function RotationView(p: ViewProps) {
     );
   }
 
-  const visibleByGroup = program.groups.map((g) => visibleStudents(g.students, query, filter, maxTotal));
+  const visibleByGroup = capRows(program.groups.map((g) => visibleStudents(g.students, query, filter, maxTotal)), p.limit);
   const shown = visibleByGroup.reduce((n, rows) => n + rows.length, 0);
   const navBase: number[] = [];
   for (let gi = 0, n = 0; gi < visibleByGroup.length; n += visibleByGroup[gi].length, gi++) navBase.push(n);

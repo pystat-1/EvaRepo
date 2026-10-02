@@ -12,6 +12,9 @@ import GradingTree from "@/components/GradingTree";
 import GradingSheet from "@/components/GradingSheet";
 import { getGradingSheet, GradingSheetFilters } from "@/lib/models/gradingSheet";
 import SheetBackupButton from "./SheetBackupButton";
+import GradeMatrix, { type ViewId } from "@/components/gradeMatrix/GradeMatrix";
+import { getGradeMatrix } from "@/lib/models/gradeMatrix";
+import type { ProgramId } from "@/lib/gradeMatrix/types";
 
 const ATTENDANCE_LABEL: Record<string, string> = { present: "حاضر", late: "متأخر", absent: "غائب" };
 const ATTENDANCE_BADGE: Record<string, string> = {
@@ -35,9 +38,11 @@ export default async function GradingCenterPage({
   const sp = await searchParams;
   const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v) || undefined;
   const page = typeof sp.page === "string" ? Number(sp.page) || 1 : 1;
-  // "sheet" (the gradebook matrix) is the default view; the flat table and the
-  // tree navigator stay reachable from the toggle.
-  const mode = sp.mode === "tree" ? "tree" : sp.mode === "table" ? "table" : "sheet";
+  // "matrix" (the combined / rotation / heatmap grade views) is the default;
+  // the older gradebook sheet, flat table and tree navigator stay reachable
+  // from the toggle.
+  const mode =
+    sp.mode === "tree" ? "tree" : sp.mode === "table" ? "table" : sp.mode === "sheet" ? "sheet" : "matrix";
 
   const modeCls = "text-xs font-bold rounded px-3.5 py-1.5";
   const modeStyle = (active: boolean) =>
@@ -48,7 +53,10 @@ export default async function GradingCenterPage({
       className="inline-flex rounded-md p-0.5 gap-0.5"
       style={{ background: "var(--surface-raised)", border: "1px solid var(--border-strong)" }}
     >
-      <a href="/grading-center" className={modeCls} style={modeStyle(mode === "sheet")}>
+      <a href="/grading-center" className={modeCls} style={modeStyle(mode === "matrix")}>
+        مصفوفة الدرجات
+      </a>
+      <a href="/grading-center?mode=sheet" className={modeCls} style={modeStyle(mode === "sheet")}>
         ورقة الدرجات
       </a>
       <a href="/grading-center?mode=table" className={modeCls} style={modeStyle(mode === "table")}>
@@ -59,6 +67,42 @@ export default async function GradingCenterPage({
       </a>
     </div>
   );
+
+  if (mode === "matrix") {
+    const courses = await listCourses(true);
+    const requested = one(sp.courseId);
+    // Default to the most recent course, like the sheet: one course at a time
+    // keeps the payload small and never mixes cohorts.
+    const course = courses.find((c) => c.id === requested) ?? courses[0] ?? null;
+    const courseLabel = (c: { label: string | null; year: number; number: number }) => c.label ?? `${c.year}-${c.number}`;
+    const view: ViewId = sp.view === "rotation" || sp.view === "heatmap" ? sp.view : "combined";
+    const program: ProgramId | null =
+      sp.program === "MORNING" || sp.program === "EVENING" || sp.program === "NONE" ? sp.program : null;
+
+    return (
+      <div className="flex flex-col gap-5">
+        <div className="flex items-start justify-between flex-wrap gap-2">
+          <div>
+            <h1 className="text-2xl font-bold">مركز التقييم</h1>
+            <p className="text-slate-500 mt-1">
+              درجات كل طالب عبر مستشفيات الدوران وأسابيعه وأيامه، لكل برنامج على حدة. اضغط أي يوم لتفاصيل
+              معاييره. تظهر هنا الدرجات المعتمدة فقط؛ المعدلات مبدئية.
+            </p>
+          </div>
+          {ModeToggle}
+        </div>
+        <Suspense key={`${course?.id ?? "all"}`} fallback={<TableSkeleton />}>
+          <MatrixSection
+            courseId={course?.id ?? null}
+            courseLabel={course ? courseLabel(course) : "كل المجموعات"}
+            courses={courses.map((c) => ({ id: c.id, label: courseLabel(c) }))}
+            view={view}
+            program={program}
+          />
+        </Suspense>
+      </div>
+    );
+  }
 
   if (mode === "tree") {
     return (
@@ -123,6 +167,7 @@ export default async function GradingCenterPage({
         </div>
 
         <form method="get" className="card grid grid-cols-2 sm:grid-cols-4 gap-3 items-end">
+          <input type="hidden" name="mode" value="sheet" />
           <div>
             <label className="block text-xs font-medium mb-1">الدورة</label>
             <select name="courseId" defaultValue={selectedCourse} className="input">
@@ -161,7 +206,7 @@ export default async function GradingCenterPage({
               تصفية
             </button>
             {activeSheetFilters > 0 && (
-              <a href="/grading-center" className="btn btn-secondary">
+              <a href="/grading-center?mode=sheet" className="btn btn-secondary">
                 مسح
               </a>
             )}
@@ -218,6 +263,7 @@ export default async function GradingCenterPage({
       </div>
 
       <form method="get" className="card grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 items-end">
+        <input type="hidden" name="mode" value="table" />
         <div>
           <label className="block text-xs font-medium mb-1">الدورة</label>
           <select name="courseId" defaultValue={filters.courseId ?? ""} className="input">
@@ -286,7 +332,7 @@ export default async function GradingCenterPage({
             تصفية
           </button>
           {activeFilterCount > 0 && (
-            <a href="/grading-center" className="btn btn-secondary">
+            <a href="/grading-center?mode=table" className="btn btn-secondary">
               مسح التصفية
             </a>
           )}
@@ -307,6 +353,23 @@ export default async function GradingCenterPage({
 async function TreeSection() {
   const tree = await getGradingTree();
   return <GradingTree data={tree} />;
+}
+
+async function MatrixSection({
+  courseId,
+  courseLabel,
+  courses,
+  view,
+  program,
+}: {
+  courseId: string | null;
+  courseLabel: string;
+  courses: { id: string; label: string }[];
+  view: ViewId;
+  program: ProgramId | null;
+}) {
+  const data = await getGradeMatrix(courseId, courseLabel);
+  return <GradeMatrix data={data} courses={courses} initialView={view} initialProgram={program} />;
 }
 
 async function SheetSection({ filters }: { filters: GradingSheetFilters }) {

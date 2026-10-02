@@ -19,7 +19,10 @@ export interface OutboxEntry {
   attendance: Attendance;
   notes?: string;
   feedback?: string;
+  dailyNoteSubmitted?: boolean;
+  dailyNote?: boolean | null;
   scores: Record<string, number>;
+  itemScores?: Record<string, number>;
   queuedAt: string;
   error?: string;
 }

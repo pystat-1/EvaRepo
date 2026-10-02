@@ -1,0 +1,33 @@
+[package]
+name = "eva-desktop"
+version = "0.4.1"
+license = "MIT"
+description = "Eva Desktop: clinical training student data management"
+edition = "2021"
+
+[lib]
+name = "eva_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-log = "2"
+tauri-plugin-process = "2"
+tauri-plugin-updater = "2"
+# free disk space for the start-up self-check
+fs2 = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# SQLite compiled into the app (no system SQLite needed); "backup" gives the
+# online backup API used for safe copies while the database is open.
+rusqlite = { version = "0.37", features = ["bundled", "backup"] }
+log = "0.4"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

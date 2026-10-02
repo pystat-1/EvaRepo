@@ -90,7 +90,8 @@ function leastSquaresSlope(values: number[]): number {
 // seen flag, exactly as the current app's engine does.
 export async function recomputeFlagsForStudent(studentId: string): Promise<void> {
   const evaluations = await prisma.evaluation.findMany({
-    where: { studentId },
+    // Drafts the evaluator hasn't validated yet don't raise flags.
+    where: { studentId, pendingValidation: false },
     orderBy: { dateISO: "asc" },
     select: { dateISO: true, attendance: true, total: true },
   });

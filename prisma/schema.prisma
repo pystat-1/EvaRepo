@@ -15,11 +15,16 @@
 //   `prisma generate` could not run there. Now that the app is deploying
 //   to Vercel + Neon, `provider` below is "postgresql" for real.
 
-// No binaryTargets: the Neon driver adapter (src/lib/db.ts) means Prisma
-// never spawns its native query engine binary, which also wouldn't run in
-// the Cloudflare Workers runtime this app is deployed to.
+// Cloudflare Workers runs in a V8 isolate, not a Linux process — it cannot
+// execute a native Query Engine binary (.so.node) at all, no matter which
+// binaryTarget is bundled. `queryCompiler` (paired with `driverAdapters`)
+// is what actually makes Prisma Client engine-less: queries are compiled
+// to SQL in plain TypeScript instead of shelling out to a native/WASM
+// engine, which is what the Neon driver adapter in src/lib/db.ts needs to
+// truly work on Workers.
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["queryCompiler", "driverAdapters"]
 }
 
 datasource db {
@@ -38,6 +43,15 @@ enum Shift {
   EVENING
 }
 
+// See COURSE_SETUP_PLAN.md §7. A course starts as a private draft the
+// wizard is still filling in, becomes visible to evaluators and gradable
+// once published, and is read-only once archived.
+enum CourseStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
 // A concrete year/course intake — e.g. year=2026, number=1 is "the first
 // course of 2026". Students and groups are scoped to one of these; the
 // student code (see Student.code) is derived from it.
@@ -50,11 +64,89 @@ model Course {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // COURSE_SETUP_PLAN.md §7/§8: wizard + publish state. Existing rows are
+  // backfilled to PUBLISHED by the migration so they keep working exactly
+  // as before this feature existed.
+  status          CourseStatus @default(DRAFT)
+  startDate       String? // "YYYY-MM-DD", the course's week-1 anchor day
+  weekCount       Int?
+  setupStep       Int          @default(1) // wizard resume point, 1..8
+  scheduleVersion Int          @default(0) // bumped on every publish
+
   students Student[]
   groups   Group[]
 
+  studyTypes         CourseStudyType[]
+  hospitals          CourseHospital[]
+  attendancePatterns CourseAttendancePattern[]
+  holidays           CourseHoliday[]
+  evaluatorAssignments EvaluatorAssignment[]
+  rotationBlocks       RotationBlock[]
+
   @@unique([year, number])
   @@map("courses")
+}
+
+// Which study types take part in a given course (wizard step 3).
+model CourseStudyType {
+  id          String    @id @default(cuid())
+  courseId    String
+  course      Course    @relation(fields: [courseId], references: [id])
+  studyTypeId String
+  studyType   StudyType @relation(fields: [studyTypeId], references: [id])
+  createdAt   DateTime  @default(now())
+
+  @@unique([courseId, studyTypeId])
+  @@map("course_study_types")
+}
+
+// Which hospitals take part in a given course (wizard step 4), with an
+// optional cap on how many groups can be there at once — the input the
+// rotation generator and conflict checker use to flag overloaded hospitals.
+model CourseHospital {
+  id         String   @id @default(cuid())
+  courseId   String
+  course     Course   @relation(fields: [courseId], references: [id])
+  hospitalId String
+  hospital   Hospital @relation(fields: [hospitalId], references: [id])
+  capacity   Int?
+  createdAt  DateTime @default(now())
+
+  @@unique([courseId, hospitalId])
+  @@map("course_hospitals")
+}
+
+// Wizard step 7: which weekdays count as attendance days, optionally
+// narrowed to one shift and/or study type (multiple rows per course cover
+// "morning attends SUN+TUE, evening attends MON+WED" etc). A row with both
+// shift and studyTypeId null is the course-wide default.
+model CourseAttendancePattern {
+  id          String     @id @default(cuid())
+  courseId    String
+  course      Course     @relation(fields: [courseId], references: [id])
+  shift       Shift?
+  studyTypeId String?
+  studyType   StudyType? @relation(fields: [studyTypeId], references: [id])
+  daysOfWeek  String // comma-separated weekday codes, e.g. "SUN,TUE"
+  createdAt   DateTime   @default(now())
+
+  @@map("course_attendance_patterns")
+}
+
+// Wizard step 7: dates excluded from attendance regardless of weekday
+// pattern (public holidays, exam days, …). The attendance-date expander
+// removes these before handing dates to the rotation generator and the
+// grading-day check.
+model CourseHoliday {
+  id        String   @id @default(cuid())
+  courseId  String
+  course    Course   @relation(fields: [courseId], references: [id])
+  dateISO   String // "YYYY-MM-DD"
+  label     String?
+  createdAt DateTime @default(now())
+
+  @@unique([courseId, dateISO])
+  @@map("course_holidays")
 }
 
 model Account {
@@ -82,6 +174,7 @@ model Account {
   auditLogs    AuditLog[]
   assignments  EvaluatorAssignment[]
   evaluations  Evaluation[]
+  sessions     Session[]
 
   @@index([studentId])
   @@map("accounts")
@@ -102,12 +195,18 @@ model EvaluatorAssignment {
   hospital   Hospital @relation(fields: [hospitalId], references: [id])
   groupId    String?
   group      Group?   @relation(fields: [groupId], references: [id])
+  // COURSE_SETUP_PLAN.md §5/§8: which course this assignment is scoped to.
+  // Null means "legacy/global" — every course, current and future — which
+  // is how all assignments made before this column existed keep working.
+  courseId   String?
+  course     Course?  @relation(fields: [courseId], references: [id])
   active     Boolean  @default(true)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
   @@index([accountId])
   @@index([hospitalId])
+  @@index([courseId])
   @@map("evaluator_assignments")
 }
 
@@ -125,6 +224,9 @@ model StudyType {
   students  Student[]
   groups    Group[]
 
+  courseLinks        CourseStudyType[]
+  attendancePatterns CourseAttendancePattern[]
+
   @@map("study_types")
 }
 
@@ -139,6 +241,7 @@ model Hospital {
   updatedAt DateTime @updatedAt
   assignments    EvaluatorAssignment[]
   rotationBlocks RotationBlock[]
+  courseLinks    CourseHospital[]
 
   @@map("hospitals")
 }
@@ -180,12 +283,20 @@ model RotationBlock {
   // Which of the two weekly attendance days this block covers, e.g. "SUN,TUE".
   daysOfWeek String?
   notes      String?
+  // COURSE_SETUP_PLAN.md §8: which course/week this block belongs to when
+  // it was written by the setup wizard's rotation step. Null on blocks
+  // created before this column existed (or by hand outside the wizard) —
+  // they keep working exactly as now, just outside the wizard's matrix.
+  courseId   String?
+  course     Course?  @relation(fields: [courseId], references: [id])
+  weekIndex  Int?
   active     Boolean  @default(true)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
   @@index([groupId])
   @@index([hospitalId])
+  @@index([courseId])
   @@map("rotation_blocks")
 }
 
@@ -235,6 +346,7 @@ model RubricSection {
   updatedAt  DateTime @updatedAt
 
   scores EvaluationScore[]
+  items  RubricItem[]
 
   @@map("rubric_sections")
 }
@@ -259,10 +371,33 @@ model Evaluation {
   attendance  String // "present" | "late" | "absent"
   notes       String?
   feedback    String?
+  // Whether the student handed in their daily clinical note/logbook that
+  // day — tracked separately from the rubric scores so it shows in the
+  // end-of-day export and follow-up, and defaults false for absent days.
+  dailyNoteSubmitted Boolean @default(false)
+  // Per-item scores (rubricItemId -> score) for sections that are broken
+  // into items (فقرات). Each section's EvaluationScore is the sum of its
+  // items, so everything that reads section scores keeps working as-is.
+  itemScores  Json?
+  // True while the evaluator's day for this group is not validated yet
+  // (اعتماد). Admin views, flags and statistics only count evaluations
+  // where this is false. Existing rows default to false (already visible).
+  pendingValidation Boolean @default(false)
   total       Float    @default(0)
   locked      Boolean  @default(false)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  // EVALUATOR_APP_PLAN.md §3. `locked` above stays the source of truth for
+  // the existing simple lock check; lockedAt/lockedById are metadata for
+  // the admin lock scopes (per-evaluation/group-day/group-week/course)
+  // built in E5. Existing rows default to ACTIVE/null — untouched.
+  status           EvaluationStatus @default(ACTIVE)
+  courseId         String?
+  rubricVersion    Int?
+  lastSubmissionId String?
+  lockedAt         DateTime?
+  lockedById       String?
 
   scores EvaluationScore[]
 
@@ -274,6 +409,121 @@ model Evaluation {
   @@map("evaluations")
 }
 
+enum EvaluationStatus {
+  ACTIVE
+  DISPUTED
+}
+
+// Append-only journal: every save attempt from every device, online or
+// replayed from an offline outbox. Never updated or deleted — this is what
+// lets a conflict show both competing grades side by side and lets an
+// admin see deviceTime vs receivedAt for a suspiciously backdated save.
+model EvaluationSubmission {
+  id                 String   @id @default(cuid())
+  clientSubmissionId String   @unique
+  studentId          String
+  dateISO            String
+  evaluatorId        String
+  sessionId          String?
+  payload            Json
+  deviceTime         DateTime
+  receivedAt         DateTime @default(now())
+  source             String // "online" | "offline_sync"
+  appVersion         String?
+  outcome            String // "applied" | "duplicate" | "conflict" | "late" | "rejected"
+  reason             String?
+  evaluationId       String?
+
+  @@index([studentId, dateISO])
+  @@index([evaluatorId, receivedAt])
+  @@index([outcome])
+  @@map("evaluation_submissions")
+}
+
+// A dispute between two or more submissions for one student-day (plan
+// §2.3): while open, the evaluation is frozen and excluded from
+// statistics/at-risk flags until an admin approves one submission.
+model EvaluationConflict {
+  id                 String    @id @default(cuid())
+  studentId          String
+  dateISO            String
+  status             String // "open" | "resolved"
+  submissionIds      String[]
+  chosenSubmissionId String?
+  resolvedById       String?
+  resolvedAt         DateTime?
+  note               String?
+  createdAt          DateTime  @default(now())
+
+  @@index([status])
+  @@index([studentId, dateISO])
+  @@map("evaluation_conflicts")
+}
+
+// "Taken by" marks for the shared view (plan §2.2) — history of takes,
+// releases and take-overs is kept in AuditLog, not here; this row is only
+// ever the current state for one student-day.
+model EvaluationClaim {
+  id          String   @id @default(cuid())
+  studentId   String
+  dateISO     String
+  evaluatorId String
+  status      String // "active" | "released" | "completed" | "taken_over" | "expired"
+  reason      String?
+  claimedAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([studentId, dateISO])
+  @@map("evaluation_claims")
+}
+
+// Server-side sessions (plan §3): lets a deactivated evaluator account be
+// cut off immediately (401 on next request) instead of the old JWT-only
+// approach staying valid until it expires up to 12h later (defect C7), and
+// lets an admin revoke one specific device (defect P3/P12).
+model Session {
+  id          String    @id @default(cuid())
+  accountId   String
+  account     Account   @relation(fields: [accountId], references: [id])
+  deviceLabel String?
+  createdAt   DateTime  @default(now())
+  lastSeenAt  DateTime  @default(now())
+  expiresAt   DateTime
+  revokedAt   DateTime?
+
+  @@index([accountId])
+  @@map("sessions")
+}
+
+// Free Web Push (VAPID) subscriptions for reminders when the evaluator app
+// is closed (plan §6) — no paid push service.
+model PushSubscription {
+  id        String   @id @default(cuid())
+  accountId String
+  sessionId String
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+
+  @@index([accountId])
+  @@map("push_subscriptions")
+}
+
+// Prevents the reminder cron from sending the same reminder twice for the
+// same evaluator/date/stage (plan §2.4, §6).
+model ReminderLog {
+  id        String   @id @default(cuid())
+  accountId String
+  kind      String // "missing" | "window_closing"
+  dateISO   String
+  stage     Int // 0, 3, 5, 6
+  sentAt    DateTime @default(now())
+
+  @@unique([accountId, kind, dateISO, stage])
+  @@map("reminder_logs")
+}
+
 model EvaluationScore {
   id              String        @id @default(cuid())
   evaluationId    String
@@ -281,6 +531,16 @@ model EvaluationScore {
   rubricSectionId String
   rubricSection   RubricSection @relation(fields: [rubricSectionId], references: [id])
   score           Float
+
+  // Snapshot of the rubric section as it was worded/scaled at the moment
+  // this score was saved. Null on rows written before this column existed
+  // (readers fall back to the live RubricSection then). Freezes what a
+  // historical grade meant even if the section is later relabeled,
+  // rescaled, or deactivated — editing a rubric must never retroactively
+  // reinterpret a grade someone already received.
+  labelArAtTime   String?
+  labelEnAtTime   String?
+  maxScoreAtTime  Float?
 
   @@unique([evaluationId, rubricSectionId])
   @@map("evaluation_scores")
@@ -324,4 +584,93 @@ model AuditLog {
   @@index([entityType, entityId])
   @@index([actorId])
   @@map("audit_logs")
+}
+
+// Course-term configuration collected in the setup wizard's first two
+// steps: how many weeks the term runs and how many days per week students
+// attend (plus which weekdays). Stored as a single global row (id fixed to
+// "singleton") rather than per-course, matching the one-window setup flow —
+// these values seed rotation-block generation and are shown in the master
+// workbook's Term sheet.
+model TermSettings {
+  id          String   @id @default("singleton")
+  weeksCount  Int?
+  daysPerWeek Int?
+  weekdays    String? // comma-separated weekday codes, e.g. "SUN,TUE"
+  startDate   String? // optional term anchor "YYYY-MM-DD"
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("term_settings")
+}
+
+// The items (فقرات) inside a rubric section, e.g. "الموقف والتواصل" =
+// staff / student / teacher / patient, 0.25 each. kind "check" is all or
+// nothing (0 or maxScore); kind "number" takes any value 0..maxScore in
+// 0.01 steps. A section with no active items is graded as one number.
+model RubricItem {
+  id        String        @id @default(cuid())
+  sectionId String
+  section   RubricSection @relation(fields: [sectionId], references: [id])
+  key       String        @unique // stable code, e.g. "gdisc"
+  labelAr   String
+  labelEn   String?
+  maxScore  Float
+  kind      String        @default("number") // "check" | "number"
+  sortOrder Int           @default(0)
+  active    Boolean       @default(true)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  @@index([sectionId])
+  @@map("rubric_items")
+}
+
+// One row per student per day: attendance as marked on the الحضور screen
+// (with the time it was marked) and whether the daily note was handed in.
+// Marking attendance does not by itself create an Evaluation, so a present
+// student stays "not graded yet"; an absent mark also writes a zero
+// Evaluation so absences keep reaching the grading center and flags.
+model AttendanceRecord {
+  id            String    @id @default(cuid())
+  studentId     String
+  dateISO       String // "YYYY-MM-DD"
+  groupId       String?
+  hospitalId    String?
+  status        String // "present" | "late" | "absent"
+  markedAt      DateTime  @default(now())
+  markedById    String
+  dailyNote     Boolean? // null = not recorded yet
+  dailyNoteAt   DateTime?
+  dailyNoteById String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([studentId, dateISO])
+  @@index([groupId, dateISO])
+  @@map("attendance_records")
+}
+
+// A day an evaluator actually worked with a group. Created on the first
+// attendance mark or grade of the day, whether or not the rotation
+// schedule had the group meeting that day (holidays move days around).
+// Validating it (اعتماد) locks the day's evaluations and releases them
+// to the admin; an admin can reopen it.
+model GroupWorkDay {
+  id            String    @id @default(cuid())
+  groupId       String
+  dateISO       String // "YYYY-MM-DD", the real day worked
+  hospitalId    String?
+  scheduled     Boolean   @default(true) // false = off-schedule day
+  startedById   String
+  startedAt     DateTime  @default(now())
+  validatedAt   DateTime?
+  validatedById String?
+  reopenedAt    DateTime?
+  reopenedById  String?
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([groupId, dateISO])
+  @@index([validatedAt])
+  @@map("group_work_days")
 }

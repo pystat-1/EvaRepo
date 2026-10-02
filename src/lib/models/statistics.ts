@@ -2,6 +2,7 @@
 // sandbox that cannot run `prisma generate` (see the top of src/lib/db.ts
 // for why) — re-check this file once a real client has been generated.
 import { prisma } from "../db";
+import { todayISO } from "../date";
 import { getMaxTotal } from "./rubric";
 
 export interface GroupStat {
@@ -27,7 +28,7 @@ export async function getGroupStats(): Promise<GroupStat[]> {
   const maxTotal = await getMaxTotal();
   const passThreshold = maxTotal * PASS_RATIO;
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayISO();
   const groups = await prisma.group.findMany({
     where: { active: true },
     orderBy: { name: "asc" },
@@ -46,13 +47,13 @@ export async function getGroupStats(): Promise<GroupStat[]> {
   const [evalAgg, passAgg] = await Promise.all([
     prisma.evaluation.groupBy({
       by: ["groupId"],
-      where: { groupId: { in: groupIds } },
+      where: { groupId: { in: groupIds }, pendingValidation: false },
       _count: { _all: true },
       _avg: { total: true },
     }),
     prisma.evaluation.groupBy({
       by: ["groupId"],
-      where: { groupId: { in: groupIds }, total: { gte: passThreshold } },
+      where: { groupId: { in: groupIds }, total: { gte: passThreshold }, pendingValidation: false },
       _count: { _all: true },
     }),
   ]);
@@ -85,7 +86,7 @@ export async function getHospitalStats(): Promise<HospitalStat[]> {
 
   const evalAgg = await prisma.evaluation.groupBy({
     by: ["hospitalId"],
-    where: { hospitalId: { in: hospitalIds } },
+    where: { hospitalId: { in: hospitalIds }, pendingValidation: false },
     _count: { _all: true },
     _avg: { total: true },
   });
@@ -104,8 +105,8 @@ export async function getHospitalStats(): Promise<HospitalStat[]> {
 
 export async function getOverallStats() {
   const [totalEvaluations, avg, maxTotal] = await Promise.all([
-    prisma.evaluation.count(),
-    prisma.evaluation.aggregate({ _avg: { total: true } }),
+    prisma.evaluation.count({ where: { pendingValidation: false } }),
+    prisma.evaluation.aggregate({ where: { pendingValidation: false }, _avg: { total: true } }),
     getMaxTotal(),
   ]);
   return {

@@ -3,7 +3,15 @@
 // for why) — re-check this file once a real client has been generated.
 import { prisma } from "../db";
 import { recordAudit } from "../audit";
-import { parseShiftCell, resolveCourseId, resolveStudyTypeId, type ImportResult } from "../importHelpers";
+import { todayISO } from "../date";
+import {
+  parseShiftCell,
+  resolveCourseId,
+  resolveStudyTypeId,
+  recordImportAudit,
+  type ImportOptions,
+  type ImportResult,
+} from "../importHelpers";
 
 export type Shift = "MORNING" | "EVENING";
 
@@ -56,7 +64,7 @@ function courseLabel(course: { year: number; number: number; label: string | nul
 }
 
 export async function listGroups(includeInactive = false): Promise<GroupWithRelations[]> {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayISO();
   const rows = await prisma.group.findMany({
     where: includeInactive ? undefined : { active: true },
     orderBy: { name: "asc" },
@@ -144,7 +152,8 @@ export async function updateGroup(
 // Bulk import — upserts by name (Group has no unique key beyond id).
 export async function importGroups(
   actorId: string,
-  rows: Array<{ name: string; shift?: string; course?: string; studyType?: string; cycleLabel?: string }>
+  rows: Array<{ name: string; shift?: string; course?: string; studyType?: string; cycleLabel?: string }>,
+  opts: ImportOptions = { commit: true }
 ): Promise<ImportResult> {
   const result: ImportResult = { created: 0, updated: 0, errors: [] };
 
@@ -159,22 +168,26 @@ export async function importGroups(
 
       const existing = await prisma.group.findFirst({ where: { name: row.name.trim() } });
       if (existing) {
-        await updateGroup(actorId, existing.id, {
-          name: row.name.trim(),
-          cycleLabel: row.cycleLabel,
-          courseId,
-          shift,
-          studyTypeId,
-        });
+        if (opts.commit) {
+          await updateGroup(actorId, existing.id, {
+            name: row.name.trim(),
+            cycleLabel: row.cycleLabel,
+            courseId,
+            shift,
+            studyTypeId,
+          });
+        }
         result.updated++;
       } else {
-        await createGroup(actorId, {
-          name: row.name.trim(),
-          cycleLabel: row.cycleLabel,
-          courseId,
-          shift,
-          studyTypeId,
-        });
+        if (opts.commit) {
+          await createGroup(actorId, {
+            name: row.name.trim(),
+            cycleLabel: row.cycleLabel,
+            courseId,
+            shift,
+            studyTypeId,
+          });
+        }
         result.created++;
       }
     } catch (err) {
@@ -182,5 +195,8 @@ export async function importGroups(
     }
   }
 
+  if (opts.commit) {
+    await recordImportAudit({ actorId, entityType: "Group", result });
+  }
   return result;
 }

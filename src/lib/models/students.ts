@@ -3,7 +3,15 @@
 // for why) — re-check this file once a real client has been generated.
 import { prisma } from "../db";
 import { recordAudit } from "../audit";
-import { parseShiftCell, resolveCourseId, resolveStudyTypeId, resolveGroupId, type ImportResult } from "../importHelpers";
+import {
+  parseShiftCell,
+  resolveCourseId,
+  resolveStudyTypeId,
+  resolveGroupId,
+  recordImportAudit,
+  type ImportOptions,
+  type ImportResult,
+} from "../importHelpers";
 
 export type Shift = "MORNING" | "EVENING";
 
@@ -304,7 +312,8 @@ export async function importStudents(
     group?: string;
     course?: string;
     shift?: string;
-  }>
+  }>,
+  opts: ImportOptions = { commit: true }
 ): Promise<ImportResult> {
   const result: ImportResult = { created: 0, updated: 0, errors: [] };
 
@@ -322,27 +331,31 @@ export async function importStudents(
 
       const existing = await getStudentByUniversityNumber(row.universityNumber.trim());
       if (existing) {
-        await updateStudent(actorId, existing.id, {
-          nameAr: row.nameAr,
-          nameEn: row.nameEn,
-          email: row.email,
-          studyTypeId,
-          groupId,
-          courseId,
-          shift,
-        });
+        if (opts.commit) {
+          await updateStudent(actorId, existing.id, {
+            nameAr: row.nameAr,
+            nameEn: row.nameEn,
+            email: row.email,
+            studyTypeId,
+            groupId,
+            courseId,
+            shift,
+          });
+        }
         result.updated++;
       } else {
-        await createStudent(actorId, {
-          universityNumber: row.universityNumber,
-          nameAr: row.nameAr,
-          nameEn: row.nameEn,
-          email: row.email,
-          studyTypeId,
-          groupId,
-          courseId,
-          shift,
-        });
+        if (opts.commit) {
+          await createStudent(actorId, {
+            universityNumber: row.universityNumber,
+            nameAr: row.nameAr,
+            nameEn: row.nameEn,
+            email: row.email,
+            studyTypeId,
+            groupId,
+            courseId,
+            shift,
+          });
+        }
         result.created++;
       }
     } catch (err) {
@@ -350,5 +363,8 @@ export async function importStudents(
     }
   }
 
+  if (opts.commit) {
+    await recordImportAudit({ actorId, entityType: "Student", result });
+  }
   return result;
 }

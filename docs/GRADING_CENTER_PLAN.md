@@ -1,367 +1,299 @@
-# Big Goal 3: Grading Center (rebuilt from scratch) · PLAN
+# Big Goal 3: Grading Center · FINAL PLAN
 
-> **Status:** PLAN, waiting for approval. Not implemented.
-> **Date:** 2026-09-28
-> **Priority:** the most important function in the system. It is the live, authoritative record of every grade collected during the course.
-> **Depends on:** Goal 1 (published course matrix: stints, week index, attendance days, holidays, rubric version) and Goal 2 E1–E5 (submission journal, conflicts, locks, late items, Baghdad dates).
-> **Replaces:** the current `/grading-center` code (`gradingCenter.ts`, `gradingTree.ts`, `GradingTree.tsx`, the two pages). It is not reused; the URL `/grading-center` is kept.
-> **Structure:** Part A workflow → Part B the grid → Part C the popover → Part D data engine → Part E tool choices (researched) → Part F implementation instructions → Part G attack → Part H build order.
+> **Status:** FINAL. Decisions confirmed by the user on 2026-09-28 (this file closes `FINAL_PLAN.md` §12's six open questions — see §0 below). Not implemented yet.
+> **Depends on:** Big Goal 1 (Course Setup / matrix, `COURSE_SETUP_PLAN.md`) and Big Goal 2 (Evaluator App, `EVALUATOR_APP_PLAN.md`) — the Grading Center reads the same `Evaluation`/`EvaluationScore`/`EvaluationSubmission`/`EvaluationConflict`/`EvaluationClaim`/`Flag` tables both goals already write to.
+> **Supersedes:** where this file disagrees with `FINAL_PLAN.md` §5.3/§11, `FINAL_PLAN.md` wins per its own precedence rule — this file only fills in the detail FINAL_PLAN.md pointed to and was missing.
+> **Stack:** free and open-source only, per `FINAL_PLAN.md` §7 — TanStack Table v8 + TanStack Virtual + TanStack Query v5, shadcn/ui on Base UI, Phosphor icons, Cairo font, exceljs (already installed).
 
 ---
 
-# Part A: What the Grading Center is for (optimized workflow)
+## 0. §12's open questions, resolved (2026-09-28)
 
-The admin uses it in **five moments** of a course. The whole design is built around making each one fast.
-
-| Moment | The admin wants to… | What the Grading Center gives |
+| # | Question | Decision |
 |---|---|---|
-| **1. Monitor** (daily, during the course) | See grades arriving and spot problems early | A live grid that fills itself every ~15 s, and a one-line status: evaluated / scheduled, missing, overdue, disputed, late |
-| **2. Inspect** | Understand one day for one student | Click a cell → **popover** with every criterion, attendance, evaluator, notes, feedback and sync times |
-| **3. Decide** | Resolve disputes, accept late saves, correct errors | A **Review Queue** (one list of everything waiting on the admin). Each item jumps to its cell, and each decision is one confirmed action. |
-| **4. Report** | Share and print results | Excel identical to the screen (3-level merged headers), a detail sheet, and print per group |
-| **5. Close** | Finish the course with nothing missing | **Close-course check**: 0 missing, 0 disputed, 0 pending late → lock the course → a frozen final export is stored |
+| 1 | Final grade formula | **Provisional for now**: the final mark shown is a simple average of daily totals, clearly labeled "مبدئي" (provisional) everywhere it appears (grid footer, student sheet, exports). The real formula (weights, absence penalty, pass mark) is deferred — this plan versions grade policy (`CourseGradePolicy`, §9) precisely so swapping in the real formula later never touches historical data. |
+| 2 | v3 production data | **Start clean.** The rebuilt schema (§9) does not carry over the current production rows (156 students, 386 evaluations, etc. as of 2026-09-27). Existing data stays in the DB, untouched, until the user explicitly says to drop or archive it — nothing in this plan deletes anything by itself. |
+| 3 | Hosting | **Cloudflare Workers only**, confirmed — matches the already-live deployment (`evarepo.evarepo.workers.dev`, `wrangler.jsonc`). The stale Netlify workflow is dead weight to remove in P1, not a real second target. |
+| 4 | Google Sign-In | **Keep it** — already implemented (`src/app/api/auth/google/callback/route.ts`), including the E2 server-session treatment for evaluators. Only the production OAuth redirect URI is still outstanding (P5). |
+| 5 | Icons | **Phosphor** line icons, one stroke weight, no emoji — matching `EVALUATOR_APP_PLAN.md` §9. |
+| 6 | Cell colors | **Subtle tint by score band**, layered under the mandatory icon+text status (never color alone — same accessibility rule as `EVALUATOR_APP_PLAN.md` §9: every status pair ≥ 4.5:1 contrast). |
+
+**Font note:** `FINAL_PLAN.md` §8 specifies **Cairo**, which overrides `EVALUATOR_APP_PLAN.md` §9's IBM Plex Sans Arabic per the precedence rule in both files' headers. The Evaluator App's font choice should be revisited to Cairo when that plan is next touched, so the admin and evaluator apps share one self-hosted typeface — not re-litigated here since it's out of this plan's scope.
 
 ---
 
-# Part B: The grid (your image, made complete)
+## 1. What the Grading Center does
 
-## B.1 Layout: "Rotation view" (default, matches your image)
+The admin's single place to see, understand and act on every grade in a published course:
+
+1. **See everything at once.** One grid: rows are students (banded by group), columns are hospital → week → attendance day, cells are day totals. A per-hospital summary column and a course total column sit alongside.
+2. **Read one cell's full story.** Click (or press Enter on) a cell to open a popover: every rubric criterion's score, attendance, evaluator, notes/feedback, device time vs. received time — and, if disputed, both competing grades side by side.
+3. **Act, deliberately.** Every state-changing action (approve a dispute, accept/reject a late save, correct a grade, lock/unlock) opens a confirmation dialog with a reason where the rulebook requires one. Nothing happens from a stray click inside the popover.
+4. **Never lose track of what's missing.** A Review Queue surfaces disputes, late saves, overdue (still-missing) evaluations and unplaced grades — the last being FINAL_PLAN.md §10's "placed + unplaced = total" invariant made visible, not just a design principle.
+5. **Export exactly what's on screen.** Excel (3-level merged headers, RTL) and print-per-group come from the same builder function that renders the grid — so the file can never drift from what the admin was looking at.
+6. **Close a course only when it's actually done.** Closing checks 0 missing, 0 disputed, 0 pending, then locks the course and writes a checksummed snapshot.
+
+---
+
+## 2. The two views
+
+Both views are built by the same pure engine function (`buildGradeGrid`, §11) with a different column axis — never two separate implementations that could drift.
+
+### 2.1 Rotation view (primary, `FINAL_PLAN.md` §5.3's "your table design")
 
 ```
-┌────────────────────┬─────────────────────────────────────────────┬──────────────────────────┬─────────┐
-│                    │                مستشفى اليرموك               │     مستشفى الكندي   ▸    │         │
-│                    ├──────────────────────┬──────────────────────┤  (collapsed: summary)    │ الإجمالي │
-│                    │       الأسبوع 1       │       الأسبوع 2       │                          │         │
-│                    ├──────────┬───────────┼──────────┬───────────┤                          │         │
-│ الطالب              │  اليوم 1  │  اليوم 2   │  اليوم 1  │  اليوم 2   │  المعدل   الحضور         │  %  غ   │
-├────────────────────┴──────────┴───────────┴──────────┴───────────┴──────────────────────────┴─────────┤
-│ ▾ مجموعة A · صباحي      05/10       07/10       12/10       14/10        19/10 → 30/10               │  ← group band: this group's real dates
-├────────────────────┬──────────┬───────────┬──────────┬───────────┬──────────────────────────┬─────────┤
-│ علي حسن كاظم        │  13.5    │   14      │  غ 0     │  12.5 ●   │  12.4/15   3/4           │ 82.7  1 │
-│ 2201347 · 26-1-M-07│          │           │          │           │                          │         │
-│ زينب فاضل           │  14.5    │  ⚠ 2      │  —  3د   │           │  …                       │         │
-├────────────────────┴──────────┴───────────┴──────────┴───────────┴──────────────────────────┴─────────┤
-│ ▾ مجموعة B · صباحي      19/10       21/10       26/10       28/10        05/10 → 14/10               │
-│ …                                                                                                    │
+                    ┌─────────── مستشفى اليرموك ───────────┐  ┌── مستشفى بغداد ──┐   الملخص   المجموع
+                    │  الأسبوع 1 (5–9 ت1)  │ الأسبوع 2 (12–16) │  │ الأسبوع 3 (19–23) │  اليرموك    الكلي
+                    │  أحد   ثلاثاء         │ أحد   ثلاثاء       │  │ أحد   ثلاثاء       │            
+مجموعة A · صباحي     │                                                                              
+ علي حسن كاظم        │  ✓12.5  ✓13         │  ✓14   ⚠غياب      │  │  ⏳    ⏳          │  13.2/15    ~62%
+ زينب فاضل           │  ✓11    ✗تعارض      │  ✓12   ✓13.5      │  │  ⏳    ⏳          │  12.1/15    ~58%
+مجموعة B · مسائي     │  … (band header shows this group's REAL dates from the matrix) …
 ```
 
-- **Columns:** **Hospital → Week of the stint (1, 2, …) → Attendance day (1, 2, …)**, exactly as in your image. Each hospital ends with **summary columns** (average daily total, attendance count). A **course total** block comes last (overall %, absences, days evaluated / scheduled).
-- **Rows:** students, **grouped into bands by group**. Each band header shows **that group's actual dates** for every column, because groups visit the same hospital in different weeks. Every student in a band shares the same dates, so the header is exact.
-- **Why relative weeks:** columns mean "week 1 / day 2 **of the stint at this hospital**". The whole course (all groups, all hospitals) then fits in **one grid** with no empty diagonal. The real date is in the band header, on hover, and in the popover.
-- **Collapsible hospitals:** click a hospital header to collapse it into its summary columns. This keeps wide courses navigable.
-- **Sticky:** the student column is pinned at the inline-start (right side in RTL) and all header rows are pinned at the top.
+- **Columns:** Hospital → the week-of-stint that hospital covers (with its real date range from the published matrix) → attendance day, plus a per-hospital summary column and a course-total column. A hospital with no groups this week collapses to nothing (no empty column stretch).
+- **Rows:** students, **banded by group** (§ FINAL_PLAN.md §5.3). Each group's band header shows that group's actual attendance dates for the visible weeks — pulled from the published matrix's attendance-date expander (`COURSE_SETUP_PLAN.md`'s `expandAttendanceDates`), never a generic "week N" label.
+- **Collapsing:** a hospital's day columns collapse to just its summary column on tap/click, so a wide course (many hospitals × many weeks) stays scannable. The student-name column and the header rows stay pinned (CSS `position: sticky`, not a virtualization side-effect) while scrolling in either direction.
+- **Scale target:** 500 students × 40 day-columns scrolling smoothly (`FINAL_PLAN.md` U4's verification) — this is exactly what TanStack Virtual is for; only visible rows/columns mount.
 
-## B.2 Second layout: "Calendar view" (toggle)
+### 2.2 Calendar view
 
-Columns are **course weeks → real dates**. A cell shows the hospital's short code and the total. It answers "what happened on 12/10 across all groups" and is useful for monitoring and for checking the matrix.
+Same student rows, same cell renderer, but columns are real calendar dates across the whole course (not grouped by hospital/week) — for "what happened on this specific day across every group" questions the rotation view doesn't answer well (e.g. a holiday check, or an admin spot-checking a specific date a complaint referenced).
 
-## B.3 Cell states (each has an icon + text, never color alone)
+A toggle switches between the two views without losing scroll position on the student axis.
 
-| State | Shows | Meaning |
+---
+
+## 3. Cell states
+
+Every cell shows **icon + text**, never color alone (contrast ≥ 4.5:1 for every pairing), with the score-band tint (§0.6) as a secondary, non-load-bearing signal:
+
+| State | Meaning | Icon |
 |---|---|---|
-| Evaluated | `13.5` (sequential tint by %, number always visible; below the pass line → emphasized) | Normal |
-| Absent | `غ 0` | Attendance = absent |
-| Late arrival | `12.5 ●` | Attendance = late |
-| Missing, window open | `— 3د` (3 days left) | Scheduled, past, no evaluation yet |
-| Overdue | `! متأخر` | 7-day window closed, still missing |
-| Disputed | `⚠ 2` | Two evaluators' grades are waiting for the admin's decision |
-| Late save waiting | `⏱` | Arrived after 7 days; admin accept or reject |
-| Admin-corrected | `13 ✎` | Changed by an admin (reason stored) |
-| Locked | small lock icon | Locked by the admin |
-| Future | empty | Scheduled, not yet happened |
-| Holiday | hatched `عطلة` | Removed from attendance by the calendar |
-| Not scheduled | grey `·` | For example, the student joined after that stint |
-
-## B.4 Top bar and status line
-
-- **Filters** (kept in the URL, so they can be shared and survive reloads):
-  - course · shift (صباحي / مسائي) · group(s) · hospital(s) · evaluator · date range
-  - status chips: missing / overdue / disputed / late / corrected / locked
-  - student search (name, university number, code)
-- **Status line:** one compact sentence, not a dashboard of big numbers. For example: "مُقيَّم 1,284 من 1,520 يوماً مجدولاً · 12 ناقص · 3 متجاوز المهلة · 2 تعارض · 5 متأخر بانتظار القرار · آخر تحديث قبل 12 ث" (1,284 of 1,520 scheduled days evaluated · 12 missing · 3 overdue · 2 disputes · 5 late awaiting decision · updated 12 s ago). Each part is a link that applies the matching filter.
-- **Buttons:** layout toggle (Rotation / Calendar) · density toggle · **Review Queue** (with a count) · **Export** menu · **Close course**.
-
-## B.5 Student sheet
-
-Clicking a student's name opens a side **sheet** with:
-- the student's full timeline (every day, every hospital)
-- per-hospital averages
-- attendance totals
-- at-risk flags
-- journal history
-- the final-grade line (see Part D.6)
+| **Evaluated** | A grade exists for this student-day, `ACTIVE` status | check-circle |
+| **Absent** | Attendance = absent (score forced to 0 per `EVALUATOR_APP_PLAN.md` §2.6) | x-circle (muted) |
+| **Late** | Attendance = late, graded normally | clock |
+| **Missing (N days left)** | Scheduled, no grade yet, still inside the 7-day window | warning-circle, with the days-left count |
+| **Overdue** | Still missing after the 7-day window closed | warning-circle (danger tint) |
+| **Disputed** | Two+ submissions competing, frozen pending admin decision | warning-diamond |
+| **Late-save waiting** | A save arrived after day 7, stored `late`, awaiting admin accept/reject | clock-counter-clockwise |
+| **Corrected** | An admin correction replaced the original grade (history kept, §5) | pencil-simple |
+| **Locked** | Locked at any scope (cell/group-day/group-week/stint/course) | lock-simple |
+| **Future** | The date hasn't happened yet | — (empty, no icon needed) |
+| **Holiday** | Excluded from attendance by `CourseHoliday` | calendar-x (muted) |
+| **Not scheduled** | This student's group isn't at any hospital this day (a gap, §6 of `COURSE_SETUP_PLAN.md`'s conflict checker already flags these at the matrix level) | minus |
 
 ---
 
-# Part C: The popover (click a cell)
+## 4. The popover
 
-Built on the **shadcn/ui Popover (Base UI)**, the component in your snippet. It opens **on click or Enter**, never on hover, and closes on Esc, returning focus to the cell.
+Opens on click or `Enter` (keyboard-navigable grid — arrow keys move the focused cell, matching `FINAL_PLAN.md` U4's keyboard-check requirement). Shows, top to bottom:
 
-```
-┌──────────────────────────────────────────────┐
-│ علي حسن كاظم · 2201347                        │
-│ الأحد 12/10/2026 · مستشفى اليرموك             │
-│ مجموعة A · الأسبوع 2 · اليوم 1                 │
-├──────────────────────────────────────────────┤
-│ الحضور: حاضر                                  │
-│ الملاحظة اليومية            4    / 5  ████▌   │
-│ المناقشة والتغذية الراجعة   5.5  / 7  ██████▎ │
-│ الموقف والتواصل             1    / 1  ██████  │
-│ الانتظام                    1    / 1  ██████  │
-│ المظهر                      0.5  / 1  ███     │
-│ ─────────────────────────────────────────── │
-│ المجموع                   12   / 15   80%     │
-├──────────────────────────────────────────────┤
-│ المقيّم: د. سرى الموسوي                        │
-│ حُفظ على الهاتف 12/10 10:42 · وصل 12/10 13:05  │
-│ ملاحظات: …        تغذية راجعة: …               │
-├──────────────────────────────────────────────┤
-│ [ السجل ]  [ تصحيح… ]  [ قفل ]                 │
-└──────────────────────────────────────────────┘
-```
+1. Date, hospital, group, week-of-stint, day-of-week.
+2. Every active rubric criterion as `score / max`, the total and the percentage.
+3. Attendance, evaluator name, notes, feedback.
+4. `deviceTime` vs. `receivedAt` (from `EvaluationSubmission`, `EVALUATOR_APP_PLAN.md` §3) — the pair that catches a backdated phone clock (risk P7 in that plan).
+5. **If disputed:** both competing submissions side by side, each with its own attendance/scores/notes/evaluator/times — exactly the comparison `EVALUATOR_APP_PLAN.md` §2.3 promises the admin's Review Inbox.
 
-Buttons: السجل = history · تصحيح = correct · قفل = lock.
-
-- **Disputed cell:** the popover shows **both grades side by side** (evaluator, every criterion, total, times) with **[اعتماد تقييم د. سرى]** and **[اعتماد تقييم د. علي]** (approve Dr. Sura's / Dr. Ali's evaluation).
-- **Missing cell:** shows who is assigned, the days left in the window, and whether reminders were sent.
-- **Late cell:** shows the late submission with **[قبول]** (accept) and **[رفض]** (reject).
-- **Instant opening:** criteria scores are **already in the grid data**. Notes, feedback and history load on open, and are prefetched when the pointer rests on the cell.
-- **Actions never happen inside the popover.** Approve, accept, correct, lock and unlock open a **Dialog** that shows a clear summary, asks for a **reason** where required, and has a single confirm button. This prevents an accidental click-outside from half-completing an action.
-- **Performance:** one **controlled** popover is anchored to the active cell (Base UI positioner anchor). The grid does not create thousands of popover instances.
+The popover is **read-only**. Every action lives one level below it (§5), never inline here — this is what makes every state change deliberate and auditable rather than a stray click.
 
 ---
 
-# Part D: Data engine (accuracy and zero data loss)
+## 5. Actions and the Review Queue
 
-## D.1 Principles
+| Action | Scope options | Confirmation requires |
+|---|---|---|
+| **Approve dispute** | One student-day | Choosing which submission wins; optional note. The chosen submission becomes the `Evaluation`; the other stays in `EvaluationSubmission` marked not-approved. Both evaluators see the outcome (`EVALUATOR_APP_PLAN.md` §2.3). |
+| **Accept / reject late** | One student-day | A late (`outcome: "late"`) submission either becomes the evaluation (accept) or stays rejected (reject); either way it's recorded, never silently dropped. |
+| **Correct** | One student-day | A mandatory reason. The prior grade is never overwritten in place — a new `EvaluationSubmission` row is written (`source: "admin_correction"`), and the evaluation now points at it. Full history stays queryable. |
+| **Lock / unlock** | Cell · group-day · group-week · stint · course | Unlock is admin-only, always audited (`EVALUATOR_APP_PLAN.md` §2.5's lock scopes, using the `lockedAt`/`lockedById` columns already added to `Evaluation` in E1). |
 
-1. **The Grading Center writes nothing by itself.** Every admin decision (approve, accept late, correct, lock, unlock) goes through the **same journaled write path** as evaluator saves (`EvaluationSubmission`, with `source: "admin"`), in one transaction with the audit log.
-2. **Nothing is ever hidden.** Every evaluation appears exactly once: either in a grid cell or in the **"Unplaced" tray** (for example, a date that no longer matches the matrix). The grid proves this with a live counter (placed + unplaced = total).
-3. **Nothing is ever deleted.** Enforced **in the database**, not only in code (D.5).
-4. **Numbers are exact.** Scores and totals are stored as `NUMERIC(5,2)`, never float. Totals are always computed on the server.
-5. **One builder, many outputs.** The screen, Excel, print and close-course snapshot are all produced by the same pure `buildGradeGrid()` function, so they can never disagree.
+**Every action carries a version check** (an `updatedAt` or a small integer version the client must echo back) so two admins acting on the same cell at once get a clear "changed since you opened it, reload" (`409`) instead of a silent last-write-wins — `FINAL_PLAN.md` §11's "two admins decide the same thing" risk.
 
-## D.2 Schema additions (on top of Goals 1 and 2)
+**Review Queue** (absorbs the Evaluator App's Review Inbox, `EVALUATOR_APP_PLAN.md` §4): four sections — disputes, late saves, overdue, unplaced — each row jumps the grid to that cell on click. "Unplaced" is the literal implementation of the zero-data-loss counter: every `EvaluationSubmission` with `outcome = "applied"` must resolve to exactly one placed cell; anything that doesn't (a scope/schedule mismatch surfacing after the matrix changed, per risk P4 in `EVALUATOR_APP_PLAN.md`) shows up here instead of vanishing.
+
+---
+
+## 6. Live updates
+
+- Only the **changed cells** refetch on a 15-second interval (a small "what changed since cursor X" endpoint, not a full grid reload) — matching `FINAL_PLAN.md` §5.3.
+- A full safety refresh runs periodically underneath (catches anything the incremental cursor missed) — cheap because it's a diff against the client's cached grid, not a re-render from scratch.
+- TanStack Query owns the cache; the incremental endpoint's response is a set of cell patches applied directly, not a query invalidation storm.
+
+---
+
+## 7. Exports
+
+- **Excel**: 3-level merged headers (hospital → week → day) identical to the rotation view, via `exceljs` (already a dependency). Cells are plain strings; CSV-injection characters (`= + - @`) are escaped at the start of any cell, matching `EVALUATOR_APP_PLAN.md` §7's rule — the same rule applies here since this is the same class of export.
+- **Print per group**: a simplified single-group table (one band from the main grid), CSS print styles, no Excel dependency needed for this path.
+- Both come from the same grid-building function (`buildGradeGrid`) that renders the screen — never a second, hand-maintained export query that can drift from what's displayed.
+
+---
+
+## 8. Close course
+
+1. Checks: 0 missing (within window), 0 disputed, 0 pending late-saves, 0 unplaced.
+2. If all clear: `Course.status → ARCHIVED` (reusing the status enum from `COURSE_SETUP_PLAN.md` §8), every `Evaluation` in the course locked at the course scope.
+3. Writes a `CourseSnapshot`: a checksum (hash of every evaluation's id + total + status, sorted) so a later integrity check can detect any change to "closed" data — closing a course is supposed to be the last write it ever gets.
+4. Any of the four checks failing blocks the close with a specific, actionable message (not just "can't close") — the same items the Review Queue already tracks.
+
+---
+
+## 9. Data model (additive; nothing from Goals 1–2 is removed)
+
+Reuses, unchanged: `Evaluation`, `EvaluationScore`, `EvaluationSubmission`, `EvaluationConflict`, `EvaluationClaim`, `Flag`, `AuditLog`, `Course` (all already in schema after E1/S1).
 
 ```prisma
-model Evaluation {                          // additions
-  version     Int      @default(1)          // optimistic concurrency token, +1 on every change
-  changeSeq   BigInt                        // global monotonic change counter (see D.4)
-  score fields and total → Decimal @db.Decimal(5,2)
-  groupId, hospitalId, courseId, weekIndex, dayIndex   // snapshot at save time (placement key)
-  correctedById String?  correctedReason String?
-}
-model EvaluationScore { score Decimal @db.Decimal(5,2) }
-
-model CourseGradePolicy {                   // how the final grade is computed (versioned)
-  id         String @id @default(cuid())
-  courseId   String
-  version    Int
-  formula    Json                           // e.g. { type: "mean_daily_percent", passMark: 60, hospitalWeights: {...} }
-  createdById String
-  createdAt  DateTime @default(now())
-  @@unique([courseId, version])
-}
-
-model CourseSnapshot {                      // frozen output at course close
+// Grade policy is versioned from day one (§0's provisional-formula answer)
+// so swapping in the real formula later is a new version, never a
+// silent reinterpretation of a grade a student already received — the
+// same principle EvaluationScore already applies to individual rubric
+// sections (labelArAtTime/maxScoreAtTime).
+model CourseGradePolicy {
   id          String   @id @default(cuid())
   courseId    String
-  createdById String
+  course      Course   @relation(fields: [courseId], references: [id])
+  version     Int
+  formula     String   // "simple_average" for now; versioned so a future
+                        // real formula is a new row, not an edit to this one
+  isFinal     Boolean  @default(false) // false = shown as "مبدئي" everywhere
   createdAt   DateTime @default(now())
-  dataSeq     BigInt                        // changeSeq the snapshot reflects
-  checksum    String                        // SHA-256 of the canonical JSON
-  r2Key       String                        // xlsx + JSON stored in Cloudflare R2
+
+  @@unique([courseId, version])
+  @@map("course_grade_policies")
 }
 
-model IntegrityRun {                        // nightly self-check results
+// Rubric versioning (EVALUATOR_APP_PLAN.md §3 already calls for
+// Evaluation.rubricVersion; this is the table that number points at).
+// A rubric edit only affects courses published after the edit — a phone
+// that imported course bundle v3 keeps grading against rubric v3 even if
+// the admin tweaks wording mid-course.
+model RubricVersion {
   id         String   @id @default(cuid())
-  ranAt      DateTime @default(now())
-  ok         Boolean
-  findings   Json                           // mismatched totals, orphan rows, etc.
+  version    Int      @unique
+  publishedAt DateTime @default(now())
+  sections   RubricSection[]
+
+  @@map("rubric_versions")
+}
+// RubricSection (existing model) gains an optional rubricVersionId — additive,
+// existing rows (the current single unversioned rubric) become version 1.
+
+// One append-only row per admin-visible correction/lock/dispute-approval
+// decision that needs a version check (§5) — distinct from AuditLog
+// (which is the general "before/after JSON" record for every entity):
+// this is specifically what the grid's optimistic-concurrency check reads
+// to answer "has this cell changed since the admin opened it."
+model GradeDecisionVersion {
+  id           String   @id @default(cuid())
+  evaluationId String
+  version      Int
+  updatedAt    DateTime @default(now())
+
+  @@unique([evaluationId, version])
+  @@index([evaluationId])
+  @@map("grade_decision_versions")
 }
 
-model BackupRun {                           // heartbeat written by the backup job
-  id        String   @id @default(cuid())
-  ranAt     DateTime @default(now())
-  ok        Boolean
-  sizeBytes BigInt?
-  r2Key     String?
-  note      String?
+// Written once when a course is closed (§8) — a checksum a later
+// integrity job can compare against to prove nothing changed after close.
+model CourseSnapshot {
+  id         String   @id @default(cuid())
+  courseId   String
+  course     Course   @relation(fields: [courseId], references: [id])
+  checksum   String
+  evaluationCount Int
+  createdAt  DateTime @default(now())
+
+  @@map("course_snapshots")
 }
 ```
 
-**Placement key:** the evaluation stores its own `groupId`, `hospitalId`, `weekIndex` and `dayIndex` **at save time**. A student who later moves group, or a matrix edited after grading, never "moves" or hides an existing grade.
+**Deferred, not part of this migration:** `FINAL_PLAN.md` §6's `Evaluation`/`EvaluationScore` score columns moving from `Float` to `NUMERIC(5,2)` for exact decimal arithmetic, and the Postgres-level guards (append-only trigger on the journal, no-`DELETE` app role, CHECK constraints, `IntegrityRun`/`BackupRun` heartbeat tables). These are real, valuable hardening steps (`FINAL_PLAN.md` D2/D8) but are infrastructure-wide, not specific to the Grading Center screen — tracked here as follow-up work for whoever picks up `FINAL_PLAN.md` D2/D8 directly, so this plan's own build order (§14) isn't blocked waiting on a full precision migration.
 
-## D.3 API (admin only, JSON, versioned)
+---
+
+## 10. API: one versioned JSON path (`/api/gc/v1/*`, matching the evaluator app's own `/api/ev/v1/*` pattern)
 
 | Method + path | Purpose |
 |---|---|
-| `GET  /api/gc/v1/grid?courseId&shift&groups&hospitals&from&to&status` | Column model + group bands (real dates) + students + packed cells (total, attendance, state, criteria scores, version) + `unplaced[]` + counts + `dataSeq` |
-| `GET  /api/gc/v1/changes?courseId&since=` | Cells changed since a cursor (for live updates) |
-| `GET  /api/gc/v1/evaluations/:id` | Notes, feedback, journal history, times (popover and history) |
-| `GET  /api/gc/v1/review-queue?courseId` | Disputes, late saves, overdue items, unplaced items |
-| `POST /api/gc/v1/actions` | `approve_conflict` · `accept_late` · `reject_late` · `correct` · `lock` · `unlock` (scope: cell / group-day / group-week / stint / course), each with `expectedVersion`(s) and `reason` |
-| `GET  /api/gc/v1/export.xlsx?…` · `GET /api/gc/v1/print?…` | Outputs from the same builder |
-| `POST /api/gc/v1/close-course` | Runs the checks, locks the course, stores the snapshot |
-| `GET  /api/gc/v1/integrity` | Last integrity run + last backup + live counters |
+| `GET  /api/gc/v1/grid?courseId=&view=rotation\|calendar&cursor=` | The grid data: student rows (banded by group), column definitions, cell states. `cursor` supports the incremental refresh (§6). |
+| `GET  /api/gc/v1/cell?evaluationId=` | Full popover detail for one cell, including competing submissions if disputed. |
+| `POST /api/gc/v1/actions/approve-dispute` | `{ conflictId, chosenSubmissionId, note? }` → resolves the conflict (§5) |
+| `POST /api/gc/v1/actions/late` | `{ submissionId, decision: "accept" \| "reject" }` |
+| `POST /api/gc/v1/actions/correct` | `{ evaluationId, reason, ...newValues }` — version-checked (§5) |
+| `POST /api/gc/v1/actions/lock` · `POST /api/gc/v1/actions/unlock` | `{ scope: "cell" \| "group_day" \| "group_week" \| "stint" \| "course", ...scopeIds }` |
+| `GET  /api/gc/v1/review-queue?courseId=` | Disputes, late-saves, overdue, unplaced — for the Review Queue panel |
+| `GET  /api/gc/v1/export?courseId=&format=xlsx\|print&groupId=` | The Excel/print builder, same function as the grid renderer (§7) |
+| `POST /api/gc/v1/courses/:id/close` | Runs the §8 checks; closes or returns which check(s) failed |
 
-Every POST requires an admin session, a JSON body and a matching `Origin` header. Every action is audited. **Exports are audited too** (who exported what and when), because they contain personal data.
-
-## D.4 Live updates without losing a change
-
-- Every evaluation write sets `changeSeq = nextval('evaluation_change_seq')` inside its transaction.
-- The client (TanStack Query) polls `/changes?since=<cursor − overlap>` every **15 s while the tab is visible** and merges cells **by `version`**: a higher version wins, and an equal version is ignored.
-- **Safety net:** a full grid refetch when the window regains focus and every 5 minutes. A banner appears if a full refetch finds a cell the incremental path missed; it should never happen, and it is logged.
-- A small server endpoint answers only changed cells, so polling stays light on the free Neon compute.
-
-## D.5 Zero-data-loss guarantees (layers)
-
-| Layer | Guarantee |
-|---|---|
-| **Database role** | The app connects with a restricted Postgres role that has **no `DELETE`** on `evaluations`, `evaluation_scores` or `evaluation_submissions`, and **no `UPDATE`** on `evaluation_submissions`. Migrations run with the owner role. |
-| **Triggers** | `evaluation_submissions` is append-only (a trigger raises an error on UPDATE or DELETE). `CHECK` constraints enforce score ≥ 0, a valid attendance value and a valid state. |
-| **Transactions** | Journal + evaluation + scores + audit commit together or not at all. |
-| **Optimistic concurrency** | Every admin action carries `expectedVersion`. A mismatch returns **409 "changed since you opened it"** and a refresh, so there are no lost updates between two admins. |
-| **Nightly integrity check** | Recomputes every total from its scores. Checks that every applied submission maps to an evaluation, that there are no orphans, and that placed + unplaced = total. Results go into `IntegrityRun` and turn red on the Integrity panel if anything is off. |
-| **Backups** | **Nightly `pg_dump` from GitHub Actions → encrypted → Cloudflare R2**. Retention: 30 daily + 12 monthly. The job writes a `BackupRun` heartbeat; the panel turns red after 36 h without a successful run. |
-| **Restore drill** | Monthly: restore the latest dump into a temporary Neon branch and run the integrity check on it. |
-| **Course close** | A frozen xlsx + JSON snapshot with a SHA-256 checksum, stored in R2 and recorded in `CourseSnapshot`. |
-
-Why these backups: Neon's free plan only keeps a **6-hour** restore window, and the earlier snapshot routine failed with a quota error (see `PROJECT_GOALS.md`). `pg_dump` to R2 is free, off-platform and well documented by Neon.
-
-## D.6 Final grade
-
-- The final grade is computed by a **versioned `CourseGradePolicy`**, never hard-coded.
-- **Proposed default** (to be confirmed by you): final % = mean of daily totals ÷ rubric max × 100, where absent days count as 0; pass mark 60 %.
-- Until you confirm the formula, the final column is labeled **"مؤقت" (provisional)**.
-- Changing the policy creates a new version, and old exports keep the version they used.
+Every POST requires `requireRole("ADMIN")`, a matching `Origin` header (the evaluator app's CSRF rule applies equally here), and a JSON body.
 
 ---
 
-# Part E: Tool choices (researched, all free)
+## 11. Engine: pure functions
 
-| Need | Choice | Why (and alternatives rejected) |
+The two views (§2), the export builder (§7), and the read API (§10) all call **one** function:
+
+```ts
+function buildGradeGrid(input: {
+  course: CourseWithMatrix;      // from Course Setup's published matrix
+  students: StudentWithGroup[];
+  evaluations: EvaluationWithScores[];
+  conflicts: EvaluationConflict[];
+  view: "rotation" | "calendar";
+}): GradeGrid   // { columns, rows, summary } — pure, no DB access inside
+```
+
+`cellState(evaluation, submission, conflict, today, gradePolicy): CellState` is the per-cell classifier (§3's table, as code) — also pure, also unit-testable in isolation, matching the pattern already established in `src/lib/courseSetup/` and `src/lib/evaluator/validation.ts`: business rules that don't need a database live as small, directly-tested functions; only the thin model layer around them touches Prisma.
+
+**Property tests** (`fast-check`, per `FINAL_PLAN.md` §7): generate random combinations of evaluations/conflicts/schedules and assert the invariant that matters most — every evaluation is placed in exactly one cell, and placed + unplaced always equals the total evaluation count for the course.
+
+---
+
+## 12. Design system
+
+Inherits `FINAL_PLAN.md` §8 in full: navy `#1a5276` single accent, cohort colors (Morning `#2980b9` / Evening `#8e44ad`), status colors (present `#27ae60` / absent `#c0392b` / warning `#e67e22`), Cairo type at the compact scale, Phosphor line icons, `cubic-bezier(.22,1,.36,1)` easing at 150–250ms. Admin-specific from §8: dense grids, pinned headers, list dividers (no nested cards), a confirmation dialog for every decision (§5).
+
+The score-band tint (§0.6) is a **third** signal layered under color-coded status and icon+text — never the only way a state is communicated.
+
+---
+
+## 13. Risk register
+
+| # | Risk | Answer |
 |---|---|---|
-| Grid engine | **TanStack Table v8** (MIT, headless) | Nested column groups (hospital → week → day) and column pinning are built in. All features are free, with no community/enterprise split. Headless means full control of RTL, Tailwind and our multi-state cells. **AG Grid Community** (MIT) also has column groups and RTL, but its styling and cell renderers fight a custom design, and several of its advanced features are Enterprise-only. |
-| Virtualization | **TanStack Virtual** (MIT), **rows only** | Supports RTL (`isRtl` + `dir="rtl"`); RTL programmatic scrolling was fixed upstream, so pin a version that includes that fix. Column virtualization combined with multi-level header groups is a known pain point, so columns are kept manageable by **collapsible hospitals** instead. |
-| Popover / Dialog / Sheet | **shadcn/ui on Base UI** (your snippet's `render` prop API) | Base UI handles focus (moves into the popup, returns on close), collision-aware positioning, and optional hover delay (not used). MIT, copied into the repo. |
-| Data fetching | **TanStack Query v5** (MIT) | `refetchInterval`, pause when hidden, refetch on focus, structural sharing (only changed cells re-render). |
-| Excel | **exceljs** (already installed, MIT) | Merged multi-level headers, frozen panes, right-to-left sheet view (already used in `/api/my/export`). |
-| Print | CSS print stylesheet (A3 landscape, one group per page) | No library needed |
-| Numbers | Postgres `NUMERIC(5,2)` + Prisma `Decimal` | Exact decimals; float is for measurements, not grades |
-| Backups | GitHub Actions cron + `pg_dump` + **Cloudflare R2** (10 GB free, free egress) | Neon's own documented pattern; off-platform |
-| Tests | **Vitest** + **fast-check** (property tests, both MIT) + Playwright (already in devDeps) | Property tests prove "every evaluation appears exactly once" for random matrices |
-| Icons / font | Phosphor · IBM Plex Sans Arabic (self-hosted) | Same as the evaluator app |
-
-**Accessibility pattern:** WAI-ARIA **data grid**. `role="grid"`, row and column headers, and a roving tabindex (one focusable cell). Arrow keys move between cells (mirrored in RTL), Home/End go to the row start or end, and Ctrl+Home/End go to the grid corners. **Enter opens the popover**, Esc closes it and returns to the cell, and Tab leaves the grid.
+| G1 | Matrix edited after grading hides existing grades | Evaluations keep their own placement independent of the live matrix; a mismatch surfaces in the Unplaced tray (§5) instead of the grade disappearing |
+| G2 | Live updates miss a change between polls | Incremental cursor + a periodic full safety refresh underneath (§6) |
+| G3 | Two admins act on the same cell at once | Version check on every action → `409` "changed since you opened it" (§5) |
+| G4 | Export drifts from what the grid actually shows | One `buildGradeGrid` function feeds the screen, the Excel export, and print (§7, §11) |
+| G5 | A grade is silently lost between "evaluated" and "shows up on the grid" | The placed+unplaced invariant is enforced by property tests (§11) and made visible in the Review Queue (§5), not just asserted in code |
+| G6 | Admin correction overwrites history | Corrections write a new `EvaluationSubmission` row (`source: "admin_correction"`), never an in-place update (§5) |
+| G7 | Course closes with disputes/late-saves/missing items still open | The four §8 checks block close and say specifically what's outstanding |
+| G8 | Closed course data changes after close | `CourseSnapshot` checksum (§8, §9) for a later integrity check to compare against |
+| G9 | Grade formula changes retroactively reinterpret an old grade | `CourseGradePolicy` is versioned (§9); a formula change is a new version, applied going forward, never rewriting history |
+| G10 | Rubric wording/scale change reinterprets an already-graded evaluation | `RubricVersion` (§9) — an evaluation keeps the rubric version it was graded against |
 
 ---
 
-# Part F: Implementation instructions (for whoever builds it)
+## 14. Build order
 
-1. **Read first.** Per `AGENTS.md`, read the Next.js 16 guides in `node_modules/next/dist/docs/` (route handlers, caching) before writing code. Then read `docs/MEMORY.md` and this file.
-2. **Folder layout:**
-   ```
-   src/features/grading-center/
-     model/buildGradeGrid.ts      ← pure: (matrix, students, evaluations, policy) → grid; no I/O
-     model/buildGradeGrid.test.ts ← unit + fast-check property tests
-     model/cellState.ts           ← one function decides a cell's state (used by UI, Excel, print)
-     server/queries.ts            ← Prisma reads (2–3 queries, no N+1)
-     server/actions.ts            ← journaled admin actions with expectedVersion
-     api/…/route.ts               ← thin handlers: auth → validate (zod) → call server/*
-     ui/GradeGrid.tsx             ← TanStack Table + Virtual, roving focus, sticky
-     ui/CellPopover.tsx           ← single controlled Base UI popover
-     ui/ActionDialog.tsx · ui/StudentSheet.tsx · ui/ReviewQueue.tsx · ui/StatusLine.tsx
-     export/buildWorkbook.ts      ← exceljs from buildGradeGrid output
-   ```
-3. **Rules:**
-   - Components never call Prisma.
-   - Every number is displayed through `formatScore()` (one decimal, tabular numerals).
-   - Every date goes through the Baghdad date helpers; never `new Date(dateISO)` math in UTC.
-   - Every mutation goes through `server/actions.ts`.
-   - Every cell state comes from `cellState.ts`.
-4. **Write tests first** for `buildGradeGrid` and `cellState`. Invariants to prove:
-   - every evaluation is placed exactly once or listed as unplaced
-   - totals equal the sum of scores
-   - group bands show the dates from the matrix
-   - holidays never produce a "missing" state
-   - disputed cells are excluded from averages
-5. **UI setup:** `npx shadcn@latest init` (choose Base UI, Tailwind v4), then add `popover dialog sheet button tooltip`. Keep `<html dir="rtl">`. Use logical CSS properties (`inset-inline-start`, `ps-*`/`pe-*`), never left/right.
-6. **Performance budget:** 500 students × 40 day-columns must render its first view in under 1.5 s and scroll at 60 fps on a mid-range laptop. The grid payload must be under 300 KB gzipped.
-7. **Definition of done for each step:** type-check, lint, unit tests and Playwright pass, **the integrity check passes on seeded data**, and `docs/MEMORY.md` is updated.
+Cross-referenced against `FINAL_PLAN.md` §9's phase table, whose own step IDs (D5/D7/D8/D9, U4) this plan's G-numbers map onto:
 
----
-
-# Part G: Attack on the plan (errors and vulnerabilities, with fixes)
-
-| # | Sev | Attack: "what if…" | Fix (built into the plan) |
+| Step | Deliverable | Verification | FINAL_PLAN.md step |
 |---|---|---|---|
-| G1 | 🔴 | The matrix is edited after grades exist, so evaluations no longer match any column and **vanish from the grid** | Placement uses the evaluation's own saved keys (D.2). Any mismatch goes to the **Unplaced tray**, and the counter proves placed + unplaced = total. Goal 1 blocks edits to already-graded weeks. |
-| G2 | 🔴 | **Incremental updates miss a change.** Sequence numbers are handed out before commit, so a slower transaction can commit a lower number after the client has already read past it. | Overlap cursor + merge by `version` + full refetch on focus and every 5 min + a logged alarm if the safety net ever catches something (D.4) |
-| G3 | 🔴 | **Two admins decide the same dispute** at the same time, or act on stale data | `expectedVersion` on every action → 409 + refresh (D.5) |
-| G4 | 🔴 | A bug or bad query **deletes or rewrites history** | The DB role has no DELETE; the append-only trigger; nightly integrity check; backups + restore drill (D.5) |
-| G5 | 🟠 | A student **moves group** mid-course, so the row shows the wrong dates or loses old cells | Cells are placed by the evaluation's snapshot. The row appears in the current group's band with a "انتقل" (moved) marker, and cells from the old group show their own real dates in the popover. |
-| G6 | 🟠 | A group visits the same hospital **twice**, or stints have different lengths | The column model is computed from the matrix as the **max weeks per visit**, and repeat visits get "زيارة 2" (visit 2) columns. Cells that don't exist for a group show "not scheduled". Covered by property tests. |
-| G7 | 🟠 | **Holidays and make-up days** break the "day 1 / day 2" alignment | Holiday = hatched cell, never "missing". A make-up date from the matrix gets an extra "يوم إضافي" (extra day) column in that week. |
-| G8 | 🟠 | **Float rounding** (e.g., 0.1 + 0.2) makes totals or averages differ between screen and Excel | NUMERIC storage, server totals, one `formatScore()`, and one builder for every output (D.1) |
-| G9 | 🟠 | An **admin correction silently overrides** an evaluator | Correction is journaled with a mandatory reason, shows the ✎ marker, the evaluator is informed in their app, and the history shows before and after |
-| G10 | 🟠 | An **accidental click-outside** on a popover half-completes an action | No actions inside the popover; Dialog with confirmation and reason (Part C) |
-| G11 | 🟠 | **Hover-opening popovers** flicker in a dense grid and open by accident | Click or Enter only; hover only prefetches |
-| G12 | 🟠 | **Thousands of popover instances** make the page slow | One controlled popover anchored to the active cell |
-| G13 | 🟠 | **Very wide courses** (8 hospitals × 4 weeks × 3 days = 96 columns) are unusable, and column virtualization with header groups is fragile | Collapsible hospitals (summary columns); rows-only virtualization; performance budget tested in CI |
-| G14 | 🟠 | **RTL bugs**: sticky column on the wrong side, broken scroll-to-cell | Logical CSS properties; TanStack Virtual `isRtl` pinned to a version with the RTL scroll fix; Playwright RTL test for scroll-to-cell from the Review Queue |
-| G15 | 🟠 | A **rubric version changes** mid-course, so totals are out of different maxima | Each cell shows its own version's criteria; averages are computed on **%**; the popover shows the version |
-| G16 | 🟠 | **Backups fail silently** (this already happened with the Neon snapshot routine) | `BackupRun` heartbeat + red panel after 36 h + GitHub Actions failure email + monthly restore drill |
-| G17 | 🟡 | The **Excel differs from the screen** | Same `buildGradeGrid()`; the export footer shows `dataSeq`, generation time and counts |
-| G18 | 🟡 | **Personal data leaks** through exports | Admin-only; exports audited; the file shows the exporter's name and time |
-| G19 | 🟡 | **CSRF** on admin actions | JSON-only + Origin check + SameSite=Lax |
-| G20 | 🟡 | **Timezone drift** puts a grade on the wrong day | Dates are Baghdad `YYYY-MM-DD` strings end to end; no UTC `Date` arithmetic |
-| G21 | 🟡 | **Color-only meaning**, keyboard traps, or unreadable cells | Icons + text per state; WAI-ARIA grid; every cell has a screen-reader label such as "علي حسن، اليرموك، الأسبوع 2 اليوم 1، 12/10، 12 من 15" (Ali Hassan, Yarmouk, week 2 day 1, 12/10, 12 of 15) |
-| G22 | 🟡 | **Long-open tab** grows memory or re-renders everything every poll | Cells kept in a Map by key; merge only changed cells; structural sharing |
-| G23 | 🟡 | **Inactive students** disappear although they have grades | Students with any evaluation are always shown (marked "غير فعّال", inactive) |
-| G24 | 🟡 | The **final grade formula is undefined**, so the wrong grades get published | Versioned policy; the final column stays "provisional" until you confirm the formula (question 1) |
-| G25 | 🟡 | The **course is closed with open items** | Close-course check blocks on missing, disputed or late items, or requires an explicit admin override with a reason |
+| **G-1** | Schema additions (§9: `CourseGradePolicy`, `RubricVersion`, `GradeDecisionVersion`, `CourseSnapshot`) | Migration applies cleanly; existing rubric backfilled as version 1 | D2 (schema), shared with S1/E1 |
+| **G-2** | `buildGradeGrid` + `cellState` pure engine (§11), unit + property tested | Placed+unplaced invariant holds under generated inputs | D5 |
+| **G-3** | Read API: `/grid`, `/cell`, `/review-queue` (§10) | A seeded course renders correctly via the API alone (no UI yet) | D5 |
+| **G-4** | Grid UI: rotation + calendar views, virtualized, pinned headers, keyboard nav (§2, §3) — **on sample data first**, per `FINAL_PLAN.md` Phase 2's no-DB-writes rule | 500×40 scrolls smoothly; 375px and 1440px both work; keyboard-only pass |
+| **G-5** | Popover + student sheet + Review Queue UI (§4, §5) — sample data | Disputed cell shows both grades correctly side by side |
+| **G-6** | Actions: approve-dispute, accept/reject-late, correct, lock/unlock, all version-checked (§5, §10) — wired to real data | Concurrent same-cell edit → 409; correction preserves history |
+| **G-7** | Close-course flow (§8) | Blocks correctly on each of the 4 unmet conditions individually |
+| **G-8** | Exports: Excel (merged headers) + print-per-group (§7) | File numbers match the grid, cell by cell |
+| **G-9** | Live updates: incremental cursor + safety refresh (§6) | A change made by one admin appears for another within 15s without a full reload |
+| **G-10** | Wire everything to real data end-to-end; retire the old `/grading-center` routes with a redirect | Old URLs redirect; nothing orphaned; full acceptance run per `FINAL_PLAN.md` D10 |
 
----
-
-# Part H: Build order
-
-| Step | Deliverable | Verification |
-|---|---|---|
-| **G-1** | Schema additions (D.2), NUMERIC migration of scores and totals (a data-preserving cast verified by a before/after sum check), the restricted DB role, append-only trigger, CHECK constraints | Migration test on a Neon branch copy; the sum of all totals is identical before and after |
-| **G-2** | `buildGradeGrid` + `cellState` (pure) with unit and property tests | 100 % of invariants pass on random matrices |
-| **G-3** | Read API: `/grid`, `/changes`, `/evaluations/:id`, `/review-queue` | Query count ≤ 3 per grid call; payload budget met |
-| **G-4** | Grid UI: rotation layout, group bands, sticky header and column, collapsible hospitals, virtualization, roving keyboard focus, status line, filters in the URL | Playwright: keyboard navigation, RTL sticky, 500×40 performance |
-| **G-5** | Popover (single controlled) + Student sheet + Calendar layout | Popover shows the criteria with no network wait; Esc returns focus |
-| **G-6** | Actions + Dialogs + Review Queue (approve dispute, accept or reject late, correct, lock/unlock scopes) with `expectedVersion` | Two-admin race → one succeeds, one gets 409; journal + audit rows present |
-| **G-7** | Live updates (TanStack Query polling + overlap cursor + safety net) | Simulated out-of-order commits never lose a cell |
-| **G-8** | Excel (3-level merged headers, frozen panes, RTL, detail sheet, footer) + print CSS + export audit | Numbers in the file equal the grid, compared cell by cell in a test |
-| **G-9** | Integrity job + Integrity panel + GitHub Actions `pg_dump` → R2 + `BackupRun` heartbeat + restore drill script | Break a total on purpose → panel turns red; restore drill passes |
-| **G-10** | Close-course flow + snapshot (checksum) + grade policy (after you confirm the formula); remove the old grading-center code | End-to-end: seed course → evaluators grade → dispute → approve → close → snapshot checksum verifies |
-
-**Overall order across goals:** Goal 1 (S1–S9) → Goal 2 engine (E1–E5) → **Goal 3 (G-1…G-10)** → Goal 2 app (E6–E10). The Grading Center comes before the evaluator front end because it is the most valuable function and it is where the evaluator engine's data is verified.
-
----
-
-## Questions for you
-
-1. **Final grade formula:** how does the college turn daily totals into the final clinical mark? Is it the average of days, a weighting per hospital, an absence penalty? What is the pass mark (60 %?)? Until you answer, the final column is shown as provisional.
-2. **Summary per hospital:** show the average daily total (default) or the sum?
-3. **Admin correction:** may an admin change an evaluator's grade (with a reason), or only approve/reject what evaluators submitted? Default: **allowed, with a mandatory reason and full history.**
-4. **Cell color scale:** keep a subtle tint by % (default), or plain numbers only?
-
-## References (researched 2026-09-28)
-
-- TanStack Table: [Header Groups guide](https://tanstack.com/table/v8/docs/guide/header-groups) · [Pinning guide](https://tanstack.com/table/v8/docs/guide/pinning) · [Virtualization guide](https://tanstack.com/table/v8/docs/guide/virtualization) · [column virtualization + header groups discussion](https://github.com/TanStack/table/discussions/5557)
-- TanStack Virtual: [RTL programmatic scroll fix, PR #1291](https://github.com/TanStack/virtual/pull/1291) · [Virtualizer API](https://tanstack.com/virtual/latest/docs/api/virtualizer)
-- TanStack Query: [Polling](https://tanstack.com/query/latest/docs/framework/react/guides/polling) · [Important defaults](https://tanstack.com/query/latest/docs/framework/react/guides/important-defaults)
-- shadcn/ui + Base UI: [shadcn Popover (Base UI)](https://ui.shadcn.com/docs/components/base/popover) · [Base UI Popover](https://base-ui.com/react/components/popover)
-- AG Grid comparison: [TanStack Table vs AG Grid (2026)](https://www.simple-table.com/blog/tanstack-table-vs-ag-grid-comparison) · [TanStack on AG Grid](https://tanstack.com/table/v8/docs/enterprise/ag-grid)
-- Accessibility: [Accessible data grid guide](https://accessibility.build/guides/accessible-data-grid) · [UXPin: keyboard patterns for complex widgets](https://www.uxpin.com/studio/blog/keyboard-navigation-patterns-complex-widgets/)
-- Numbers: [PostgreSQL numeric types](https://www.postgresql.org/docs/current/datatype-numeric.html) · [Crunchy Data: choosing a number format](https://www.crunchydata.com/blog/choosing-a-postgresql-number-format)
-- Concurrency: [Prisma transactions and optimistic concurrency](https://www.prisma.io/docs/orm/prisma-client/queries/transactions)
-- Backups: [Neon plans (free restore window)](https://neon.com/docs/introduction/plans) · [Neon: automate pg_dump backups](https://neon.com/docs/manage/backup-pg-dump-automate) · [Neon: nightly backups with GitHub Actions](https://neon.com/docs/manage/backups-aws-s3-backup-part-2) · [Cloudflare R2 free tier](https://nubbo.app/blog/cloudflare-r2-free-tier/)
-- Excel: [exceljs on npm](https://www.npmjs.com/package/exceljs)
+**On G-4/G-5's "sample data first" note:** this follows `FINAL_PLAN.md` Phase 2's explicit rule (clickable screens, no database writes, reviewed with the user before Phase 3's engine work) — a deliberate change from how Goals 1 and 2 were built in this repo so far (schema-and-model-first, evolved directly against the live database). Whoever picks up G-4 should confirm with the user whether to follow that mockup-first sequencing strictly, or continue the pragmatic "evolve in place" pattern already used for Course Setup and the Evaluator App sessions work — the two approaches have different review checkpoints and shouldn't be mixed silently mid-build.
 
 ---
 

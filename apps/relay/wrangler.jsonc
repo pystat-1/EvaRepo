@@ -1,0 +1,26 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "eva-relay",
+  // The EvaRepo Cloudflare account (the login sees more than one).
+  "account_id": "9db2b1bedabd416a8c7f0a2fe58d9cfa",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  // The evaluator phone app (built into apps/evaluator/dist) is served as
+  // static files: no Worker CPU for them. Unknown paths fall back to the
+  // app's index.html (single-page app); only the API reaches the Worker.
+  "assets": {
+    "directory": "../evaluator/dist",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*", "/admin/*"]
+  },
+  // Encrypted backups from Eva Desktop (private bucket; only /admin/* reaches it).
+  "r2_buckets": [{ "binding": "BACKUPS", "bucket_name": "eva-backups" }],
+  "d1_databases": [
+    { "binding": "DB", "database_name": "eva-relay", "database_id": "3a752794-cc9d-4d93-952b-bad958136072", "migrations_dir": "migrations" }
+  ],
+  // Evaluators sign in on their phones with Google. The OAuth web client ID
+  // is public (it is in every sign-in page); empty = phone sign-in is off.
+  "vars": { "GOOGLE_CLIENT_ID": "580192730512-kdji5ub3drdsi6v10hha5k2bh3jsd2k9.apps.googleusercontent.com" }
+  // Secret (set once with `wrangler secret put ADMIN_TOKEN`): ADMIN_TOKEN
+}

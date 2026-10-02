@@ -1,0 +1,140 @@
+name: Eva Desktop (Windows installer and updates)
+
+# Builds the Windows installer on GitHub-hosted Windows runners.
+#   - Run by hand from the Actions tab: the installer is attached to the run.
+#   - Push a tag like "desktop-v0.2.0": a GitHub Release is published with
+#     the installer, its update signature and latest.json. Installed copies
+#     of Eva find it within 6 hours and offer the update (backup first). The
+#     tag's version must match apps/desktop/src-tauri/tauri.conf.json.
+#
+# Update signing (Tauri key) — repository secrets:
+#   TAURI_SIGNING_PRIVATE_KEY, TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+# Windows code signing (SignPath Foundation, docs/CODE_SIGNING_POLICY.md) —
+# repository secret SIGNPATH_API_TOKEN and variables SIGNPATH_ORGANIZATION_ID,
+# SIGNPATH_PROJECT_SLUG, SIGNPATH_POLICY_SLUG. When they are set, the app
+# (eva-desktop.exe) is signed first, the installer is built around the signed
+# app and then signed too, and the update signature is made over the signed
+# installer. Each signing request waits for manual approval in SignPath.
+on:
+  workflow_dispatch:
+  push:
+    tags: ["desktop-v*"]
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+      actions: read
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      CODESIGN: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' }}
+      NSIS_DIR: apps/desktop/src-tauri/target/release/bundle/nsis
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+      - run: npm ci
+      - name: Tests
+        run: npx vitest run
+      - name: Tag matches the app version
+        if: startsWith(github.ref, 'refs/tags/desktop-v')
+        shell: bash
+        run: |
+          want="${GITHUB_REF_NAME#desktop-v}"
+          have=$(node -p "require('./apps/desktop/src-tauri/tauri.conf.json').version")
+          [ "$want" = "$have" ] || { echo "tag $want but app version $have"; exit 1; }
+
+      # ---- without Windows code signing: one step ----
+      - name: Build installer
+        if: env.CODESIGN != 'true'
+        working-directory: apps/desktop
+        shell: bash
+        run: |
+          if [ -n "$TAURI_SIGNING_PRIVATE_KEY" ]; then npx tauri build
+          else echo "::warning::no update signing key: building without update files"; npx tauri build --config '{"bundle":{"createUpdaterArtifacts":false}}'; fi
+
+      # ---- with Windows code signing (SignPath) ----
+      - name: Build the app
+        if: env.CODESIGN == 'true'
+        working-directory: apps/desktop
+        run: npx tauri build --no-bundle
+      - name: Upload the app for signing
+        if: env.CODESIGN == 'true'
+        id: unsigned-app
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-app
+          path: apps/desktop/src-tauri/target/release/eva-desktop.exe
+      - name: Sign the app
+        if: env.CODESIGN == 'true'
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_POLICY_SLUG }}
+          artifact-configuration-slug: app
+          github-artifact-id: ${{ steps.unsigned-app.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 7200
+          output-artifact-directory: signed-app
+      - name: Build the installer around the signed app
+        if: env.CODESIGN == 'true'
+        shell: bash
+        run: |
+          cp signed-app/eva-desktop.exe apps/desktop/src-tauri/target/release/eva-desktop.exe
+          cd apps/desktop && npx tauri bundle --bundles nsis
+      - name: Upload the installer for signing
+        if: env.CODESIGN == 'true'
+        id: unsigned-installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-installer
+          path: ${{ env.NSIS_DIR }}/*-setup.exe
+      - name: Sign the installer
+        if: env.CODESIGN == 'true'
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_POLICY_SLUG }}
+          artifact-configuration-slug: installer
+          github-artifact-id: ${{ steps.unsigned-installer.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 7200
+          output-artifact-directory: signed-installer
+      - name: Update signature over the signed installer
+        if: env.CODESIGN == 'true'
+        shell: bash
+        run: |
+          cp signed-installer/*-setup.exe "$NSIS_DIR/"
+          rm -f "$NSIS_DIR"/*.sig
+          for f in "$NSIS_DIR"/*-setup.exe; do npx --prefix apps/desktop tauri signer sign "$f"; done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Eva-setup
+          path: ${{ env.NSIS_DIR }}/*
+      - name: Update manifest (latest.json)
+        if: startsWith(github.ref, 'refs/tags/desktop-v')
+        shell: bash
+        run: node apps/desktop/scripts/update-manifest.mjs "${GITHUB_REF_NAME}" > latest.json
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/desktop-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Eva ${{ github.ref_name }}
+          draft: false
+          files: |
+            ${{ env.NSIS_DIR }}/*.exe
+            ${{ env.NSIS_DIR }}/*.exe.sig
+            latest.json

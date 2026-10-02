@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { ServiceWorkerRegistration } from "./sw-register";
+import InstallPrompt from "./InstallPrompt";
 
 export const metadata: Metadata = {
   title: "Eva — قاعدة بيانات الطلاب",
@@ -15,15 +16,16 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#1a5276",
+  themeColor: "#0e5c6b",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="ar" dir="rtl" className="h-full">
-      <body className="min-h-full flex flex-col bg-slate-50 text-slate-900 antialiased">
+      <body className="min-h-full flex flex-col antialiased">
         <ServiceWorkerRegistration />
         {children}
+        <InstallPrompt />
       </body>
     </html>
   );

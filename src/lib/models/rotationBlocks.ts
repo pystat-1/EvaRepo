@@ -1,7 +1,13 @@
 import { prisma } from "../db";
 import { recordAudit } from "../audit";
 import { isDateInScheduledDays } from "../weekdays";
-import { resolveHospitalId, resolveGroupId, type ImportResult } from "../importHelpers";
+import {
+  resolveHospitalId,
+  resolveGroupId,
+  recordImportAudit,
+  type ImportOptions,
+  type ImportResult,
+} from "../importHelpers";
 
 export interface RotationBlock {
   id: string;
@@ -160,7 +166,8 @@ export async function toggleRotationBlockActive(
 // always a new block (counted as "created"; there is no update path).
 export async function importRotationBlocks(
   actorId: string,
-  rows: Array<{ group: string; hospital: string; startDate: string; endDate: string; daysOfWeek?: string }>
+  rows: Array<{ group: string; hospital: string; startDate: string; endDate: string; daysOfWeek?: string }>,
+  opts: ImportOptions = { commit: true }
 ): Promise<ImportResult> {
   const result: ImportResult = { created: 0, updated: 0, errors: [] };
 
@@ -183,12 +190,17 @@ export async function importRotationBlocks(
         result.updated++;
         continue;
       }
-      await createRotationBlock(actorId, { groupId, hospitalId, startDate, endDate, daysOfWeek });
+      if (opts.commit) {
+        await createRotationBlock(actorId, { groupId, hospitalId, startDate, endDate, daysOfWeek });
+      }
       result.created++;
     } catch (err) {
       result.errors.push({ row: index + 2, message: err instanceof Error ? err.message : String(err) });
     }
   }
 
+  if (opts.commit) {
+    await recordImportAudit({ actorId, entityType: "RotationBlock", result });
+  }
   return result;
 }

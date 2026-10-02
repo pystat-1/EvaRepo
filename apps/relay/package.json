@@ -1,0 +1,18 @@
+{
+  "name": "@eva/relay",
+  "private": true,
+  "version": "0.1.0",
+  "license": "MIT",
+  "type": "module",
+  "description": "Eva relay: Cloudflare Worker + D1 mailbox between Eva Desktop and evaluator phones; also serves the evaluator app (apps/evaluator/dist) as static assets.",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "migrate": "wrangler d1 migrations apply eva-relay --remote"
+  },
+  "dependencies": {
+    "@eva/core": "*"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260930.2"
+  }
+}

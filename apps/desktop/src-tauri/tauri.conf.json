@@ -1,0 +1,66 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Eva",
+  "version": "0.4.1",
+  "identifier": "iq.edu.uobaghdad.conursing.eva",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Eva — إدارة بيانات التدريب السريري",
+        "width": 1280,
+        "height": 820,
+        "minWidth": 960,
+        "minHeight": 600
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src ipc: http://ipc.localhost https://*.workers.dev"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "nsis"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "nsis": {
+        "languages": [
+          "Arabic",
+          "English"
+        ],
+        "installMode": "currentUser"
+      }
+    },
+    "createUpdaterArtifacts": true,
+    "publisher": "Eva contributors",
+    "copyright": "Copyright (c) 2026 pystat-1 and Eva contributors. MIT licence.",
+    "shortDescription": "Eva — clinical training records",
+    "longDescription": "Eva Desktop: students, rotation, evaluators and daily grades for a nursing college's clinical training, stored on this computer.",
+    "homepage": "https://github.com/pystat-1/EvaRepo",
+    "license": "MIT",
+    "licenseFile": "../../../LICENSE"
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDY2OTFGQkExNzlCMTNGODIKUldTQ1A3RjVvZnVSWnRsdGkzTFVKVkdxN3hjelJ2VVhBaXFKUS8wN0pJbXROR0ZvTkdmZFF6VEsK",
+      "endpoints": [
+        "https://github.com/pystat-1/EvaRepo/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  }
+}

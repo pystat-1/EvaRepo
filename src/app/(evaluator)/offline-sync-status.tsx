@@ -41,8 +41,24 @@ export function OfflineSyncStatus() {
   useEffect(() => {
     refresh();
     sync();
+    // Sync on every realistic "connection might be back" signal, not just the
+    // `online` event (which is unreliable on flaky hospital Wi-Fi): also when
+    // the app is refocused/reopened, and on a slow periodic timer as a
+    // backstop. Each trigger is a no-op when offline or when the outbox is
+    // empty, and errored entries are retried on every pass.
+    const onVisible = () => {
+      if (document.visibilityState === "visible") sync();
+    };
     window.addEventListener("online", sync);
-    return () => window.removeEventListener("online", sync);
+    window.addEventListener("focus", sync);
+    document.addEventListener("visibilitychange", onVisible);
+    const interval = window.setInterval(sync, 60_000);
+    return () => {
+      window.removeEventListener("online", sync);
+      window.removeEventListener("focus", sync);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.clearInterval(interval);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

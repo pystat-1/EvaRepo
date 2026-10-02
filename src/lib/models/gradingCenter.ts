@@ -14,7 +14,8 @@ export interface GradingCenterFilters {
 }
 
 function buildEvaluationWhere(filters: GradingCenterFilters): Record<string, unknown> {
-  const where: Record<string, unknown> = {};
+  // Only grades an evaluator has validated (اعتماد) reach the admin.
+  const where: Record<string, unknown> = { pendingValidation: false };
   if (filters.hospitalId) where.hospitalId = filters.hospitalId;
   if (filters.groupId) where.groupId = filters.groupId;
   if (filters.evaluatorId) where.evaluatorId = filters.evaluatorId;
@@ -49,6 +50,7 @@ export interface GradingCenterRow {
   locked: boolean;
   notes: string | null;
   feedback: string | null;
+  dailyNoteSubmitted: boolean;
   studentId: string;
   studentName: string;
   studentCode: string | null;
@@ -89,7 +91,14 @@ export async function listGradingCenter(
   const [rawRows, total, maxTotal] = await Promise.all([
     prisma.evaluation.findMany({
       where,
-      orderBy: [{ dateISO: "desc" }, { createdAt: "desc" }],
+      // Group → student (alphabetical) → date, so each student's days read
+      // together instead of being scattered across a date-sorted log.
+      orderBy: [
+        { student: { group: { name: "asc" } } },
+        { student: { nameAr: "asc" } },
+        { dateISO: "asc" },
+        { createdAt: "asc" },
+      ],
       skip: (page - 1) * pageSize,
       take: pageSize,
       include: {
@@ -116,6 +125,7 @@ export async function listGradingCenter(
     locked: r.locked,
     notes: r.notes,
     feedback: r.feedback,
+    dailyNoteSubmitted: r.dailyNoteSubmitted,
     studentId: r.studentId,
     studentName: r.student.nameAr,
     studentCode: r.student.code,

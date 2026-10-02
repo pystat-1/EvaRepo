@@ -1,10 +1,12 @@
-name: Build and deploy to Netlify
+name: Build and deploy to Cloudflare Workers
 
-# Builds the app on GitHub's free runners, then uploads the finished build
-# to Netlify with `netlify deploy`. This deliberately never runs `netlify
-# build` ON Netlify's own infrastructure — it only ever receives a
-# pre-built artifact — so it does not consume Netlify's build-minute quota
-# at all, only the (much larger) GitHub Actions free tier.
+# Builds the OpenNext/Cloudflare output on GitHub's runner, then deploys it
+# with wrangler — same two steps `npm run cf:deploy` runs locally, just
+# authenticated via CLOUDFLARE_API_TOKEN instead of an interactive
+# `wrangler login`. Replaces the old Netlify workflow (see
+# PROJECT_GOALS.md's Goal 4 status box): the deploy target moved to this
+# Cloudflare Worker (`evarepo`) on 2026-09-15/16, but the CI pipeline was
+# never updated to match until now.
 on:
   push:
     branches: [main]
@@ -24,14 +26,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build (via Netlify's own build pipeline, run on this runner)
-        env:
-          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
-          NETLIFY_SITE_ID: 400fb70b-5646-424a-baf2-ae5cfd9e5e9b
-        run: npx netlify build
+      # Never deploy code that fails its checks.
+      - name: Type-check and unit tests
+        run: npx next typegen && npx tsc --noEmit -p . && npx vitest run
 
-      - name: Deploy pre-built output to Netlify (no build on their side)
+      - name: Build and deploy to Cloudflare Workers
         env:
-          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
-          NETLIFY_SITE_ID: 400fb70b-5646-424a-baf2-ae5cfd9e5e9b
-        run: npx netlify deploy --prod
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npm run cf:deploy

@@ -1,7 +1,8 @@
-import { isDateInScheduledDays } from "@/lib/weekdays";
+import { pickPlacement } from "@/lib/evaluator/placement";
 import type { RubricSection } from "@/lib/models/rubric";
 import type { Attendance } from "@/lib/models/evaluations";
 import { findOfflineStudent, getOfflineRubricSections, getOfflineEvaluation, getOfflineSchedule, getOutboxEntry } from "./db";
+import { todayISO } from "@/lib/date";
 
 // The subset of a saved (or queued) evaluation the grading form needs to
 // pre-fill its fields — a common shape for both the server's
@@ -10,17 +11,35 @@ export interface ExistingForForm {
   attendance: Attendance;
   notes: string | null;
   feedback: string | null;
+  dailyNoteSubmitted: boolean;
+  // Tri-state when known (null = not recorded); older data only has the
+  // boolean above.
+  dailyNote?: boolean | null;
   scores: Record<string, number>;
+  itemScores?: Record<string, number>;
+}
+
+// Today's attendance record from the الحضور / الديلي نوت screens, used to
+// pre-fill a student who hasn't been graded yet.
+export interface DayRecordForForm {
+  attendance: Attendance;
+  dailyNote: boolean | null;
 }
 
 export interface GradeViewData {
   ok: true;
   dateISO: string;
   student: { nameAr: string; nameEn: string | null; universityNumber: string };
+  groupId?: string;
   hospitalName: string;
+  // The schedule doesn't list this day for the group (moved by a holiday).
+  offSchedule?: boolean;
+  // The day's grades are validated (اعتماد): the form is read-only.
+  dayValidated?: boolean;
   sections: RubricSection[];
   maxTotal: number;
   existing: ExistingForForm | null;
+  record?: DayRecordForForm | null;
 }
 
 export type GradeViewFailure = {
@@ -30,10 +49,6 @@ export type GradeViewFailure = {
 };
 
 export type GradeViewResult = GradeViewData | GradeViewFailure;
-
-function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
-}
 
 // Rebuilds the same "can this evaluator grade this student today, and with
 // what rubric/existing-answers" view the /api/grade/[studentId] route
@@ -47,16 +62,11 @@ export async function loadOfflineGradeData(studentId: string): Promise<GradeView
   if (!found) return { ok: false, reason: "out_of_scope" };
 
   const schedule = (await getOfflineSchedule()) ?? [];
-  const stint = schedule.find(
-    (s) =>
-      s.groupId === found.groupId &&
-      s.startDate <= dateISO &&
-      s.endDate >= dateISO &&
-      isDateInScheduledDays(dateISO, s.daysOfWeek)
-  );
-  if (!stint) return { ok: false, reason: "not_scheduled" };
+  const placement = pickPlacement(schedule, found.groupId, dateISO);
+  if (!placement) return { ok: false, reason: "not_scheduled" };
 
-  const sections = (await getOfflineRubricSections()) ?? [];
+  // Bundles imported before rubric items existed have no `items` field.
+  const sections = ((await getOfflineRubricSections()) ?? []).map((s) => ({ ...s, items: s.items ?? [] }));
   const maxTotal = sections.reduce((sum, s) => sum + s.maxScore, 0);
 
   // A not-yet-synced local save takes priority over the last-known server
@@ -65,16 +75,33 @@ export async function loadOfflineGradeData(studentId: string): Promise<GradeView
   const queued = await getOutboxEntry(studentId, dateISO);
   const saved = queued ? undefined : await getOfflineEvaluation(studentId, dateISO);
   const existing: ExistingForForm | null = queued
-    ? { attendance: queued.attendance, notes: queued.notes ?? null, feedback: queued.feedback ?? null, scores: queued.scores }
+    ? {
+        attendance: queued.attendance,
+        notes: queued.notes ?? null,
+        feedback: queued.feedback ?? null,
+        dailyNoteSubmitted: queued.dailyNoteSubmitted ?? false,
+        dailyNote: queued.dailyNote,
+        scores: queued.scores,
+        itemScores: queued.itemScores,
+      }
     : saved
-    ? { attendance: saved.attendance, notes: saved.notes, feedback: saved.feedback, scores: saved.scores }
+    ? {
+        attendance: saved.attendance,
+        notes: saved.notes,
+        feedback: saved.feedback,
+        dailyNoteSubmitted: saved.dailyNoteSubmitted,
+        scores: saved.scores,
+        itemScores: saved.itemScores,
+      }
     : null;
 
   return {
     ok: true,
     dateISO,
     student: { nameAr: found.student.nameAr, nameEn: found.student.nameEn, universityNumber: found.student.universityNumber },
-    hospitalName: stint.hospitalName,
+    groupId: found.groupId,
+    hospitalName: placement.hospitalName,
+    offSchedule: !placement.scheduled,
     sections,
     maxTotal,
     existing,

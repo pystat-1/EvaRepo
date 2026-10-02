@@ -9,6 +9,9 @@ import { listEvaluators } from "@/lib/models/evaluators";
 import AutoRefresh from "@/components/AutoRefresh";
 import Pager from "@/components/Pager";
 import GradingTree from "@/components/GradingTree";
+import GradingSheet from "@/components/GradingSheet";
+import { getGradingSheet, GradingSheetFilters } from "@/lib/models/gradingSheet";
+import SheetBackupButton from "./SheetBackupButton";
 
 const ATTENDANCE_LABEL: Record<string, string> = { present: "حاضر", late: "متأخر", absent: "غائب" };
 const ATTENDANCE_BADGE: Record<string, string> = {
@@ -17,8 +20,8 @@ const ATTENDANCE_BADGE: Record<string, string> = {
   absent: "badge-red",
 };
 
-const BAR_HUE = "#1a5276"; // the app's own --brand — one hue for a plain magnitude comparison, no legend needed
-const SEQ_RGB = "26,82,118"; // --brand as r,g,b, for the heatmap's sequential ramp
+const BAR_HUE = "#0e5c6b"; // the app's own --brand — one hue for a plain magnitude comparison, no legend needed
+const SEQ_RGB = "14,92,107"; // --brand as r,g,b, for the heatmap's sequential ramp
 
 function pct(x: number): string {
   return `${Math.round(x * 100)}٪`;
@@ -32,23 +35,27 @@ export default async function GradingCenterPage({
   const sp = await searchParams;
   const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v) || undefined;
   const page = typeof sp.page === "string" ? Number(sp.page) || 1 : 1;
-  const mode = sp.mode === "tree" ? "tree" : "table";
+  // "sheet" (the gradebook matrix) is the default view; the flat table and the
+  // tree navigator stay reachable from the toggle.
+  const mode = sp.mode === "tree" ? "tree" : sp.mode === "table" ? "table" : "sheet";
+
+  const modeCls = "text-xs font-bold rounded px-3.5 py-1.5";
+  const modeStyle = (active: boolean) =>
+    active ? { background: "var(--brand-dark)", color: "white" } : { color: "var(--ink-muted)" };
 
   const ModeToggle = (
-    <div className="inline-flex bg-white border border-slate-200 rounded-lg p-0.5 gap-0.5">
-      <a
-        href="/grading-center"
-        className={`text-xs font-bold rounded-md px-3.5 py-1.5 ${mode === "table" ? "text-white" : "text-slate-500"}`}
-        style={mode === "table" ? { background: "#1a5276" } : undefined}
-      >
-        📋 جدول
+    <div
+      className="inline-flex rounded-md p-0.5 gap-0.5"
+      style={{ background: "var(--surface-raised)", border: "1px solid var(--border-strong)" }}
+    >
+      <a href="/grading-center" className={modeCls} style={modeStyle(mode === "sheet")}>
+        ورقة الدرجات
       </a>
-      <a
-        href="/grading-center?mode=tree"
-        className={`text-xs font-bold rounded-md px-3.5 py-1.5 ${mode === "tree" ? "text-white" : "text-slate-500"}`}
-        style={mode === "tree" ? { background: "#1a5276" } : undefined}
-      >
-        🌳 شجري
+      <a href="/grading-center?mode=table" className={modeCls} style={modeStyle(mode === "table")}>
+        جدول
+      </a>
+      <a href="/grading-center?mode=tree" className={modeCls} style={modeStyle(mode === "tree")}>
+        شجري
       </a>
     </div>
   );
@@ -69,6 +76,101 @@ export default async function GradingCenterPage({
         <div className="full-bleed px-4 sm:px-8">
           <Suspense fallback={<TreeSkeleton />}>
             <TreeSection />
+          </Suspense>
+        </div>
+      </div>
+    );
+  }
+
+  if (mode === "sheet") {
+    const sheetFilters: GradingSheetFilters = {
+      courseId: one(sp.courseId),
+      studyTypeId: one(sp.studyTypeId),
+      groupId: one(sp.groupId),
+    };
+    const [courses, studyTypes, groups] = await Promise.all([
+      listCourses(true),
+      listStudyTypes(true),
+      listGroups(true),
+    ]);
+    // The full sheet across every course is huge (all groups × all days ×
+    // criteria) — several MB and slow at real scale. So with no course chosen
+    // we default to the most recent course; the "كل الدورات" option is the
+    // explicit escape hatch for the full cross-course view.
+    const latestCourseId = courses[0]?.id;
+    const selectedCourse = sheetFilters.courseId ?? latestCourseId ?? "";
+    const effectiveFilters: GradingSheetFilters = {
+      ...sheetFilters,
+      courseId: sheetFilters.courseId === "ALL" ? undefined : sheetFilters.courseId ?? latestCourseId,
+    };
+    const activeSheetFilters = Object.values(sheetFilters).filter(Boolean).length;
+
+    return (
+      <div className="flex flex-col gap-6">
+        <div className="flex items-start justify-between flex-wrap gap-2">
+          <div>
+            <h1 className="text-2xl font-bold">مركز التقييم — ورقة الدرجات</h1>
+            <p className="text-slate-500 mt-1">
+              كل الدرجات المخزّنة على هيئة ورقة: نوع الدراسة ← المجموعة ← الطالب، ولكل طالب جدول
+              دورانه بالأيام، وفي كل يوم درجات كل معيار مفصّلة.
+            </p>
+          </div>
+          <div className="flex items-center gap-3">{ModeToggle}</div>
+        </div>
+
+        <div className="flex justify-end">
+          <SheetBackupButton />
+        </div>
+
+        <form method="get" className="card grid grid-cols-2 sm:grid-cols-4 gap-3 items-end">
+          <div>
+            <label className="block text-xs font-medium mb-1">الدورة</label>
+            <select name="courseId" defaultValue={selectedCourse} className="input">
+              <option value="ALL">كل الدورات</option>
+              {courses.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.label ?? `${c.year}-${c.number}`}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium mb-1">نوع الدراسة</label>
+            <select name="studyTypeId" defaultValue={sheetFilters.studyTypeId ?? ""} className="input">
+              <option value="">الكل</option>
+              {studyTypes.map((st) => (
+                <option key={st.id} value={st.id}>
+                  {st.nameAr ?? st.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium mb-1">المجموعة</label>
+            <select name="groupId" defaultValue={sheetFilters.groupId ?? ""} className="input">
+              <option value="">الكل</option>
+              {groups.map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex items-center gap-2">
+            <button type="submit" className="btn btn-primary">
+              تصفية
+            </button>
+            {activeSheetFilters > 0 && (
+              <a href="/grading-center" className="btn btn-secondary">
+                مسح
+              </a>
+            )}
+          </div>
+        </form>
+
+        <div className="full-bleed px-4 sm:px-8">
+          <Suspense fallback={<TableSkeleton />}>
+            <SheetSection filters={effectiveFilters} />
           </Suspense>
         </div>
       </div>
@@ -205,6 +307,11 @@ export default async function GradingCenterPage({
 async function TreeSection() {
   const tree = await getGradingTree();
   return <GradingTree data={tree} />;
+}
+
+async function SheetSection({ filters }: { filters: GradingSheetFilters }) {
+  const data = await getGradingSheet(filters);
+  return <GradingSheet data={data} />;
 }
 
 function TreeSkeleton() {

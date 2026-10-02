@@ -3,8 +3,9 @@ import { listGroups } from "@/lib/models/groups";
 import { listStudyTypes } from "@/lib/models/studyTypes";
 import { listCourses } from "@/lib/models/courses";
 import { Suspense } from "react";
-import { createStudentAction, toggleStudentActiveAction, importStudentsAction } from "@/lib/actions/students";
-import ImportCsvForm from "@/components/ImportCsvForm";
+import { createStudentAction, toggleStudentActiveAction } from "@/lib/actions/students";
+import { getImportContext } from "@/lib/models/studentImport";
+import { ExcelStudentImport } from "./ExcelStudentImport";
 import DebouncedSearch from "@/components/DebouncedSearch";
 import Pager from "@/components/Pager";
 
@@ -19,11 +20,12 @@ export default async function StudentsPage({
   const q = typeof sp.q === "string" ? sp.q : undefined;
   const page = typeof sp.page === "string" ? Number(sp.page) || 1 : 1;
 
-  const [{ rows: students, total, pageSize }, groups, studyTypes, courses] = await Promise.all([
+  const [{ rows: students, total, pageSize }, groups, studyTypes, courses, importCtx] = await Promise.all([
     listStudentsPage({ search: q, page, includeInactive: true }),
     listGroups(),
     listStudyTypes(),
     listCourses(),
+    getImportContext(),
   ]);
 
   return (
@@ -105,14 +107,7 @@ export default async function StudentsPage({
         </form>
       </div>
 
-      <ImportCsvForm
-        action={importStudentsAction}
-        columnsHint="الأعمدة المتوقعة: universityNumber, nameAr, nameEn, email, studyType, group, course,
-        shift — يتم الدمج حسب الرقم الجامعي (لا يتم إنشاء طالب مكرر عند إعادة الاستيراد).
-        عمود course بصيغة &quot;السنة-رقم الدورة&quot; مثل 2026-1، وshift بقيمة MORNING أو EVENING. رمز
-        الطالب (code) يُولَّد تلقائيًا عند توفر course وstudyType ولا يُقرأ من الملف."
-        exportHref="/api/students/export"
-      />
+      <ExcelStudentImport ctx={importCtx} />
 
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="w-full sm:w-72">

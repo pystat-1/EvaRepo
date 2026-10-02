@@ -1,9 +1,13 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "main": ".open-next/worker.js",
+  "main": "worker.mjs",
   "name": "evarepo",
   "compatibility_date": "2026-09-01",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  // No "placement" setting: a targeted placement (aws:us-west-2, near the
+  // database) was tried on 2026-09-30 and made some requests hang or 503
+  // before ever reaching the Worker, which broke pages with React error
+  // #412 ("Connection closed"). Don't re-add it without testing live.
   "assets": {
     "directory": ".open-next/assets",
     "binding": "ASSETS",
@@ -15,7 +19,14 @@
     // of ever reaching Next.js. Routing every request through the Worker
     // first (it serves static assets itself via the ASSETS binding when
     // appropriate) fixes that at a negligible cost for an app this size.
-    "run_worker_first": true
+    //
+    // Static files (build chunks, icons, the service worker) are excluded
+    // again: they never need the Worker, and routing them through it only
+    // added Worker invocations and latency to every page load. offline.html
+    // stays on the Worker: the asset layer would 307 it to /offline, and the
+    // service worker serves it for offline navigations, where a redirected
+    // response is rejected.
+    "run_worker_first": ["/*", "!/_next/static/*", "!/*.png", "!/*.svg", "!/sw.js"]
   },
   "services": [
     {

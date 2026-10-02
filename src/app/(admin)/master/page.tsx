@@ -1,29 +1,26 @@
 import { listHospitals } from "@/lib/models/hospitals";
 import { listEvaluators } from "@/lib/models/evaluators";
 import { listStudents } from "@/lib/models/students";
-import { listCourses } from "@/lib/models/courses";
 import { listGroups } from "@/lib/models/groups";
 import { listStudyTypes } from "@/lib/models/studyTypes";
-import MasterSheet from "./MasterSheet";
+import { listAllRotationBlocks } from "@/lib/models/rotationBlocks";
+import { getTermSettings } from "@/lib/models/termSettings";
+import MasterWorkbook from "./MasterWorkbook";
 
 export default async function MasterPage() {
-  const [hospitals, evaluators, students, courses, groups, studyTypes] = await Promise.all([
+  const [term, hospitals, evaluators, students, groups, studyTypes, blocks] = await Promise.all([
+    getTermSettings(),
     listHospitals(true),
     listEvaluators(true),
     listStudents(true),
-    listCourses(true),
     listGroups(true),
     listStudyTypes(true),
+    listAllRotationBlocks(false),
   ]);
 
   return (
-    <MasterSheet
-      hospitals={hospitals}
-      evaluators={evaluators}
-      students={students}
-      courses={courses}
-      groups={groups}
-      studyTypes={studyTypes}
+    <MasterWorkbook
+      data={{ term, hospitals, evaluators, students, groups, studyTypes, blocks }}
     />
   );
 }

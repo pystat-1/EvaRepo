@@ -17,6 +17,15 @@
 // as "I/O on behalf of a different request", crashing every request past
 // the first with a 500. Fetch-mode queries are stateless, so there's no
 // connection lifetime to violate.
+// Default import, deliberately NOT "/edge" (rejects `adapter` outright)
+// or "/wasm" (its ESM build is missing a file in this Prisma version).
+// What actually makes this resolve correctly at runtime is
+// `serverExternalPackages` in next.config.ts, which keeps Next.js from
+// bundling/resolving this import at its own build time (using generic
+// Node conditions) — instead it's resolved later, when OpenNext's
+// Cloudflare-specific bundling pass runs with `workerd` conditions active,
+// letting the generated client's own conditional exports pick its WASM
+// engine (which a V8 isolate can execute, unlike a native .so.node binary).
 import { PrismaClient } from "@prisma/client";
 import { PrismaNeon } from "@prisma/adapter-neon";
 import { neonConfig } from "@neondatabase/serverless";

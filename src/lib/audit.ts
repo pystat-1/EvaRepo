@@ -14,8 +14,16 @@ export type EntityType =
   | "RubricSection"
   | "StudentAccount"
   | "Course"
-  | "RotationBlock";
-export type AuditAction = "create" | "update" | "deactivate" | "reactivate" | "delete";
+  | "RotationBlock"
+  | "TermSettings"
+  | "CourseStudyType"
+  | "CourseHospital"
+  | "CourseAttendancePattern"
+  | "CourseHoliday"
+  | "Session"
+  | "AttendanceRecord"
+  | "GroupWorkDay";
+export type AuditAction = "create" | "update" | "deactivate" | "reactivate" | "delete" | "import";
 
 export async function recordAudit(params: {
   actorId: string | null;

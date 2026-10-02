@@ -88,7 +88,7 @@ export async function getGradingTree(): Promise<GradingTreeData> {
   const studentIds = students.map((s) => s.id);
   const latestEvals = studentIds.length
     ? await prisma.evaluation.findMany({
-        where: { studentId: { in: studentIds } },
+        where: { studentId: { in: studentIds }, pendingValidation: false },
         orderBy: { dateISO: "desc" },
         include: { scores: { include: { rubricSection: true } } },
       })

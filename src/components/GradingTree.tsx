@@ -2,14 +2,11 @@
 
 import { useMemo, useState } from "react";
 import type { GradingTreeData, TreeGroup, TreeStint } from "@/lib/models/gradingTree";
+import { todayISO } from "@/lib/date";
 
 const SHIFT_ICON: Record<string, string> = { MORNING: "☀️", EVENING: "🌙" };
 const ATTENDANCE_LABEL: Record<string, string> = { present: "حاضر", late: "متأخر", absent: "غائب" };
 const ATTENDANCE_BADGE: Record<string, string> = { present: "badge-green", late: "badge-amber", absent: "badge-red" };
-
-function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
-}
 
 function Chevron({ open }: { open: boolean }) {
   return (
@@ -217,16 +214,16 @@ export default function GradingTree({ data }: { data: GradingTreeData }) {
           <button
             onClick={() => setView("tree")}
             className={`text-xs font-bold rounded-md px-3.5 py-1.5 ${view === "tree" ? "text-white" : "text-slate-500"}`}
-            style={view === "tree" ? { background: "var(--brand)" } : undefined}
+            style={view === "tree" ? { background: "var(--brand-dark)" } : undefined}
           >
-            🌳 شجري
+            شجري
           </button>
           <button
             onClick={() => setView("alpha")}
             className={`text-xs font-bold rounded-md px-3.5 py-1.5 ${view === "alpha" ? "text-white" : "text-slate-500"}`}
-            style={view === "alpha" ? { background: "var(--brand)" } : undefined}
+            style={view === "alpha" ? { background: "var(--brand-dark)" } : undefined}
           >
-            🔤 أبجدي
+            أبجدي
           </button>
         </div>
         {view === "tree" && (

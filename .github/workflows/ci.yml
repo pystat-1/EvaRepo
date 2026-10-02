@@ -1,0 +1,47 @@
+name: CI
+
+# Type-check and unit tests on every push and pull request (the deploy
+# workflow runs the same checks before deploying main).
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Type-check
+        run: npx next typegen && npx tsc --noEmit -p .
+      - name: Unit tests
+        run: npx vitest run
+      - name: Desktop app (type-check + UI build)
+        run: npm run build -w @eva/desktop
+      - name: Evaluator app (type-check + build)
+        run: npm run build -w @eva/evaluator
+      - name: Relay (type-check)
+        run: npx tsc --noEmit -p apps/relay
+
+  e2e:
+    # The whole loop in a browser (desktop UI, relay, phone app with a
+    # stand-in for Google) and the performance budget with 5 000 students.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run build -w @eva/evaluator
+      - run: npx tsc --noEmit -p apps/desktop/e2e
+      - name: End-to-end and performance
+        run: npm run e2e -w @eva/desktop
+        env:
+          EVA_PERF_FACTOR: "2.5"

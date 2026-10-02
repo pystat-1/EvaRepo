@@ -1,0 +1,23 @@
+{
+  "name": "@eva/db",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Eva Desktop's SQLite database: Drizzle schema, versioned migrations, migration runner and backup policy. Runs against any SQLite executor (the desktop app's Rust side, or better-sqlite3 in tests and scripts).",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.44.0"
+  },
+  "devDependencies": {
+    "better-sqlite3": "^12.0.0",
+    "@types/better-sqlite3": "^7.6.13",
+    "drizzle-kit": "^0.31.0"
+  },
+  "scripts": {
+    "generate": "drizzle-kit generate && node bundle-migrations.mjs",
+    "bundle": "node bundle-migrations.mjs"
+  }
+}

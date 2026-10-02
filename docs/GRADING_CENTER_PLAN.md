@@ -312,3 +312,27 @@ Interactive mockup: https://claude.ai/artifact/SgxBDaHvbaqwrBHgYcPBfV (opens on 
 | Student summary columns | Designs 1 + 5 | Average per hospital, trend sparkline, course %, absences |
 | Status filter chips + search | new | All · needs attention · disputed · missing · absent · below 60% · late · corrected; matching cells get a navy ring; search by name / university number / code |
 | Day popover | shared | Criteria with bars, attendance, evaluator, notes, phone vs server times; dispute comparison with approve buttons |
+
+## Implementation status (2026-10-02): read-only views live
+
+Built on the existing tables (no schema change) and shipped as the default `/grading-center` mode. The older sheet, table and tree stay under `?mode=sheet|table|tree`.
+
+| View (tab) | Source design | What is built |
+|---|---|---|
+| التصميم المدمج | Combined | Scope: whole course · each period · course summary. Order: by hospital / by date. Totals or all criteria (expandable rows, per student or all). Summary columns, filter chips, search |
+| الشبكة الدورانية | Design 1 | Hospital → week at that hospital → day, a per-hospital average column, course % and absences. "All criteria" splits each day into one narrow column per criterion plus the day total (م1…م5 legend) |
+| الخريطة الحرارية | Design 5 | Calendar-order compact heat cells with trend and %. "All criteria" = one card per student with a criterion × day mini heatmap |
+
+**Data rules as built**
+- Only validated evaluations (`pendingValidation = false`) show grades. A day the evaluator saved but has not validated (اعتماد) shows as **غير معتمد** with no numbers.
+- States: ok · late · absent (an evaluation, or an attendance-only absence on a validated work day) · disputed (open `EvaluationConflict`) · awaiting · pending (inside the 7-day window) · missing (window passed) · future · holiday (`CourseHoliday`).
+- Disputed days are left out of averages until the admin picks one evaluation. Averages are labeled **مبدئية** (provisional, per §12).
+- Scheduled days come from active `RotationBlock`s (`daysOfWeek`, else the term's weekdays). Weeks are Saturday-keyed (Sun–Thu working week).
+- Periods exist only when every group's blocks share the same non-overlapping date ranges (2–8 of them). Otherwise the period tabs are hidden.
+- Validated evaluations on unscheduled dates are never hidden: a notice lists them.
+- Reads of tables added by later migrations (attendance, work days, holidays, conflicts) fall back to "none recorded" instead of failing the page.
+- Hospital colors use the validated categorical palette, always next to the hospital name. The cell scale is the app's teal ramp, and every state also carries a word.
+
+**Code:** `src/lib/gradeMatrix/` (pure builders + `build.test.ts`), `src/lib/models/gradeMatrix.ts` (loader), `src/components/gradeMatrix/` (views, popover).
+
+**Not built yet** (still per Part A/B build order): dispute approval and other admin actions (G-6), the review queue, Excel and print exports from these views (G-8), live updates (G-9) and virtualization for very large courses.

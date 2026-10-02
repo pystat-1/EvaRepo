@@ -3,7 +3,8 @@
 **Read this first in every new session.** Keep it short and current. Update facts in place and do not append status spam.
 
 ## Current state
-- **Master plan:** `docs/FINAL_PLAN.md` (FINAL, 2026-09-28) consolidates everything and wins on conflicts. Awaiting user approval; nothing implemented.
+- **Master plan:** `docs/FINAL_PLAN.md` (FINAL, 2026-09-28) consolidates everything and wins on conflicts.
+- **Live in the app:** Grading Center read-only views (combined · rotation grid · heatmap) are the default `/grading-center` mode since 2026-10-02. Status and data rules: `GRADING_CENTER_PLAN.md` → "Implementation status"
 - **Roadmap:** Phase 1 Planning ✅ → Phase 2 simple UI (U1–U6) → Phase 3 Database + engine (D1–D10) → Phase 4 Deployment (P1–P8)
 - **Goal specs:** Course Setup (`COURSE_SETUP_PLAN.md`), Evaluator App (`EVALUATOR_APP_PLAN.md`), Grading Center (`GRADING_CENTER_PLAN.md`), Database (`DATABASE_DESIGN.md`)
 - **Existing code:** Eva v3 (Next.js 16 + Prisma + Neon Postgres, deployed via Cloudflare Workers/OpenNext) is the base; tag `v3-final` before Phase 2
@@ -21,6 +22,7 @@
 | Grading Center designs (canvas) | **Combined design** (opens first) + the 5 source designs (rotation grid, calendar timeline, expandable ledger, period pages, heatmap) + day popover: https://claude.ai/artifact/SgxBDaHvbaqwrBHgYcPBfV · summary in `GRADING_CENTER_PLAN.md` addendum |
 | `PROJECT_GOALS.md` | v3's historical goals and session log (legacy, reference only) |
 | `prisma/schema.prisma` | v3 data model (reference for Phase 3) |
+| `src/lib/gradeMatrix/`, `src/components/gradeMatrix/` | Grading Center views: pure builders (tested), loader `src/lib/models/gradeMatrix.ts`, client views + day popover |
 
 ## Key facts (stable)
 - Domain: nursing college clinical-rotation evaluation (University of Baghdad context), Arabic RTL UI
@@ -52,5 +54,6 @@
 | 2026-09-28 | Rubric snapshot modeled as a `RubricVersion` table (course → one version; sections belong to a version) | Design refinement in DATABASE_DESIGN.md |
 | 2026-09-28 | Final master plan written; defaults adopted: Cairo font + Phosphor icons, Cloudflare Workers hosting, evolve current repo | FINAL_PLAN.md §3 |
 | 2026-10-02 | Grading Center: 5 visual designs produced; morning/evening programs never mixed | Done |
-| 2026-10-02 | Grading Center combined design (scope tabs, hospital/date order, heat cells, criteria as expandable rows, filter chips, search, summary columns) | Awaiting user's approval |
-| — | Open items: approve Grading Center combined design; `FINAL_PLAN.md` §12 (final grade formula!, v3 data migration, hosting, Google Sign-In, icons, cell colors) | Awaiting user |
+| 2026-10-02 | Grading Center combined design (scope tabs, hospital/date order, heat cells, criteria as expandable rows, filter chips, search, summary columns) | Approved |
+| 2026-10-02 | Implement combined + rotation grid + heatmap as read-only views on real data; show validated grades only; old sheet/table/tree kept | Implemented (user request) |
+| — | Open items: Grading Center admin actions (dispute approval, review queue, exports); `FINAL_PLAN.md` §12 (final grade formula!, v3 data migration, hosting, Google Sign-In, icons, cell colors) | Awaiting user |

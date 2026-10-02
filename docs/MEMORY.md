@@ -18,6 +18,7 @@
 | `docs/EVALUATOR_APP_PLAN.md` | Big Goal 2 FINAL: rulebook, data model, API, offline, reminders, design, risk register C1–C13 / P1–P19, build order E1–E10 |
 | `docs/GRADING_CENTER_PLAN.md` | Big Goal 3: rotation-view grid (hospital→week→day), cell popover, journaled admin actions, zero-loss layers, free tool choices, attack G1–G25, build order G-1…G-10 |
 | `docs/DATABASE_DESIGN.md` | Target database: 28 tables in 5 areas, mermaid ER diagram, DB-level guards. Interactive map: https://claude.ai/artifact/CS3HFH23NKoKt58aFkJTP8 |
+| Grading Center designs (canvas) | 5 interactive design ideas (rotation grid, calendar timeline, expandable ledger, period pages, heatmap), each with day-totals / all-criteria modes + day popover: https://claude.ai/artifact/SgxBDaHvbaqwrBHgYcPBfV |
 | `PROJECT_GOALS.md` | v3's historical goals and session log (legacy, reference only) |
 | `prisma/schema.prisma` | v3 data model (reference for Phase 3) |
 
@@ -29,6 +30,7 @@
 - Evaluators may grade only within their hospital/group scope and only on scheduled rotation days
 - Top priority: zero grade loss
 - Study type = shift (Morning / Evening) — user clarification 2026-09-27
+- Morning and evening are SEPARATE PROGRAMS: never shown or mixed in one grid/list; every admin view switches by program (2026-10-02)
 - Shared evaluations: several evaluators per hospital; shared view shows ONLY who took which student (no grades)
 - Two evaluators grade same student → both kept, DISPUTED, conflict flag to both evaluators + admin; admin approves one
 - 7-day submit/sync window (Baghdad time) with reminders on day 0/3/5/6; late saves stored, admin may accept
@@ -49,4 +51,5 @@
 | 2026-09-28 | Grading Center rebuilt from scratch, not constrained by v3 structure | User instruction |
 | 2026-09-28 | Rubric snapshot modeled as a `RubricVersion` table (course → one version; sections belong to a version) | Design refinement in DATABASE_DESIGN.md |
 | 2026-09-28 | Final master plan written; defaults adopted: Cairo font + Phosphor icons, Cloudflare Workers hosting, evolve current repo | FINAL_PLAN.md §3 |
-| — | Open items: `FINAL_PLAN.md` §12 (final grade formula!, v3 data migration, hosting, Google Sign-In, icons, cell colors) | Awaiting user |
+| 2026-10-02 | Grading Center: 5 visual designs produced for review; morning/evening programs never mixed | Awaiting user's design choice |
+| — | Open items: Grading Center design choice; `FINAL_PLAN.md` §12 (final grade formula!, v3 data migration, hosting, Google Sign-In, icons, cell colors) | Awaiting user |

@@ -4,7 +4,7 @@
 // the students' records (Excel). The libraries load only when needed.
 import type { EvaluatorBundle, HistoryRecord } from "@eva/core/sync/contract";
 import { maxTotal } from "./day";
-import { ATTENDANCE_AR, ATTENDANCE_MARK, SHIFT_AR, STATE_AR, weekdayAr, type DayEntry, type ScheduleStint, type StudentSummary } from "./views";
+import { ATTENDANCE_AR, SHIFT_AR, STATE_AR, weekdayAr, type DayEntry, type ScheduleStint, type StudentSummary } from "./views";
 
 type Workbook = import("exceljs").Workbook;
 type Worksheet = import("exceljs").Worksheet;
@@ -300,20 +300,22 @@ export async function attendanceExcel(bundle: EvaluatorBundle, groupId: string, 
   const g = bundle.groups.find((x) => x.id === groupId)!;
   const days = entries.filter((e) => e.groupId === groupId).sort((a, b) => a.dateISO.localeCompare(b.dateISO));
   const wb = await workbook();
+  // Plain: the student's name and, for each day, حاضر / متأخر / غائب.
   const ws = sheet(
     wb,
     `سجل الحضور ${g.name}`,
-    [`سجل الحضور — ${g.name}`, `${bundle.course.label} · ✓ حاضر · م متأخر · ✗ غائب · (ن) سلّم الديلي نوت`],
-    ["#", "الرقم الجامعي", "اسم الطالب", ...days.map((d) => `${weekdayAr(d.dateISO)}\n${d.dateISO}`), "حاضر", "متأخر", "غائب", "الديلي نوت"],
-    [5, 15, 26, ...days.map(() => 11), 8, 8, 8, 10]
+    [`سجل الحضور — ${g.name}`, bundle.course.label],
+    ["#", "اسم الطالب", ...days.map((d) => `${weekdayAr(d.dateISO)}\n${d.dateISO}`)],
+    [5, 28, ...days.map(() => 12)]
   );
+  const FILL = { late: "FFF6ECD6", absent: "FFF6E5E3" } as const;
   g.students.forEach((s, i) => {
-    const marks = days.map((d) => {
-      const r = d.records.get(s.id);
-      return r ? `${ATTENDANCE_MARK[r.attendance]}${r.dailyNote ? " (ن)" : ""}` : "";
+    const recs = days.map((d) => d.records.get(s.id));
+    const row = boxRow(ws, [i + 1, s.name, ...recs.map((r) => (r ? ATTENDANCE_AR[r.attendance] : ""))]);
+    recs.forEach((r, n) => {
+      row.getCell(3 + n).alignment = { vertical: "middle", horizontal: "center" };
+      if (r && r.attendance !== "present") row.getCell(3 + n).fill = { type: "pattern", pattern: "solid", fgColor: { argb: FILL[r.attendance] } };
     });
-    const recs = days.map((d) => d.records.get(s.id)).filter((x): x is HistoryRecord => !!x);
-    boxRow(ws, [i + 1, s.universityNumber, s.name, ...marks, ...(["present", "late", "absent"] as const).map((a) => recs.filter((r) => r.attendance === a).length), recs.filter((r) => r.dailyNote).length]);
   });
   await saveWorkbook(wb, `سجل الحضور ${g.name}`);
 }

@@ -57,7 +57,28 @@ export function gradeColumns(bundle: EvaluatorBundle) {
   );
 }
 
-export const maxTotal = (bundle: EvaluatorBundle) => bundle.rubric.reduce((a, s) => a + s.maxScore, 0);
+export type CompactColumn =
+  | { kind: "number"; id: string; label: string; max: number }
+  | { kind: "checks"; id: string; label: string; max: number; items: Array<{ id: string; max: number }> };
+
+/**
+ * Columns of the phone table, narrow enough to fit a phone's width: a
+ * section of checkboxes becomes one tap cell (all or none; the student's
+ * card edits single items), a number item keeps its own cell.
+ */
+export function compactColumns(bundle: EvaluatorBundle): CompactColumn[] {
+  return bundle.rubric.flatMap((s): CompactColumn[] => {
+    if (!s.items.length) return [{ kind: "number", id: s.id, label: s.labelAr, max: s.maxScore }];
+    if (s.items.every((i) => i.kind === "check")) return [{ kind: "checks", id: s.id, label: s.labelAr, max: s.maxScore, items: s.items.map((i) => ({ id: i.id, max: i.maxScore })) }];
+    return s.items.map((i): CompactColumn =>
+      i.kind === "check"
+        ? { kind: "checks", id: i.id, label: i.labelAr, max: i.maxScore, items: [{ id: i.id, max: i.maxScore }] }
+        : { kind: "number", id: i.id, label: i.labelAr, max: i.maxScore }
+    );
+  });
+}
+
+export const maxTotal =(bundle: EvaluatorBundle) => bundle.rubric.reduce((a, s) => a + s.maxScore, 0);
 
 export function rowTotal(bundle: EvaluatorBundle, row: DraftRow | undefined): number {
   if (!row || row.attendance === "absent") return 0;

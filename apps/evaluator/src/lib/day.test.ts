@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { EvaluatorBundle } from "@eva/core/sync/contract";
 import { checkDaySubmission } from "@eva/core/sync/contract";
-import { buildSubmission, gradeColumns, groupsForDate, maxTotal, missing, overdueDrafts, rowTotal, type Draft } from "./day";
+import { buildSubmission, compactColumns, gradeColumns,groupsForDate, maxTotal, missing, overdueDrafts, rowTotal, type Draft } from "./day";
 
 const bundle: EvaluatorBundle = {
   format: 1, version: "v1", generatedAt: "t", evaluator: { id: "e1", name: "د. سارة" },
@@ -29,6 +29,12 @@ describe("groupsForDate", () => {
     const gs = groupsForDate(bundle, "2026-10-05");
     expect(gs.map((g) => [g.id, g.scheduled])).toEqual([["gm1", true], ["ge3", false]]);
     expect(groupsForDate(bundle, "2027-06-01").map((g) => [g.id, g.scheduled])).toEqual([["gm1", false], ["ge3", false]]);
+  });
+});
+
+describe("compactColumns", () => {
+  it("folds a section of checkboxes into one cell and keeps number items", () => {
+    expect(compactColumns(bundle).map((c) => [c.kind, c.id, c.max])).toEqual([["number", "dn", 5], ["checks", "rs2", 1], ["number", "rs9", 2]]);
   });
 });
 

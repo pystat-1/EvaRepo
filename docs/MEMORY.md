@@ -23,6 +23,7 @@
 | `PROJECT_GOALS.md` | v3's historical goals and session log (legacy, reference only) |
 | `prisma/schema.prisma` | v3 data model (reference for Phase 3) |
 | `src/lib/gradeMatrix/`, `src/components/gradeMatrix/` | Grading Center views: pure builders (tested), loader `src/lib/models/gradeMatrix.ts`, client views + day popover |
+| `docs/grading-center-handoff/HANDOFF.md` | Self-contained brief for another Claude Code session to build or port the 3 Grading Center views (rules, data contract, algorithms, full visual profile, desktop port map) + 13 reference screenshots |
 
 ## Key facts (stable)
 - Domain: nursing college clinical-rotation evaluation (University of Baghdad context), Arabic RTL UI

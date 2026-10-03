@@ -1,6 +1,7 @@
 // Courses, hospitals, groups and the rotation schedule.
 import { and, eq, inArray, or, sql } from "drizzle-orm";
 import { generateRotation } from "@eva/core/schedule/rotationGenerator";
+import { meetsOn, type Holiday } from "@eva/core/schedule/holidays";
 import { addDaysISO } from "@eva/core/date";
 import { compareArabic } from "@eva/core/text/arabic";
 import * as t from "../schema";
@@ -247,13 +248,26 @@ export async function setAttendanceDays(r: Repo, courseId: string, days: string[
   await plan.commit();
 }
 
+export interface CalendarDay {
+  dateISO: string;
+  weekday: string;
+  groups: Array<{ id: string; name: string; shift: t.Shift | null }>;
+  /** Set on a holiday: no attendance; the groups listed meet on `holiday.movedTo` instead (if set). */
+  holiday?: Holiday;
+  /** Set on a make-up day: the holiday whose schedule moved here. */
+  makeupFor?: string;
+}
+
 export interface CalendarHospital {
   hospitalId: string;
   hospitalName: string;
-  weeks: Array<{ index: number; days: Array<{ dateISO: string; weekday: string; groups: Array<{ id: string; name: string; shift: t.Shift | null }> }> }>;
+  weeks: Array<{ index: number; days: CalendarDay[] }>;
 }
 
-/** The schedule by hospital: week → attendance days → date → groups there. */
+/**
+ * The schedule by hospital: week → attendance days → date → groups there.
+ * A holiday stays in its place (marked); its make-up day joins the same week.
+ */
 export async function attendanceCalendar(r: Repo, courseId: string): Promise<CalendarHospital[]> {
   const blocks = await r.db
     .select({ b: t.rotationBlocks, hospitalName: t.hospitals.name, groupName: t.groups.name, shift: t.groups.shift })
@@ -261,20 +275,25 @@ export async function attendanceCalendar(r: Repo, courseId: string): Promise<Cal
     .innerJoin(t.hospitals, eq(t.hospitals.id, t.rotationBlocks.hospitalId))
     .innerJoin(t.groups, eq(t.groups.id, t.rotationBlocks.groupId))
     .where(and(eq(t.rotationBlocks.courseId, courseId), eq(t.rotationBlocks.active, true)));
+  const holidays = new Map((await listHolidays(r, courseId)).map((h) => [h.dateISO, h]));
   const out = new Map<string, CalendarHospital>();
   for (const { b, hospitalName, groupName, shift } of blocks) {
     const h = out.get(b.hospitalId) ?? { hospitalId: b.hospitalId, hospitalName, weeks: [] };
     out.set(b.hospitalId, h);
     const days = new Set((b.daysOfWeek ?? DEFAULT_DAYS).split(",").map((d) => d.trim().toUpperCase()));
-    for (let d = b.startDate; d <= b.endDate; d = addDaysISO(d, 1)) {
-      const code = DAY_ORDER[new Date(`${d}T00:00:00Z`).getUTCDay()];
-      if (!days.has(code)) continue;
-      const wi = b.weekIndex ?? 0;
+    const wi = b.weekIndex ?? 0;
+    const add = (d: string, extra: Partial<CalendarDay>) => {
       let week = h.weeks.find((w) => w.index === wi);
       if (!week) h.weeks.push((week = { index: wi, days: [] }));
       let day = week.days.find((x) => x.dateISO === d);
-      if (!day) week.days.push((day = { dateISO: d, weekday: code, groups: [] }));
+      if (!day) week.days.push((day = { dateISO: d, weekday: DAY_ORDER[new Date(`${d}T00:00:00Z`).getUTCDay()], groups: [], ...extra }));
       day.groups.push({ id: b.groupId, name: groupName, shift });
+    };
+    for (let d = b.startDate; d <= b.endDate; d = addDaysISO(d, 1)) {
+      if (!days.has(DAY_ORDER[new Date(`${d}T00:00:00Z`).getUTCDay()])) continue;
+      const hol = holidays.get(d);
+      add(d, hol ? { holiday: hol } : {});
+      if (hol?.movedTo) add(hol.movedTo, { makeupFor: d });
     }
   }
   const shiftRank = (s: t.Shift | null) => (s === "MORNING" ? 0 : s === "EVENING" ? 1 : 2);
@@ -286,6 +305,108 @@ export async function attendanceCalendar(r: Repo, courseId: string): Promise<Cal
     }
   }
   return [...out.values()].sort((a, b) => compareArabic(a.hospitalName, b.hospitalName));
+}
+
+// ---- holidays (العطل) ----------------------------------------------------------
+// A holiday is a course-wide day without attendance. Moved to another date
+// (make-up day), every group that met on it meets there instead, at the
+// same hospital: the admin's calendar, the Grading Center and the phones
+// all follow (see @eva/core/schedule/holidays). Grades already recorded
+// stay on the day they were actually given.
+
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+export async function listHolidays(r: Repo, courseId: string): Promise<Holiday[]> {
+  const rows = await r.db
+    .select({ dateISO: t.courseHolidays.dateISO, label: t.courseHolidays.label, movedTo: t.courseHolidays.movedTo })
+    .from(t.courseHolidays)
+    .where(eq(t.courseHolidays.courseId, courseId));
+  return rows.sort((a, b) => a.dateISO.localeCompare(b.dateISO));
+}
+
+async function courseBlocks(r: Repo, courseId: string) {
+  return r.db
+    .select({ groupId: t.rotationBlocks.groupId, groupName: t.groups.name, hospitalName: t.hospitals.name, startDate: t.rotationBlocks.startDate, endDate: t.rotationBlocks.endDate, daysOfWeek: t.rotationBlocks.daysOfWeek })
+    .from(t.rotationBlocks)
+    .innerJoin(t.groups, eq(t.groups.id, t.rotationBlocks.groupId))
+    .innerJoin(t.hospitals, eq(t.hospitals.id, t.rotationBlocks.hospitalId))
+    .where(and(eq(t.rotationBlocks.courseId, courseId), eq(t.rotationBlocks.active, true)));
+}
+
+export interface HolidayImpact {
+  /** Groups that meet on the day (they move with it), with their hospital. */
+  groups: Array<{ id: string; name: string; hospitalName: string }>;
+  /** Groups already graded on the day (those grades stay on that day). */
+  gradedGroups: number;
+}
+
+/** What a holiday on this date touches: shown before saving. */
+export async function holidayImpact(r: Repo, courseId: string, dateISO: string): Promise<HolidayImpact> {
+  const blocks = await courseBlocks(r, courseId);
+  const groups = blocks
+    .filter((b) => meetsOn(b, dateISO))
+    .map((b) => ({ id: b.groupId, name: b.groupName, hospitalName: b.hospitalName }))
+    .sort((a, b) => compareArabic(a.hospitalName, b.hospitalName) || a.name.localeCompare(b.name, "ar", { numeric: true }));
+  const [graded] = await r.db
+    .select({ n: sql<number>`count(distinct ${t.evaluations.groupId})` })
+    .from(t.evaluations)
+    .where(and(eq(t.evaluations.courseId, courseId), eq(t.evaluations.dateISO, dateISO)));
+  return { groups, gradedGroups: graded?.n ?? 0 };
+}
+
+/**
+ * Declares (or edits) a holiday. With `movedTo`, the day's schedule moves to
+ * that date; refused when one of the moving groups already meets there.
+ */
+export async function saveHoliday(r: Repo, courseId: string, input: { dateISO: string; label?: string | null; movedTo?: string | null }) {
+  const dateISO = input.dateISO;
+  const movedTo = input.movedTo || null;
+  const label = input.label?.replace(/\s+/g, " ").trim() || null;
+  if (!ISO_DAY.test(dateISO)) throw new ValidationError("تاريخ العطلة غير صالح", "dateISO");
+  if (movedTo && !ISO_DAY.test(movedTo)) throw new ValidationError("تاريخ التعويض غير صالح", "movedTo");
+  if (movedTo === dateISO) throw new ValidationError("اختر تاريخًا غير يوم العطلة نفسه", "movedTo");
+  const [course] = await r.db.select().from(t.courses).where(eq(t.courses.id, courseId));
+  if (!course) throw new ValidationError("الدورة غير موجودة");
+
+  const all = await listHolidays(r, courseId);
+  const existing = all.find((h) => h.dateISO === dateISO);
+  const others = all.filter((h) => h.dateISO !== dateISO);
+  if (others.some((h) => h.movedTo === dateISO)) throw new ValidationError("هذا اليوم يوم تعويض لعطلة أخرى — عدّل تلك العطلة بدلًا منه", "dateISO");
+  if (movedTo) {
+    if (others.some((h) => h.dateISO === movedTo)) throw new ValidationError("التاريخ المختار عطلة أيضًا", "movedTo");
+    const blocks = await courseBlocks(r, courseId);
+    const moving = new Set(blocks.filter((b) => meetsOn(b, dateISO)).map((b) => b.groupId));
+    // A group cannot meet twice on one date: a regular day there, or another holiday's make-up day.
+    const busy = new Set(blocks.filter((b) => moving.has(b.groupId) && meetsOn(b, movedTo)).map((b) => b.groupName));
+    for (const h of others.filter((x) => x.movedTo === movedTo)) {
+      for (const b of blocks) if (moving.has(b.groupId) && meetsOn(b, h.dateISO)) busy.add(b.groupName);
+    }
+    if (busy.size) throw new ValidationError(`لهذه المجموعات دوام في ${movedTo} أصلًا: ${[...busy].join("، ")}`, "movedTo");
+  }
+
+  const plan = new Plan(r);
+  plan.add(
+    r.db
+      .insert(t.courseHolidays)
+      .values({ id: newId(), courseId, dateISO, label, movedTo })
+      .onConflictDoUpdate({ target: [t.courseHolidays.courseId, t.courseHolidays.dateISO], set: { label, movedTo } })
+  );
+  plan.add(r.db.update(t.courses).set({ scheduleVersion: course.scheduleVersion + 1, updatedAt: nowISO() }).where(eq(t.courses.id, courseId)));
+  plan.audit("CourseHoliday", `${courseId}:${dateISO}`, existing ? "update" : "create", existing, { dateISO, label, movedTo });
+  await plan.commit();
+}
+
+/** Cancels a holiday: the day is a normal day again and its make-up day goes. */
+export async function removeHoliday(r: Repo, courseId: string, dateISO: string) {
+  const [course] = await r.db.select().from(t.courses).where(eq(t.courses.id, courseId));
+  if (!course) throw new ValidationError("الدورة غير موجودة");
+  const existing = (await listHolidays(r, courseId)).find((h) => h.dateISO === dateISO);
+  if (!existing) return;
+  const plan = new Plan(r);
+  plan.add(r.db.delete(t.courseHolidays).where(and(eq(t.courseHolidays.courseId, courseId), eq(t.courseHolidays.dateISO, dateISO))));
+  plan.add(r.db.update(t.courses).set({ scheduleVersion: course.scheduleVersion + 1, updatedAt: nowISO() }).where(eq(t.courses.id, courseId)));
+  plan.audit("CourseHoliday", `${courseId}:${dateISO}`, "delete", existing);
+  await plan.commit();
 }
 
 // ---- deleting a course ------------------------------------------------------

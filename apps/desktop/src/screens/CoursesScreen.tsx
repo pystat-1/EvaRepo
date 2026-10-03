@@ -20,6 +20,7 @@ import * as schema from "@eva/db/schema";
 import { Dialog, Empty, Field, Notice, PageHeader, SHIFT_AR } from "../components/ui";
 import { errorText, r } from "../lib/repo";
 import { AttendanceDaysCard, CalendarByHospital } from "../components/AttendanceDays";
+import { HolidayDialog, HolidaysCard } from "../components/Holidays";
 
 // A few distinct, readable fills for hospitals in the schedule grid.
 const HOSPITAL_COLORS = ["#dcece9", "#f4ecd6", "#e8e2f3", "#e2f0e7", "#f6e5e3", "#e3ecf6"];
@@ -39,6 +40,8 @@ export function CoursesScreen() {
   const [creating, setCreating] = useState(false);
   const [addingHospital, setAddingHospital] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  // The date whose holiday dialog is open ("" = new holiday, date picked in the dialog).
+  const [holidayDate, setHolidayDate] = useState<string | null>(null);
 
   const o = overview.data;
   const colorOf = (hid: string) => HOSPITAL_COLORS[Math.max(0, (o?.hospitals ?? allHospitals.data ?? []).findIndex((h) => h.id === hid)) % HOSPITAL_COLORS.length];
@@ -140,7 +143,9 @@ export function CoursesScreen() {
             </table>
           </div>
           <AttendanceDaysCard courseId={courseId} />
-          <CalendarByHospital courseId={courseId} />
+          <HolidaysCard courseId={courseId} onOpen={setHolidayDate} />
+          <CalendarByHospital courseId={courseId} onPickDay={setHolidayDate} />
+          <HolidayDialog courseId={courseId} dateISO={holidayDate} onClose={() => setHolidayDate(null)} />
         </>
       )}
 

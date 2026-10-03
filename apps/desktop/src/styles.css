@@ -208,7 +208,20 @@ thead .sticky-col { z-index: 3; background: var(--paper-100); }
 .cal-week { display: flex; gap: 12px; align-items: flex-start; border-top: 1px solid var(--border); padding-top: 10px; }
 .cal-week-title { min-width: 86px; font-weight: 700; color: var(--brand-dark); }
 .cal-days { display: flex; flex-wrap: wrap; gap: 8px; }
-.cal-day { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 10px; min-width: 170px; }
+.cal-day { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 10px; min-width: 170px; font: inherit; color: inherit; text-align: start; cursor: pointer; }
+.cal-day:hover { border-color: var(--brand); background: var(--brand-tint); }
+.cal-day:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.cal-day.is-holiday { background: var(--amber-100); border-style: dashed; border-color: var(--amber-700); }
+.cal-day.is-holiday .cal-group { text-decoration: line-through; color: var(--ink-muted); }
+.cal-day.is-makeup { background: var(--green-100); border-color: var(--green-700); }
+.cal-tag { font-size: 12px; font-weight: 600; margin-bottom: 4px; }
+.cal-day.is-holiday .cal-tag { color: var(--amber-700); }
+.cal-day.is-makeup .cal-tag { color: var(--green-700); }
+.holiday-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.holiday-item { width: 100%; font: inherit; color: inherit; text-align: start; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 10px; cursor: pointer; }
+.holiday-item:hover { border-color: var(--brand); background: var(--brand-tint); }
+.holiday-item:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.holiday-impact { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 10px; display: flex; flex-direction: column; gap: 3px; }
 .cal-date { margin-bottom: 4px; }
 .cal-group { font-size: 13px; }
 .cal-group small { color: var(--ink-muted); }

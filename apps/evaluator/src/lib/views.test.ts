@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { EvaluatorBundle } from "@eva/core/sync/contract";
 import { dayEntries, mergeBlocks, schedule, stintDates, studentSummaries } from "./views";
-import type { Draft } from "./day";
+import { groupsForDate, type Draft } from "./day";
 
 const block = (groupId: string, startDate: string, endDate: string) => ({ groupId, hospitalId: "h1", hospitalName: "مستشفى اليرموك", startDate, endDate, daysOfWeek: "SUN,MON,TUE,WED,THU" });
 const bundle = {
@@ -48,5 +48,18 @@ describe("phone views", () => {
     const [ali, zahraa] = studentSummaries(bundle, entries);
     expect(ali).toMatchObject({ present: 1, late: 1, absent: 0, notes: 1, average: 7 });
     expect(zahraa).toMatchObject({ present: 1, absent: 1, average: 10 });
+  });
+
+  it("shows a holiday in place and its make-up day in the same week; grading follows", () => {
+    const withHoliday = { ...bundle, holidays: [{ dateISO: "2026-10-06", label: "عطلة رسمية", movedTo: "2026-10-10" }] } as EvaluatorBundle;
+    const [h] = schedule(withHoliday, [], [], "2026-10-01");
+    const week1 = h.stints[0].weeks[0];
+    expect(week1.map((d) => [d.dateISO, d.mark, d.note ?? null])).toEqual([
+      ["2026-10-04", "future", null], ["2026-10-05", "future", null], ["2026-10-06", "holiday", "عطلة رسمية"],
+      ["2026-10-07", "future", null], ["2026-10-08", "future", null], ["2026-10-10", "future", "تعويض 06/10"],
+    ]);
+    expect(groupsForDate(withHoliday, "2026-10-10")).toMatchObject([{ id: "g1", hospitalName: "مستشفى اليرموك", scheduled: true }]);
+    expect(groupsForDate(withHoliday, "2026-10-06")[0].scheduled).toBe(false);
+    expect(groupsForDate(bundle, "2026-10-10")[0].scheduled).toBe(false);
   });
 });

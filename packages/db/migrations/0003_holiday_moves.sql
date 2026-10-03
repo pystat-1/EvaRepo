@@ -1,0 +1,1 @@
+ALTER TABLE `course_holidays` ADD `movedTo` text;

@@ -3,6 +3,7 @@
 // side validates what it receives with the checkers below.
 
 import type { Attendance } from "../grading/validation";
+import type { Holiday } from "../schedule/holidays";
 
 export const BUNDLE_FORMAT = 1;
 
@@ -22,6 +23,12 @@ export interface EvaluatorBundle {
   }>;
   /** Rotation blocks at this evaluator's hospitals (same shape as @eva/core placement stints). */
   stints: Array<{ groupId: string; hospitalId: string; hospitalName: string; startDate: string; endDate: string; daysOfWeek: string | null }>;
+  /**
+   * The course's holidays: no attendance that day; with `movedTo`, the
+   * groups meeting that day meet on `movedTo` instead (same hospital).
+   * Optional: bundles from before holidays existed have none.
+   */
+  holidays?: Holiday[];
   /** In the order of the college's paper form (right to left). labelEn = the form's wording. */
   rubric: Array<{
     id: string;

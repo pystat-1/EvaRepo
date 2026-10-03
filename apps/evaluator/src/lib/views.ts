@@ -95,12 +95,14 @@ export const STATE_AR: Record<EntryState, string> = {
 
 // ---- the schedule ---------------------------------------------------------
 
-export type DayMark = "done" | "colleague" | "draft" | "missed" | "today" | "future";
+export type DayMark = "done" | "colleague" | "draft" | "missed" | "today" | "future" | "holiday";
 
 export interface ScheduleDay {
   dateISO: string;
   weekday: string;
   mark: DayMark;
+  /** A holiday's label, or "تعويض …" on the day a holiday moved to. */
+  note?: string;
 }
 
 export interface ScheduleStint {
@@ -149,19 +151,26 @@ export function schedule(bundle: EvaluatorBundle, entries: DayEntry[], drafts: D
   }
   const drafted = new Set(drafts.filter((d) => d.status === "draft").map((d) => d.key));
   const groups = new Map(bundle.groups.map((g) => [g.id, g]));
+  const holidays = new Map((bundle.holidays ?? []).map((h) => [h.dateISO, h]));
   const stints: ScheduleStint[] = mergeBlocks(bundle.stints)
     .filter((s) => groups.has(s.groupId))
     .map((s): ScheduleStint => {
       const g = groups.get(s.groupId)!;
-      const dates = stintDates(s);
       const weeks: ScheduleDay[][] = [];
-      for (const d of dates) {
+      const markOf = (d: string): DayMark => {
         const k = `${s.groupId}:${d}`;
         const e = done.get(k);
-        const mark: DayMark = e ? (e.mine ? "done" : "colleague") : drafted.has(k) ? "draft" : d === today ? "today" : d < today ? "missed" : "future";
+        return e ? (e.mine ? "done" : "colleague") : drafted.has(k) ? "draft" : d === today ? "today" : d < today ? "missed" : "future";
+      };
+      for (const d of stintDates(s)) {
         const week = Math.floor((Date.parse(d) - Date.parse(s.startDate)) / (7 * 86400_000));
-        (weeks[week] ??= []).push({ dateISO: d, weekday: weekdayAr(d), mark });
+        const h = holidays.get(d);
+        // A holiday stays in its place; its make-up day joins the same week.
+        const mark = h && !done.has(`${s.groupId}:${d}`) ? "holiday" : markOf(d);
+        (weeks[week] ??= []).push({ dateISO: d, weekday: weekdayAr(d), mark, ...(h ? { note: h.label ?? "عطلة" } : {}) });
+        if (h?.movedTo) weeks[week].push({ dateISO: h.movedTo, weekday: weekdayAr(h.movedTo), mark: markOf(h.movedTo), note: `تعويض ${d.slice(8)}/${d.slice(5, 7)}` });
       }
+      for (const w of weeks) w?.sort((a, b) => a.dateISO.localeCompare(b.dateISO));
       return {
         groupId: s.groupId,
         groupName: g.name,

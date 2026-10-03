@@ -102,6 +102,8 @@ export const courseHolidays = sqliteTable(
     courseId: text("courseId").notNull().references(() => courses.id),
     dateISO: text("dateISO").notNull(),
     label: text("label"),
+    /** The day this holiday's schedule moved to (a make-up day), or null for a day off. */
+    movedTo: text("movedTo"),
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex("course_holidays_unique").on(t.courseId, t.dateISO)]

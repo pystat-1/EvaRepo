@@ -6,6 +6,7 @@
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { todayISO } from "@eva/core/date";
 import { compareArabic } from "@eva/core/text/arabic";
+import { withMakeupDays } from "@eva/core/schedule/holidays";
 import { HOSPITAL_PALETTE, SUBMIT_WINDOW_DAYS, addDays, asAttendance, groupDates, resolveDayState } from "@eva/core/gradeMatrix/build";
 import type { GradeMatrixData, MatrixDay, MatrixGroup, MatrixHospital, MatrixStint, ProgramId } from "@eva/core/gradeMatrix/types";
 import * as t from "../schema";
@@ -92,7 +93,7 @@ export async function gradeMatrix(r: Repo, courseId: string, today = todayISO())
   const workDays = groupIds.length
     ? await r.db.select({ groupId: t.groupWorkDays.groupId, dateISO: t.groupWorkDays.dateISO, validatedAt: t.groupWorkDays.validatedAt }).from(t.groupWorkDays).where(inArray(t.groupWorkDays.groupId, groupIds))
     : [];
-  const holidays = await r.db.select({ dateISO: t.courseHolidays.dateISO, label: t.courseHolidays.label }).from(t.courseHolidays).where(eq(t.courseHolidays.courseId, courseId));
+  const holidays = await r.db.select({ dateISO: t.courseHolidays.dateISO, label: t.courseHolidays.label, movedTo: t.courseHolidays.movedTo }).from(t.courseHolidays).where(eq(t.courseHolidays.courseId, courseId));
 
   const scoresBy = new Map<string, (number | null)[]>();
   for (const e of evaluations) {
@@ -118,7 +119,8 @@ export async function gradeMatrix(r: Repo, courseId: string, today = todayISO())
   for (const g of groups) {
     const gb = blocksByGroup.get(g.id) ?? [];
     for (const b of gb) hospitalName.set(b.hospitalId, b.hospitalName);
-    const dates = groupDates(gb, fallbackDays);
+    // A holiday keeps its column; a moved one adds its make-up day.
+    const dates = groupDates(withMakeupDays(gb, holidays), fallbackDays);
     datesByGroup.set(g.id, dates);
     for (const d of dates) {
       const seen = firstSeen.get(d.hospitalId);

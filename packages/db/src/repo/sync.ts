@@ -5,6 +5,7 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { applyItemScores, normalizeScoresForAttendance, round2, validateScores } from "@eva/core/grading/validation";
 import { pickPlacement } from "@eva/core/grading/placement";
+import { withMakeupDays } from "@eva/core/schedule/holidays";
 import { BUNDLE_FORMAT, checkDaySubmission, type DaySubmission, type EvaluatorBundle, type HistoryDay, type SubmissionResult } from "@eva/core/sync/contract";
 import { sha256Hex } from "@eva/core/sync/tokens";
 import { compareArabic } from "@eva/core/text/arabic";
@@ -12,6 +13,7 @@ import * as t from "../schema";
 import { Plan, ValidationError, newId, nowISO, type Repo } from "./common";
 import { currentCourse } from "./students";
 import { autoName } from "./evaluators";
+import { listHolidays } from "./courses";
 
 // ---- publishing ----------------------------------------------------------
 
@@ -59,6 +61,7 @@ export async function buildPublication(r: Repo): Promise<{ evaluators: Published
   const groups = await r.db.select().from(t.groups).where(eq(t.groups.courseId, course.id));
   const students = await r.db.select().from(t.students).where(and(eq(t.students.courseId, course.id), eq(t.students.active, true)));
   const history = await courseHistory(r, course.id, accounts);
+  const holidays = await listHolidays(r, course.id);
 
   const bundles: EvaluatorBundle[] = [];
   for (const acc of accounts.filter((a) => a.active)) {
@@ -89,6 +92,7 @@ export async function buildPublication(r: Repo): Promise<{ evaluators: Published
       stints: myBlocks
         .map((x) => ({ groupId: x.b.groupId, hospitalId: x.b.hospitalId, hospitalName: x.hospitalName, startDate: x.b.startDate, endDate: x.b.endDate, daysOfWeek: x.b.daysOfWeek }))
         .sort((a, b) => a.startDate.localeCompare(b.startDate) || a.groupId.localeCompare(b.groupId)),
+      holidays,
       rubric,
       // Days graded at this evaluator's hospitals for their groups.
       history: history.filter((d) => myGroups.has(d.groupId) && d.hospitalId !== null && hospitalIds.has(d.hospitalId)),
@@ -239,8 +243,11 @@ export async function applyDaySubmission(r: Repo, pulled: PulledSubmission, forc
   const stints = blocks
     .filter((x) => hospitals.has(x.b.hospitalId))
     .map((x) => ({ groupId: x.b.groupId, hospitalId: x.b.hospitalId, hospitalName: x.hospitalName, startDate: x.b.startDate, endDate: x.b.endDate, daysOfWeek: x.b.daysOfWeek }));
-  const placement = pickPlacement(stints, group.id, sub.dateISO);
-  if (!placement) return reject("هذه المجموعة ليست في مستشفيات هذا المقيّم في ذلك التاريخ");
+  // Holidays: a make-up day counts as scheduled at the moved day's hospital; the holiday itself does not.
+  const holidays = group.courseId ? await listHolidays(r, group.courseId) : [];
+  const found = pickPlacement(withMakeupDays(stints, holidays), group.id, sub.dateISO);
+  if (!found) return reject("هذه المجموعة ليست في مستشفيات هذا المقيّم في ذلك التاريخ");
+  const placement = holidays.some((h) => h.dateISO === sub.dateISO) ? { ...found, scheduled: false } : found;
 
   const members = new Set(
     (await r.db.select({ id: t.students.id }).from(t.students).where(eq(t.students.groupId, group.id))).map((s) => s.id)

@@ -10,7 +10,7 @@ type Workbook = import("exceljs").Workbook;
 type Worksheet = import("exceljs").Worksheet;
 
 const BRAND = "FF0E5C6B";
-const MARK_AR: Record<string, string> = { done: "قيّمته", colleague: "قيّمه زميل", draft: "مسودة", missed: "لم يُقيَّم", today: "اليوم", future: "قادم" };
+const MARK_AR: Record<string, string> = { done: "قيّمته", colleague: "قيّمه زميل", draft: "مسودة", missed: "لم يُقيَّم", today: "اليوم", future: "قادم", holiday: "عطلة" };
 
 export function downloadBlob(blob: Blob, name: string) {
   const url = URL.createObjectURL(blob);
@@ -292,7 +292,7 @@ export async function scheduleExcel(bundle: EvaluatorBundle, hospitals: Array<{ 
     for (const s of h.stints)
       for (const w of s.weeks)
         for (const day of w)
-          boxRow(ws, [h.hospitalName, s.groupName, s.shift ? SHIFT_AR[s.shift] : "", s.startDate, s.endDate, s.studentCount, day.weekday, day.dateISO, MARK_AR[day.mark]]);
+          boxRow(ws, [h.hospitalName, s.groupName, s.shift ? SHIFT_AR[s.shift] : "", s.startDate, s.endDate, s.studentCount, day.weekday, day.dateISO, day.note ? `${MARK_AR[day.mark]} · ${day.note}` : MARK_AR[day.mark]]);
   await saveWorkbook(wb, `جدولي ${bundle.course.label}`);
 }
 

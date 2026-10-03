@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { EvaluatorBundle } from "@eva/core/sync/contract";
 import { addDaysISO, todayISO } from "@eva/core/date";
 import type { StoredResult } from "../lib/store";
-import { draftKey, groupsForDate, overdueDrafts, type Draft } from "../lib/day";
+import { draftKey, groupsForDate, holidayOn, overdueDrafts, type Draft } from "../lib/day";
 
 const SHIFT = { MORNING: "صباحي", EVENING: "مسائي" } as const;
 
@@ -27,6 +27,8 @@ export function Home({
   const scheduled = groups.filter((g) => g.scheduled);
   const others = groups.filter((g) => !g.scheduled);
   const problems = results.filter((r) => r.status === "decided" && r.outcome !== "applied");
+  const holiday = holidayOn(bundle, date);
+  const makeupFor = (bundle.holidays ?? []).find((h) => h.movedTo === date) ?? null;
 
   return (
     <>
@@ -57,6 +59,24 @@ export function Home({
       </div>
 
       <h2>{date === today ? "مجموعات اليوم" : `مجموعات ${date}`}</h2>
+      {holiday && (
+        <div className="note warn" role="status">
+          <b>عطلة{holiday.label ? `: ${holiday.label}` : ""}</b>
+          {holiday.movedTo ? (
+            <>
+              {" "}— نُقل دوام هذا اليوم إلى{" "}
+              <button className="link" onClick={() => setDate(holiday.movedTo!)}>{holiday.movedTo}</button>
+            </>
+          ) : (
+            " — لا دوام في هذا اليوم"
+          )}
+        </div>
+      )}
+      {makeupFor && (
+        <p className="note" role="status">
+          يوم تعويض عن عطلة {makeupFor.dateISO}{makeupFor.label ? ` (${makeupFor.label})` : ""}
+        </p>
+      )}
       {scheduled.length === 0 && <p className="muted">لا توجد مجموعة مجدولة لك في هذا اليوم.</p>}
       {scheduled.map((g) => (
         <GroupCard key={g.id} g={g} draft={byKey.get(draftKey(g.id, date))} result={resultOf(byKey.get(draftKey(g.id, date)))} onOpen={() => onOpen({ groupId: g.id, dateISO: date })} />

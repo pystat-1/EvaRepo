@@ -80,7 +80,8 @@ export function AttendanceDaysCard({ courseId }: { courseId: string }) {
 }
 
 // The schedule read by hospital: week → attendance days with dates → groups.
-export function CalendarByHospital({ courseId }: { courseId: string }) {
+// A day opens the holiday dialog (a make-up day opens its holiday's).
+export function CalendarByHospital({ courseId, onPickDay }: { courseId: string; onPickDay: (dateISO: string) => void }) {
   const cal = useQuery({ queryKey: ["attendanceCalendar", courseId], queryFn: () => attendanceCalendar(r, courseId) });
   const [open, setOpen] = useState<string | null>(null);
   const list = cal.data ?? [];
@@ -105,17 +106,34 @@ export function CalendarByHospital({ courseId }: { courseId: string }) {
             <div className="cal-week-title">الأسبوع {w.index + 1}</div>
             <div className="cal-days">
               {w.days.map((d) => (
-                <div key={d.dateISO} className="cal-day">
+                <button
+                  key={d.dateISO}
+                  type="button"
+                  className={`cal-day ${d.holiday ? "is-holiday" : d.makeupFor ? "is-makeup" : ""}`}
+                  onClick={() => onPickDay(d.makeupFor ?? d.dateISO)}
+                  title={d.holiday ? "عطلة — انقر للتعديل" : d.makeupFor ? "يوم تعويض — انقر لتعديل العطلة" : "انقر لجعله عطلة أو نقل دوامه"}
+                >
                   <div className="cal-date">
                     <b>{DAY_AR[d.weekday]}</b> <span className="tabular">{short(d.dateISO)}</span>
                   </div>
+                  {d.holiday && (
+                    <div className="cal-tag">
+                      عطلة{d.holiday.label ? ` · ${d.holiday.label}` : ""}
+                      {d.holiday.movedTo ? <> ← نُقل إلى <span className="tabular">{short(d.holiday.movedTo)}</span></> : " · بلا تعويض"}
+                    </div>
+                  )}
+                  {d.makeupFor && (
+                    <div className="cal-tag">
+                      تعويض عن <span className="tabular">{short(d.makeupFor)}</span>
+                    </div>
+                  )}
                   {d.groups.map((g) => (
                     <div key={g.id} className="cal-group">
                       {g.name}
                       {g.shift ? <small> · {SHIFT_AR[g.shift]}</small> : null}
                     </div>
                   ))}
-                </div>
+                </button>
               ))}
             </div>
           </div>

@@ -4,6 +4,7 @@
 import type { DayRecord, DaySubmission, EvaluatorBundle } from "@eva/core/sync/contract";
 import { pickPlacement, OFF_SCHEDULE_GRACE_DAYS } from "@eva/core/grading/placement";
 import { addDaysISO } from "@eva/core/date";
+import { withMakeupDays } from "@eva/core/schedule/holidays";
 
 export type Attendance = DayRecord["attendance"];
 
@@ -37,12 +38,20 @@ export interface DayGroup {
   studentCount: number;
 }
 
-/** Groups this evaluator can grade on a date: scheduled first, then nearby (holiday-moved) ones. */
+/** The holiday on a date, if the admin declared one. */
+export const holidayOn = (bundle: EvaluatorBundle, dateISO: string) => (bundle.holidays ?? []).find((h) => h.dateISO === dateISO) ?? null;
+
+/**
+ * Groups this evaluator can grade on a date: scheduled first (a holiday's
+ * make-up day counts; the holiday itself does not), then the others.
+ */
 export function groupsForDate(bundle: EvaluatorBundle, dateISO: string): DayGroup[] {
+  const stints = withMakeupDays(bundle.stints, bundle.holidays ?? []);
+  const holiday = !!holidayOn(bundle, dateISO);
   const out: DayGroup[] = [];
   for (const g of bundle.groups) {
-    const p = pickPlacement(bundle.stints, g.id, dateISO, OFF_SCHEDULE_GRACE_DAYS);
-    if (p) out.push({ id: g.id, name: g.name, shift: g.shift, hospitalName: p.hospitalName, scheduled: p.scheduled, studentCount: g.students.length });
+    const p = pickPlacement(stints, g.id, dateISO, OFF_SCHEDULE_GRACE_DAYS);
+    if (p) out.push({ id: g.id, name: g.name, shift: g.shift, hospitalName: p.hospitalName, scheduled: p.scheduled && !holiday, studentCount: g.students.length });
   }
   const rank = (g: DayGroup) => (g.scheduled ? 0 : 2) + (g.shift === "EVENING" ? 1 : 0);
   return out.sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name, "ar", { numeric: true }));

@@ -13,6 +13,7 @@ const MARK: Record<DayMark, { text: string; cls: string }> = {
   missed: { text: "لم يُقيَّم", cls: "err" },
   today: { text: "اليوم", cls: "today" },
   future: { text: "قادم", cls: "" },
+  holiday: { text: "عطلة", cls: "holiday" },
 };
 const WHEN = { past: "منتهية", current: "حالية", future: "قادمة" } as const;
 
@@ -68,12 +69,13 @@ export function Schedule({
                           key={d.dateISO}
                           className={`dayc ${m.cls}`}
                           onClick={() => onOpen({ groupId: s.groupId, dateISO: d.dateISO })}
-                          aria-label={`${s.groupName} ${d.weekday} ${d.dateISO}: ${m.text}`}
+                          aria-label={`${s.groupName} ${d.weekday} ${d.dateISO}: ${m.text}${d.note ? ` · ${d.note}` : ""}`}
                         >
                           <span>
                             {d.weekday} {d.dateISO.slice(8)}/{d.dateISO.slice(5, 7)}
                           </span>
                           <small>{m.text}</small>
+                          {d.note && <small>{d.note}</small>}
                         </button>
                       );
                     })}

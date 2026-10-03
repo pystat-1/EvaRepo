@@ -94,6 +94,50 @@ describe("attendance days", () => {
   });
 });
 
+describe("holidays", () => {
+  it("moves a day's schedule to another date: calendar, Grading Center and phone bundles follow", async () => {
+    const { saveHoliday, removeHoliday, listHolidays, holidayImpact, attendanceCalendar } = await import("./courses");
+    const { gradeMatrix } = await import("./gradeMatrix");
+    const { buildPublication } = await import("./sync");
+    const r = await seeded(1);
+    const before = (await courseOverview(r, IDS.course))!.course.scheduleVersion;
+
+    // Monday 2026-10-05 is off; its schedule moves to Saturday 2026-10-10.
+    expect((await holidayImpact(r, IDS.course, "2026-10-05")).groups).toHaveLength(6);
+    await saveHoliday(r, IDS.course, { dateISO: "2026-10-05", label: " عطلة  رسمية ", movedTo: "2026-10-10" });
+    expect(await listHolidays(r, IDS.course)).toEqual([{ dateISO: "2026-10-05", label: "عطلة رسمية", movedTo: "2026-10-10" }]);
+    expect((await courseOverview(r, IDS.course))!.course.scheduleVersion).toBe(before + 1);
+
+    const yarmouk = (await attendanceCalendar(r, IDS.course)).find((h) => h.hospitalId === IDS.hospitals[0])!;
+    const week1 = yarmouk.weeks[0].days;
+    expect(week1.find((d) => d.dateISO === "2026-10-05")!.holiday?.movedTo).toBe("2026-10-10");
+    const makeup = week1[week1.length - 1];
+    expect(makeup).toMatchObject({ dateISO: "2026-10-10", weekday: "SAT", makeupFor: "2026-10-05" });
+    expect(makeup.groups.map((g) => g.name)).toEqual(["المجموعة الصباحية 1", "المجموعة المسائية 1"]);
+
+    const m = await gradeMatrix(r, IDS.course, "2026-10-20");
+    const g = m.programs[0].groups[0];
+    expect(g.dates).toHaveLength(31); // the holiday keeps its column, plus the make-up day
+    expect(g.dates.find((d) => d.dateISO === "2026-10-10")!.hospitalId).toBe(IDS.hospitals[0]);
+    expect(g.students[0].days.find((d) => d.dateISO === "2026-10-05")!.state).toBe("holiday");
+
+    const { bundles } = await buildPublication(r);
+    expect(bundles[0].holidays).toEqual([{ dateISO: "2026-10-05", label: "عطلة رسمية", movedTo: "2026-10-10" }]);
+
+    // A group cannot meet twice on one date.
+    await expect(saveHoliday(r, IDS.course, { dateISO: "2026-10-06", movedTo: "2026-10-07" })).rejects.toThrow(/دوام في 2026-10-07/);
+    await expect(saveHoliday(r, IDS.course, { dateISO: "2026-10-06", movedTo: "2026-10-10" })).rejects.toThrow(/دوام في 2026-10-10/);
+    await expect(saveHoliday(r, IDS.course, { dateISO: "2026-10-10" })).rejects.toThrow(/يوم تعويض/);
+
+    // Edit to a day off without make-up, then cancel it.
+    await saveHoliday(r, IDS.course, { dateISO: "2026-10-05", movedTo: null });
+    expect((await listHolidays(r, IDS.course))[0]).toMatchObject({ movedTo: null, label: null });
+    await removeHoliday(r, IDS.course, "2026-10-05");
+    expect(await listHolidays(r, IDS.course)).toEqual([]);
+    expect(await r.db.select().from(t.auditLog).where(eq(t.auditLog.entityType, "CourseHoliday"))).toHaveLength(3);
+  });
+});
+
 describe("current course", () => {
   const next = {
     year: 2026, number: 2, label: "الدورة الثانية", startDate: "2027-01-03", weekCount: 6, weeksPerHospital: 2,

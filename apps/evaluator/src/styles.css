@@ -108,6 +108,8 @@ h3 { font-size: 16px; margin: 8px 0 0; }
 .dayc.err small { color: var(--err); }
 .dayc.today { border: 2px solid var(--brand); font-weight: 700; }
 .dayc.today small { color: var(--brand); }
+.dayc.holiday { border-style: solid; border-color: var(--border-strong); background: transparent; color: var(--muted); }
+.dayc.holiday span { text-decoration: line-through; }
 
 /* download menu */
 .dl { position: relative; }

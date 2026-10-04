@@ -57,3 +57,17 @@ export function visibleStudents(
     .filter(({ student }) => matchesSearch(query, [student.name, student.uni, student.code]))
     .filter(({ student }) => filter === "all" || days(student).some((d) => dayMatches(filter, d, maxTotal)));
 }
+
+// "المجموعة A" whether or not the stored name already starts with the word.
+export function groupTitle(name: string): string {
+  return /^المجموعة(\s|$)/.test(name.trim()) ? name.trim() : `المجموعة ${name}`;
+}
+
+// The group's own tag for narrow headers: "المجموعة الصباحية 1" → "1",
+// "A" → "A". The program is already chosen above the grid.
+export function groupTag(name: string): string {
+  const rest = name.replace(/^المجموعة\s*/, "").trim();
+  const words = rest.split(/\s+/);
+  const last = words[words.length - 1] ?? "";
+  return words.length > 1 && last.length <= 3 ? last : rest || name;
+}

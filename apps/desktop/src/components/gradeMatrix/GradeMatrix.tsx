@@ -14,6 +14,8 @@ import {
   FILTERS,
   HEAT_STEPS,
   dayMatches,
+  currentColumn,
+  dateLayout,
   derivePeriods,
   fmtScore,
   fullDate,
@@ -25,6 +27,7 @@ import { CombinedView, type Order, type Scope } from "./CombinedView";
 import { RotationView } from "./RotationView";
 import { HeatmapView } from "./HeatmapView";
 import { DayPopover } from "./DayPopover";
+import { DayBoard } from "./DayBoard";
 import { Dot, EmptyState } from "./parts";
 import { visibleStudents, type Mode } from "./common";
 import styles from "./gradeMatrix.module.css";
@@ -67,6 +70,7 @@ export function GradeMatrix({ data, busy = false }: { data: GradeMatrixData; bus
   const [query, setQuery] = useState("");
   const [scope, setScope] = useState<Scope>("all");
   const [order, setOrder] = useState<Order>("hosp");
+  const [dayCol, setDayCol] = useState<number | null>(null); // day board column; null = today's
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [pop, setPop] = useState<Pop | null>(null);
   // A big course draws its students in steps (search and filters see everyone).
@@ -82,6 +86,10 @@ export function GradeMatrix({ data, busy = false }: { data: GradeMatrixData; bus
   const hospitalBy = useMemo(() => new Map(data.hospitals.map((h) => [h.id, h])), [data.hospitals]);
   const hospitalOrder = useMemo(() => data.hospitals.map((h) => h.id), [data.hospitals]);
   const periods = useMemo(() => (program ? derivePeriods(program.groups) : []), [program]);
+  const todayCol = useMemo(
+    () => (program ? currentColumn(program, dateLayout(program, data.holidays), data.todayISO) : 0),
+    [program, data.holidays, data.todayISO]
+  );
 
   // Another course (or a fresh load without this program): start over.
   useEffect(() => {
@@ -213,6 +221,7 @@ export function GradeMatrix({ data, busy = false }: { data: GradeMatrixData; bus
                       setProgramId(p.id);
                       setFilter("all");
                       setScope("all");
+                      setDayCol(null);
                       setExpanded({});
                     })
                   }
@@ -263,6 +272,9 @@ export function GradeMatrix({ data, busy = false }: { data: GradeMatrixData; bus
                           الفترة {p.index + 1} · {rangeLabel(p.start, p.end)}
                         </button>
                       ))}
+                      <button type="button" aria-pressed={scope === "day"} onClick={() => reset(() => setScope("day"))}>
+                        حسب اليوم
+                      </button>
                       <button type="button" aria-pressed={scope === "sum"} onClick={() => reset(() => setScope("sum"))}>
                         ملخص الدورة
                       </button>
@@ -278,7 +290,7 @@ export function GradeMatrix({ data, busy = false }: { data: GradeMatrixData; bus
                       </button>
                     </div>
                   )}
-                  {!(view === "combined" && scope === "sum") && (
+                  {!(view === "combined" && (scope === "sum" || scope === "day")) && (
                     <div className={styles.seg} role="group" aria-label="التفاصيل">
                       <button
                         type="button"
@@ -352,7 +364,10 @@ export function GradeMatrix({ data, busy = false }: { data: GradeMatrixData; bus
                 )}
 
                 <div ref={gridRef} onClick={onGridClick} onKeyDown={onGridKey} >
-                  {view === "combined" && (
+                  {view === "combined" && scope === "day" && (
+                    <DayBoard {...viewProps} column={dayCol ?? todayCol} onColumn={(c) => reset(() => setDayCol(c))} />
+                  )}
+                  {view === "combined" && scope !== "day" && (
                     <CombinedView
                       {...viewProps}
                       periods={periods}
@@ -363,12 +378,18 @@ export function GradeMatrix({ data, busy = false }: { data: GradeMatrixData; bus
                         setPop(null);
                         setExpanded((e) => ({ ...e, [id]: open }));
                       }}
+                      onOpenDay={(c) =>
+                        reset(() => {
+                          setDayCol(c);
+                          setScope("day");
+                        })
+                      }
                     />
                   )}
                   {view === "rotation" && <RotationView {...viewProps} />}
                   {view === "heatmap" && <HeatmapView {...viewProps} />}
                 </div>
-                {matching > limit && limit !== FIRST && (
+                {matching > limit && limit !== FIRST && !(view === "combined" && scope === "day") && (
                   <div className="flex items-center gap-3 flex-wrap text-sm">
                     <span>
                       يُعرض أول {limit} طالب من {matching}. ابحث أو صفِّ لتضييق القائمة، أو

@@ -5,6 +5,7 @@ import {
   averageOf,
   counts,
   dateLayout,
+  dayBoard,
   dayMatches,
   dayMonth,
   fmtPct,
@@ -26,6 +27,7 @@ import {
   BandRow,
   CritCell,
   DayCell,
+  Dot,
   EmptyState,
   HeadGrid,
   NameCell,
@@ -34,10 +36,10 @@ import {
   cellId,
   type HeadItem,
 } from "./parts";
-import { STUDENT_COL, dayAria, gridCols, shortHospital, visibleStudents, type ViewProps } from "./common";
+import { STUDENT_COL, dayAria, gridCols, groupTag, groupTitle, shortHospital, visibleStudents, type ViewProps } from "./common";
 import styles from "./gradeMatrix.module.css";
 
-export type Scope = "all" | "sum" | `p${number}`;
+export type Scope = "all" | "sum" | "day" | `p${number}`;
 export type Order = "hosp" | "date";
 
 export function CombinedView(
@@ -47,6 +49,7 @@ export function CombinedView(
     order: Order;
     expanded: Record<string, boolean>;
     onToggle: (studentId: string, open: boolean) => void;
+    onOpenDay: (column: number) => void;
   }
 ) {
   const { data, program, hospitalBy, hospitalOrder, mode, filter, query, periods } = p;
@@ -57,6 +60,8 @@ export function CombinedView(
   const isSum = scope === "sum";
   const isAll = scope === "all";
   const byHosp = isAll && p.order === "hosp";
+  // Whole course in calendar order: each day says where every group is.
+  const byDate = isAll && !byHosp;
 
   const hospitals = useMemo(() => programHospitals(program, hospitalOrder), [program, hospitalOrder]);
   const stats = useMemo(() => {
@@ -70,6 +75,20 @@ export function CombinedView(
     if (period) return dateLayout(program, holidays, period);
     return byHosp ? rotationLayout(program, hospitalOrder, { avgColumns: false }) : dateLayout(program, holidays);
   }, [isSum, period, byHosp, program, hospitalOrder, holidays]);
+
+  // Per day column: which group is at each hospital (calendar order only).
+  const occupancy = useMemo(
+    () =>
+      layout && byDate
+        ? layout.columns.map((_, c) =>
+            dayBoard(program, layout, c, hospitalOrder).map((panel) => ({
+              hospitalId: panel.hospitalId,
+              groups: panel.groups.map((b) => program.groups[b.groupIndex].name),
+            }))
+          )
+        : null,
+    [layout, byDate, program, hospitalOrder]
+  );
 
   const H = hospitals.length;
   const C = criteria.length;
@@ -92,11 +111,18 @@ export function CombinedView(
     layout.heads.forEach((row, ri) => {
       row.forEach((h, i) => {
         const hosp = h.hospitalId ? hospitalBy.get(h.hospitalId) : undefined;
+        const occ = ri === headRows - 1 ? occupancy?.[i] : undefined;
         head.push({
           key: `h${ri}:${i}`,
           row: ri + 1,
           colSpan: h.span,
-          label: ri === 0 && byHosp ? hosp?.name ?? "—" : h.label,
+          label: occ ? (
+            <DayHead label={h.label} occ={occ} hospitalBy={hospitalBy} onOpen={() => p.onOpenDay(i)} />
+          ) : ri === 0 && byHosp ? (
+            hosp?.name ?? "—"
+          ) : (
+            h.label
+          ),
           dot: ri === 0 && byHosp ? hosp?.color : undefined,
           sub: h.sub,
           holiday: h.holiday,
@@ -263,6 +289,7 @@ export function CombinedView(
                         sub={sub}
                         size={period ? "lg" : "md"}
                         nav={{ r, c }}
+                        stripe={byDate && x ? hospitalBy.get(x.day.hospitalId)?.color : undefined}
                       />
                     );
                   })}
@@ -372,5 +399,43 @@ function PeriodSummary({ days, maxTotal, coursePct }: { days: MatrixDay[]; maxTo
       <NumCell text={decided.length ? `${attended} من ${decided.length}` : "—"} weight={600} />
       <NumCell text={fmtPct(coursePct)} />
     </>
+  );
+}
+
+// A calendar-order day header: the date, then one line per hospital with
+// the group there that day. Opens the day board for that day.
+function DayHead({
+  label,
+  occ,
+  hospitalBy,
+  onOpen,
+}: {
+  label: string;
+  occ: { hospitalId: string; groups: string[] }[];
+  hospitalBy: Map<string, { name: string; color: string }>;
+  onOpen: () => void;
+}) {
+  const where = occ
+    .map((o) => `${hospitalBy.get(o.hospitalId)?.name ?? "—"}: ${o.groups.length ? o.groups.map(groupTitle).join("، ") : "لا مجموعة"}`)
+    .join(" · ");
+  return (
+    <button
+      type="button"
+      className={styles.dayHead}
+      onClick={onOpen}
+      title={`${where}
+اضغط لعرض اليوم في كل المستشفيات`}
+      aria-label={`${label}. ${where}. عرض اليوم في كل المستشفيات`}
+    >
+      <span>{label}</span>
+      <span className={styles.occ} aria-hidden>
+        {occ.map((o) => (
+          <span key={o.hospitalId}>
+            <Dot color={hospitalBy.get(o.hospitalId)?.color ?? "var(--ink-muted)"} />
+            {o.groups.length ? o.groups.map(groupTag).join("، ") : "—"}
+          </span>
+        ))}
+      </span>
+    </button>
   );
 }

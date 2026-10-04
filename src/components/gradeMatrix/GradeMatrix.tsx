@@ -15,6 +15,8 @@ import { useRouter } from "next/navigation";
 import {
   FILTERS,
   HEAT_STEPS,
+  currentColumn,
+  dateLayout,
   dayMatches,
   derivePeriods,
   fmtScore,
@@ -27,6 +29,7 @@ import { CombinedView, type Order, type Scope } from "./CombinedView";
 import { RotationView } from "./RotationView";
 import { HeatmapView } from "./HeatmapView";
 import { DayPopover } from "./DayPopover";
+import { DayBoard } from "./DayBoard";
 import { Dot, EmptyState } from "./parts";
 import type { Mode } from "./common";
 import styles from "./gradeMatrix.module.css";
@@ -76,6 +79,7 @@ export default function GradeMatrix({
   const [query, setQuery] = useState("");
   const [scope, setScope] = useState<Scope>("all");
   const [order, setOrder] = useState<Order>("hosp");
+  const [dayCol, setDayCol] = useState<number | null>(null); // day board column; null = today's
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [pop, setPop] = useState<Pop | null>(null);
   const gridRef = useRef<HTMLDivElement>(null);
@@ -84,6 +88,10 @@ export default function GradeMatrix({
   const hospitalBy = useMemo(() => new Map(data.hospitals.map((h) => [h.id, h])), [data.hospitals]);
   const hospitalOrder = useMemo(() => data.hospitals.map((h) => h.id), [data.hospitals]);
   const periods = useMemo(() => (program ? derivePeriods(program.groups) : []), [program]);
+  const todayCol = useMemo(
+    () => (program ? currentColumn(program, dateLayout(program, data.holidays), data.todayISO) : 0),
+    [program, data.holidays, data.todayISO]
+  );
 
   // Keep the URL shareable without a server round trip.
   useEffect(() => {
@@ -240,6 +248,7 @@ export default function GradeMatrix({
                       setProgramId(p.id);
                       setFilter("all");
                       setScope("all");
+                      setDayCol(null);
                       setExpanded({});
                     })
                   }
@@ -290,6 +299,9 @@ export default function GradeMatrix({
                           الفترة {p.index + 1} · {rangeLabel(p.start, p.end)}
                         </button>
                       ))}
+                      <button type="button" aria-pressed={scope === "day"} onClick={() => reset(() => setScope("day"))}>
+                        حسب اليوم
+                      </button>
                       <button type="button" aria-pressed={scope === "sum"} onClick={() => reset(() => setScope("sum"))}>
                         ملخص الدورة
                       </button>
@@ -305,7 +317,7 @@ export default function GradeMatrix({
                       </button>
                     </div>
                   )}
-                  {!(view === "combined" && scope === "sum") && (
+                  {!(view === "combined" && (scope === "sum" || scope === "day")) && (
                     <div className={styles.seg} role="group" aria-label="التفاصيل">
                       <button
                         type="button"
@@ -379,7 +391,10 @@ export default function GradeMatrix({
                 )}
 
                 <div ref={gridRef} onClick={onGridClick} onKeyDown={onGridKey} className="full-bleed px-4 sm:px-8">
-                  {view === "combined" && (
+                  {view === "combined" && scope === "day" && (
+                    <DayBoard {...viewProps} column={dayCol ?? todayCol} onColumn={(c) => reset(() => setDayCol(c))} />
+                  )}
+                  {view === "combined" && scope !== "day" && (
                     <CombinedView
                       {...viewProps}
                       periods={periods}
@@ -387,6 +402,12 @@ export default function GradeMatrix({
                       order={order}
                       expanded={expanded}
                       onToggle={(id, open) => reset(() => setExpanded((e) => ({ ...e, [id]: open })))}
+                      onOpenDay={(c) =>
+                        reset(() => {
+                          setDayCol(c);
+                          setScope("day");
+                        })
+                      }
                     />
                   )}
                   {view === "rotation" && <RotationView {...viewProps} />}

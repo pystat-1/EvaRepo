@@ -591,3 +591,54 @@ export function dayPosition(
     dayInWeek: sameWeek.findIndex((d) => d.dateISO === target.dateISO) + 1,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Day board: one attendance day across every hospital
+// ---------------------------------------------------------------------------
+
+export interface BoardGroup {
+  groupIndex: number; // index into program.groups
+  dateIndex: number; // index into group.dates (and each student's days)
+  dateISO: string;
+}
+
+export interface BoardPanel {
+  hospitalId: string;
+  groups: BoardGroup[]; // usually one; empty when no group is there that day
+}
+
+// Which group is at which hospital in one column of a date layout. Every
+// hospital of the program gets a panel, in hospital order, so the board
+// keeps the same shape from day to day.
+export function dayBoard(
+  program: MatrixProgram,
+  layout: Layout,
+  column: number,
+  hospitalOrder: string[]
+): BoardPanel[] {
+  const panels = programHospitals(program, hospitalOrder).map((h) => ({ hospitalId: h, groups: [] as BoardGroup[] }));
+  const byId = new Map(panels.map((p) => [p.hospitalId, p]));
+  program.groups.forEach((g, groupIndex) => {
+    const dateIndex = layout.slots[g.id]?.[column];
+    if (dateIndex === null || dateIndex === undefined) return;
+    const d = g.dates[dateIndex];
+    byId.get(d.hospitalId)?.groups.push({ groupIndex, dateIndex, dateISO: d.dateISO });
+  });
+  return panels;
+}
+
+// The column a day board opens on: the latest day that has started by
+// today, else the first one.
+export function currentColumn(program: MatrixProgram, layout: Layout, todayISO: string): number {
+  let best = 0;
+  layout.columns.forEach((_, c) => {
+    const first = program.groups
+      .flatMap((g) => {
+        const i = layout.slots[g.id]?.[c];
+        return i === null || i === undefined ? [] : [g.dates[i].dateISO];
+      })
+      .sort()[0];
+    if (first && first <= todayISO) best = c;
+  });
+  return best;
+}

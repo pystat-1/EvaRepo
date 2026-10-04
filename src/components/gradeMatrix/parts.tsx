@@ -164,6 +164,7 @@ export function DayCell({
   sub,
   size = "md",
   nav,
+  stripe,
 }: {
   day: MatrixDay | null;
   maxTotal: number;
@@ -173,6 +174,7 @@ export function DayCell({
   sub?: string;
   size?: "sm" | "md" | "lg";
   nav?: { r: number; c: number };
+  stripe?: string; // hospital color along the bottom edge (calendar order)
 }) {
   const minH = size === "lg" ? 62 : size === "sm" ? 44 : 52;
   if (!day) return <div className={styles.cellEmpty} style={{ minHeight: minH }} aria-hidden />;
@@ -192,6 +194,7 @@ export function DayCell({
     boxShadow: ring,
     outline: v.dashed && !hit ? `1.5px dashed ${v.border}` : undefined,
     outlineOffset: v.dashed && !hit ? -4 : undefined,
+    borderBottom: stripe ? `3px solid ${stripe}` : undefined,
   };
   const showTag = size !== "sm" && v.tag;
   const body = (

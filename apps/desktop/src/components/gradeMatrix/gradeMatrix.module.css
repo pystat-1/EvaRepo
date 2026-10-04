@@ -401,6 +401,154 @@ button.miniCell:focus-visible {
   outline-offset: 1px;
 }
 
+/* Calendar-order day header: the date, then which group is at each
+   hospital that day. The whole header opens the day board. */
+.dayHead {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  width: 100%;
+  margin: 0;
+  padding: 2px 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.dayHead:hover {
+  background: var(--brand-tint);
+}
+.dayHead:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 1px;
+}
+.occ {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--ink);
+}
+.occ > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+.occ .dot {
+  width: 7px;
+  height: 7px;
+}
+
+/* Day board: one attendance day, every hospital side by side. */
+.boardBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  flex-wrap: wrap;
+}
+.boardPick {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.boardStep {
+  min-width: 36px;
+  min-height: 34px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink);
+  cursor: pointer;
+}
+.boardStep:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.boardStep:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+.board {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+.panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-top-width: 4px;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+.panelHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px 8px;
+}
+.panelTitle {
+  font-size: 15px;
+  font-weight: 800;
+}
+.panelSub {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-muted);
+  white-space: nowrap;
+}
+.panelGroup {
+  padding: 5px 12px;
+  background: var(--brand-tint);
+  border-top: 1px solid var(--border);
+  font-size: 12.5px;
+  font-weight: 700;
+}
+.panelRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 84px;
+  border-top: 1px solid #eceee9;
+}
+.panelRow .nameCell {
+  border-inline-end: 0;
+}
+.panelFoot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 12px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+  background: #f8f9f6;
+  font-size: 12px;
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+.panelFoot b {
+  color: var(--ink);
+}
+.panelEmpty {
+  padding: 18px 12px;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+  color: var(--ink-muted);
+  text-align: center;
+}
+
 @media (max-width: 640px) {
   .scroller {
     --student-col: 156px;

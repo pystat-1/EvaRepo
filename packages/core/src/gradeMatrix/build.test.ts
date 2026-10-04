@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  currentColumn,
   dateLayout,
+  dayBoard,
   dayMatches,
   dayPosition,
   derivePeriods,
@@ -291,5 +293,60 @@ describe("layouts", () => {
     const g = program.groups[0];
     const i = g.dates.findIndex((d) => d.dateISO === "2026-09-08");
     expect(dayPosition(program, g, i)).toEqual({ courseWeek: 4, hospitalWeek: 2, dayInWeek: 2 });
+  });
+});
+
+describe("day board", () => {
+  const order = ["A", "B", "C"];
+  const who = (program: MatrixProgram, column: number) => {
+    const layout = dateLayout(program, {});
+    return dayBoard(program, layout, column, order).map((p) => ({
+      hospitalId: p.hospitalId,
+      groups: p.groups.map((g) => `${program.groups[g.groupIndex].id}@${g.dateISO}`),
+    }));
+  };
+
+  it("puts every group under the hospital it is at that day", () => {
+    const program = rotatingProgram();
+    expect(who(program, 0)).toEqual([
+      { hospitalId: "A", groups: ["g0@2026-08-16"] },
+      { hospitalId: "B", groups: ["g1@2026-08-16"] },
+      { hospitalId: "C", groups: ["g2@2026-08-16"] },
+    ]);
+    // Week 3 is the second period: everyone has moved one hospital on.
+    expect(who(program, 4)).toEqual([
+      { hospitalId: "A", groups: ["g2@2026-08-30"] },
+      { hospitalId: "B", groups: ["g0@2026-08-30"] },
+      { hospitalId: "C", groups: ["g1@2026-08-30"] },
+    ]);
+  });
+
+  it("points each group at its own day index", () => {
+    const program = rotatingProgram();
+    const layout = dateLayout(program, {});
+    for (let c = 0; c < layout.columns.length; c++) {
+      for (const panel of dayBoard(program, layout, c, order)) {
+        for (const g of panel.groups) {
+          const d = program.groups[g.groupIndex].dates[g.dateIndex];
+          expect(d.hospitalId).toBe(panel.hospitalId);
+          expect(d.dateISO).toBe(g.dateISO);
+        }
+      }
+    }
+  });
+
+  it("keeps an empty panel for a hospital with no group that day", () => {
+    const program = rotatingProgram();
+    program.groups = program.groups.slice(0, 2);
+    expect(who(program, 0)[2]).toEqual({ hospitalId: "C", groups: [] });
+  });
+
+  it("opens on the latest day that has started", () => {
+    const program = rotatingProgram();
+    const layout = dateLayout(program, {});
+    expect(currentColumn(program, layout, "2026-08-01")).toBe(0);
+    expect(currentColumn(program, layout, "2026-08-19")).toBe(1); // Wed after the first Tuesday
+    expect(currentColumn(program, layout, "2026-08-30")).toBe(4);
+    expect(currentColumn(program, layout, "2026-12-01")).toBe(11);
   });
 });

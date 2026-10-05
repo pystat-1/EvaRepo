@@ -344,11 +344,11 @@ The same three views are now the default tab of Eva Desktop's **مركز الد�
 - The desktop loader is `packages/db/src/repo/gradeMatrix.ts` (SQLite). Differences from the website's: the desktop stores one rotation block per week, so back-to-back blocks at one hospital are merged into one stint (this keeps the period tabs per hospital stay); a disputed day is an evaluation with `status = 'DISPUTED'`; weekdays fall back to the course's attendance pattern.
 - The views are copied into `apps/desktop/src/components/gradeMatrix` with links to website pages removed; `gm.css` supplies the few tokens and layout utilities the website gets from Tailwind.
 
-## Day across hospitals (2026-10-05)
+## Course matrix, «كشف اليوم» and «ملخص الطالب» (2026-10-06, desktop 0.8.0)
 
-For a course where every group moves hospital at the same time (for example 6 weeks, 3 hospitals, 2 weeks each, 2 attendance days a week), all hospitals work on every attendance day, each with its own group. Concept page: https://claude.ai/artifact/LDGAmC9SVBs4kLZYrJbiSR
+Chosen after comparing several layouts (https://claude.ai/artifact/Q1mQGxwqCAdkEpac49scv7): one row per student and one column per attendance day scales to any course size and any rotation, so it stays the main view.
 
-- **Compact table** (التصميم المدمج · الدورة كاملة · حسب التاريخ): every day header lists, per hospital (its color dot), the group there that day, and each grade cell carries a bottom stripe in that day's hospital color. Clicking a day header opens the day board on that day.
-- **Day board** (new scope tab «حسب اليوم»): one panel per hospital with the group(s) there that day, each student's day cell (opens the same popover), and the panel's provisional average, graded count, absences and evaluators. Arrows and a picker step through the course's day columns; it opens on the latest day that has started. Search and filter chips apply.
-- Built from the existing matrix data (no schema change): `dayBoard` and `currentColumn` in `packages/core/src/gradeMatrix/build.ts`, `DayBoard.tsx` in both the website and Eva Desktop. E2E: `npm run e2e -w @eva/desktop -- dayboard`.
-
+- **Course matrix** (التصميم المدمج · الدورة كاملة): calendar order by default. Each group's band shows its rotation as hospital-tinted segments («مستشفى … · الدوران n · dates») over the day columns, followed by a «معدل المجموعة» row. «في الخلايا» shows the day's total or one criterion; «الترتيب» orders students as listed, weakest first or by absences. The matrix has no summary columns any more. Day headers open «كشف اليوم» on that day.
+- **«كشف اليوم»** (replaces the day board): one day as a table, grouped by hospital then group, with every criterion, the total (opens the day popover), attendance, evaluator and note; sortable columns and a per-group average row.
+- **«ملخص الطالب»**: its own option (was «ملخص الدورة»): student names with per-hospital and per-criterion averages, course average and %, absences and trend.
+- Pure helpers `criterionDay` and `sortByStats` in `packages/core/src/gradeMatrix/build.ts`; `DaySheet.tsx` in both apps. E2E: `npm run e2e -w @eva/desktop -- daysheet`.

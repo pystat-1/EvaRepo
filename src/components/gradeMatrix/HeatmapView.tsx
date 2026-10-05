@@ -28,7 +28,7 @@ import {
   cellId,
   type HeadItem,
 } from "./parts";
-import { STUDENT_COL, dayAria, gridCols, shortHospital, visibleStudents, type ViewProps } from "./common";
+import { STUDENT_COL, dayAria, gridCols, groupTitle, shortHospital, visibleStudents, type ViewProps } from "./common";
 import styles from "./gradeMatrix.module.css";
 
 // Design 5 · الخريطة الحرارية: the whole course at a glance in calendar
@@ -76,7 +76,7 @@ export function HeatmapView(p: ViewProps) {
     const slots = layout.slots[g.id];
     return (
       <div key={g.id}>
-        <BandRow cols={cols} name={`المجموعة ${g.name}`}>
+        <BandRow cols={cols} name={groupTitle(g.name)}>
           {layout.bands[g.id].map((b, i) => {
             const h = b.hospitalId ? hospitalBy.get(b.hospitalId) : undefined;
             return (
@@ -144,7 +144,7 @@ function HeatCards(p: ViewProps & { stats: Map<string, ReturnType<typeof student
       {groups.map(({ g, gi, visible }) => {
         const seq = Array.from(rotationOrder(g).keys()).map((h) => shortHospital(p.hospitalBy.get(h)?.name ?? "—"));
         return (
-          <section key={g.id} aria-label={`المجموعة ${g.name}`} className="flex flex-col gap-3">
+          <section key={g.id} aria-label={groupTitle(g.name)} className="flex flex-col gap-3">
             <div className="flex items-baseline gap-3 flex-wrap">
               <h3 className="text-base font-bold">المجموعة {g.name}</h3>
               {seq.length > 0 && (

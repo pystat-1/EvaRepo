@@ -21,13 +21,14 @@ import {
   fullDate,
   rangeLabel,
   type FilterId,
+  type StudentSort,
 } from "@eva/core/gradeMatrix/build";
 import type { GradeMatrixData, ProgramId } from "@eva/core/gradeMatrix/types";
 import { CombinedView, type Order, type Scope } from "./CombinedView";
 import { RotationView } from "./RotationView";
 import { HeatmapView } from "./HeatmapView";
 import { DayPopover } from "./DayPopover";
-import { DayBoard } from "./DayBoard";
+import { DaySheet } from "./DaySheet";
 import { Dot, EmptyState } from "./parts";
 import { visibleStudents, type Mode } from "./common";
 import styles from "./gradeMatrix.module.css";
@@ -69,8 +70,10 @@ export function GradeMatrix({ data, busy = false }: { data: GradeMatrixData; bus
   const [filter, setFilter] = useState<FilterId>("all");
   const [query, setQuery] = useState("");
   const [scope, setScope] = useState<Scope>("all");
-  const [order, setOrder] = useState<Order>("hosp");
-  const [dayCol, setDayCol] = useState<number | null>(null); // day board column; null = today's
+  const [order, setOrder] = useState<Order>("date");
+  const [show, setShow] = useState<number | null>(null); // criterion in the cells; null = the day's total
+  const [sortBy, setSortBy] = useState<StudentSort>("list");
+  const [dayCol, setDayCol] = useState<number | null>(null); // day sheet column; null = today's
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [pop, setPop] = useState<Pop | null>(null);
   // A big course draws its students in steps (search and filters see everyone).
@@ -273,10 +276,19 @@ export function GradeMatrix({ data, busy = false }: { data: GradeMatrixData; bus
                         </button>
                       ))}
                       <button type="button" aria-pressed={scope === "day"} onClick={() => reset(() => setScope("day"))}>
-                        حسب اليوم
+                        كشف اليوم
                       </button>
-                      <button type="button" aria-pressed={scope === "sum"} onClick={() => reset(() => setScope("sum"))}>
-                        ملخص الدورة
+                    </div>
+                  )}
+                  {view === "combined" && (
+                    <div className={styles.seg} role="group" aria-label="ملخص الطالب">
+                      <button
+                        type="button"
+                        aria-pressed={scope === "sum"}
+                        title="صفحة بأسماء الطلاب وملخص كل منهم: المعدل في كل مستشفى وكل معيار، النسبة، الغياب والاتجاه"
+                        onClick={() => reset(() => setScope("sum"))}
+                      >
+                        ملخص الطالب
                       </button>
                     </div>
                   )}
@@ -289,6 +301,41 @@ export function GradeMatrix({ data, busy = false }: { data: GradeMatrixData; bus
                         حسب التاريخ
                       </button>
                     </div>
+                  )}
+                  {view === "combined" && scope !== "sum" && scope !== "day" && (
+                    <>
+                      {mode === "totals" && (
+                        <label className="flex items-center gap-2 text-sm font-semibold">
+                          في الخلايا
+                          <select
+                            className="input"
+                            style={{ width: "auto" }}
+                            value={show === null ? "" : String(show)}
+                            onChange={(e) => reset(() => setShow(e.target.value === "" ? null : Number(e.target.value)))}
+                          >
+                            <option value="">مجموع اليوم (من {data.maxTotal})</option>
+                            {data.criteria.map((c, ci) => (
+                              <option key={c.id} value={ci}>
+                                {c.label} (من {c.max})
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      )}
+                      <label className="flex items-center gap-2 text-sm font-semibold">
+                        الترتيب
+                        <select
+                          className="input"
+                          style={{ width: "auto" }}
+                          value={sortBy}
+                          onChange={(e) => reset(() => setSortBy(e.target.value as StudentSort))}
+                        >
+                          <option value="list">حسب القائمة</option>
+                          <option value="weakest">الأضعف أولًا</option>
+                          <option value="absences">الأكثر غيابًا</option>
+                        </select>
+                      </label>
+                    </>
                   )}
                   {!(view === "combined" && (scope === "sum" || scope === "day")) && (
                     <div className={styles.seg} role="group" aria-label="التفاصيل">
@@ -365,7 +412,7 @@ export function GradeMatrix({ data, busy = false }: { data: GradeMatrixData; bus
 
                 <div ref={gridRef} onClick={onGridClick} onKeyDown={onGridKey} >
                   {view === "combined" && scope === "day" && (
-                    <DayBoard {...viewProps} column={dayCol ?? todayCol} onColumn={(c) => reset(() => setDayCol(c))} />
+                    <DaySheet {...viewProps} column={dayCol ?? todayCol} onColumn={(c) => reset(() => setDayCol(c))} />
                   )}
                   {view === "combined" && scope !== "day" && (
                     <CombinedView
@@ -378,6 +425,8 @@ export function GradeMatrix({ data, busy = false }: { data: GradeMatrixData; bus
                         setPop(null);
                         setExpanded((e) => ({ ...e, [id]: open }));
                       }}
+                      show={mode === "totals" ? show : null}
+                      sort={sortBy}
                       onOpenDay={(c) =>
                         reset(() => {
                           setDayCol(c);

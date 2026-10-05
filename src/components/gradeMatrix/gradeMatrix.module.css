@@ -401,8 +401,7 @@ button.miniCell:focus-visible {
   outline-offset: 1px;
 }
 
-/* Calendar-order day header: the date, then which group is at each
-   hospital that day. The whole header opens the day board. */
+/* Calendar-order day header: opens «كشف اليوم» on that day. */
 .dayHead {
   display: flex;
   flex-direction: column;
@@ -425,27 +424,6 @@ button.miniCell:focus-visible {
   outline: 2px solid var(--brand);
   outline-offset: 1px;
 }
-.occ {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 1px;
-  font-size: 10.5px;
-  font-weight: 700;
-  color: var(--ink);
-}
-.occ > span {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  white-space: nowrap;
-}
-.occ .dot {
-  width: 7px;
-  height: 7px;
-}
-
-/* Day board: one attendance day, every hospital side by side. */
 .boardBar {
   display: flex;
   align-items: center;
@@ -477,76 +455,111 @@ button.miniCell:focus-visible {
   outline: 2px solid var(--brand);
   outline-offset: 2px;
 }
-.board {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 12px;
-  align-items: start;
+/* «كشف اليوم»: a plain table inside the matrix scroller. */
+.sheet {
+  width: 100%;
+  min-width: 860px;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
 }
-.panel {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
+.sheet th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 6px 4px;
   background: var(--surface-raised);
-  border: 1px solid var(--border);
-  border-top-width: 4px;
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-card);
-  overflow: hidden;
-}
-.panelHead {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 10px 12px 8px;
-}
-.panelTitle {
-  font-size: 15px;
-  font-weight: 800;
-}
-.panelSub {
+  border-bottom: 1px solid var(--border-strong);
   font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-muted);
+  text-align: center;
+  white-space: nowrap;
+}
+.sheet td {
+  padding: 4px 6px;
+  border-bottom: 1px solid #eceee9;
+  text-align: center;
+  vertical-align: middle;
+}
+.sheet tbody tr:hover td {
+  background: var(--brand-tint);
+}
+.sortBtn {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  border: 0;
+  background: none;
+  padding: 2px 4px;
+  font: inherit;
+  font-weight: 700;
+  color: inherit;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.sortBtn:hover,
+.sheet th[aria-sort] .sortBtn {
+  color: var(--brand-dark);
+}
+.sortBtn:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 1px;
+}
+.sheetStart {
+  text-align: start !important;
+  padding-inline-start: 12px !important;
+}
+.sheet th.sheetStart .sortBtn {
+  align-items: flex-start;
+}
+.sheetGroup td,
+.sheet tbody tr.sheetGroup:hover td {
+  background: var(--brand-tint);
+  font-weight: 800;
+  text-align: start;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.sheetGroupMeta {
   font-weight: 600;
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+.sheetAvg td,
+.sheet tbody tr.sheetAvg:hover td {
+  background: #f8f9f6;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-muted);
+}
+.sheetNum {
+  font-weight: 700;
+  min-width: 56px;
+}
+.sheetTotal {
+  width: 76px;
+  padding: 3px !important;
+}
+.sheetTotal .cell {
+  width: 100%;
+  min-width: 64px;
+  border-radius: 6px;
+  border-inline-start: 0;
+}
+.sheetMuted {
+  font-size: 12px;
   color: var(--ink-muted);
   white-space: nowrap;
 }
-.panelGroup {
-  padding: 5px 12px;
-  background: var(--brand-tint);
-  border-top: 1px solid var(--border);
-  font-size: 12.5px;
-  font-weight: 700;
-}
-.panelRow {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 84px;
-  border-top: 1px solid #eceee9;
-}
-.panelRow .nameCell {
-  border-inline-end: 0;
-}
-.panelFoot {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 4px 12px;
-  padding: 8px 12px;
-  border-top: 1px solid var(--border);
-  background: #f8f9f6;
+.sheetNote {
+  max-width: 240px;
   font-size: 12px;
   color: var(--ink-muted);
-  font-variant-numeric: tabular-nums;
-}
-.panelFoot b {
-  color: var(--ink);
-}
-.panelEmpty {
-  padding: 18px 12px;
-  border-top: 1px solid var(--border);
-  font-size: 13px;
-  color: var(--ink-muted);
-  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 @media (max-width: 640px) {

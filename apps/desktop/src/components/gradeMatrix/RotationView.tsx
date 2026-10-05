@@ -12,7 +12,7 @@ import {
   studentStats,
 } from "@eva/core/gradeMatrix/build";
 import { BandCellView, BandRow, CritCell, DayCell, EmptyState, HeadGrid, NameCell, NumCell, cellId, type HeadItem } from "./parts";
-import { STUDENT_COL, capRows, dayAria, gridCols, visibleStudents, lazyStats, type ViewProps } from "./common";
+import { STUDENT_COL, capRows, dayAria, gridCols, groupTitle, visibleStudents, lazyStats, type ViewProps } from "./common";
 import styles from "./gradeMatrix.module.css";
 
 const CRIT_W = 34;
@@ -99,7 +99,7 @@ export function RotationView(p: ViewProps) {
     const slots = layout.slots[g.id];
     return (
       <div key={g.id}>
-        <BandRow cols={cols} name={`المجموعة ${g.name}`}>
+        <BandRow cols={cols} name={groupTitle(g.name)}>
           {layout.bands[g.id].map((b, i) => (
             <BandCellView key={i} span={b.span} dot={b.hospitalId ? hospitalBy.get(b.hospitalId)?.color : null}>
               {b.from ? `الدوران ${b.order} · ${rangeLabel(b.from, b.to!)}` : "لا دوران هنا"}

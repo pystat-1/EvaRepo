@@ -88,16 +88,22 @@ export function BandCellView({
   dot,
   children,
   start,
+  tint,
 }: {
   span: number;
   dot?: string | null;
   children?: ReactNode;
   start?: boolean;
+  tint?: string | null; // hospital color: a light wash and a top edge mark the rotation
 }) {
   return (
     <div
       className={styles.bandCell}
-      style={{ gridColumn: `span ${span}`, justifyContent: start ? "flex-start" : "center" }}
+      style={{
+        gridColumn: `span ${span}`,
+        justifyContent: start ? "flex-start" : "center",
+        ...(tint && /^#[0-9a-f]{6}$/i.test(tint) ? { background: `${tint}1f`, boxShadow: `inset 0 3px 0 ${tint}` } : null),
+      }}
     >
       {dot && <Dot color={dot} />}
       <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{children}</span>

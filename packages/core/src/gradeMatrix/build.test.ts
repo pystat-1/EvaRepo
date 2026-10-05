@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  criterionDay,
   currentColumn,
   dateLayout,
   dayBoard,
@@ -11,6 +12,7 @@ import {
   matchesSearch,
   meetingDates,
   resolveDayState,
+  sortByStats,
   rotationLayout,
   sparkline,
   studentStats,
@@ -348,5 +350,27 @@ describe("day board", () => {
     expect(currentColumn(program, layout, "2026-08-19")).toBe(1); // Wed after the first Tuesday
     expect(currentColumn(program, layout, "2026-08-30")).toBe(4);
     expect(currentColumn(program, layout, "2026-12-01")).toBe(11);
+  });
+});
+
+describe("cell display", () => {
+  it("shows one criterion in place of the total", () => {
+    const d = day({ dateISO: "2026-10-04", hospitalId: "A", total: 12, scores: [4, 6, 1, 0.5, 0.5] });
+    expect(criterionDay(d, 1).total).toBe(6);
+    expect(criterionDay(d, 3).total).toBe(0.5);
+    const ungraded = day({ dateISO: "2026-10-04", hospitalId: "A", state: "pending" });
+    expect(criterionDay(ungraded, 1)).toBe(ungraded);
+  });
+
+  it("sorts students weakest first or by absences", () => {
+    const rows = [
+      { id: "a", avg: 12, absences: 0 },
+      { id: "b", avg: null, absences: 3 },
+      { id: "c", avg: 8, absences: 1 },
+    ];
+    const stat = (r: (typeof rows)[number]) => ({ avg: r.avg, absences: r.absences }) as unknown as ReturnType<typeof studentStats>;
+    expect(sortByStats(rows, stat, "weakest").map((r) => r.id)).toEqual(["c", "a", "b"]);
+    expect(sortByStats(rows, stat, "absences").map((r) => r.id)).toEqual(["b", "c", "a"]);
+    expect(sortByStats(rows, stat, "list")).toBe(rows);
   });
 });

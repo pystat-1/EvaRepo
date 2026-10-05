@@ -4,8 +4,8 @@ import { Fragment, useMemo, type ReactNode } from "react";
 import {
   averageOf,
   counts,
+  criterionDay,
   dateLayout,
-  dayBoard,
   dayMatches,
   dayMonth,
   fmtPct,
@@ -16,9 +16,11 @@ import {
   rangeLabel,
   rotationLayout,
   rotationOrder,
+  sortByStats,
   studentStats,
   type Layout,
   type Period,
+  type StudentSort,
 } from "@/lib/gradeMatrix/build";
 import type { MatrixDay } from "@/lib/gradeMatrix/types";
 import {
@@ -27,7 +29,6 @@ import {
   BandRow,
   CritCell,
   DayCell,
-  Dot,
   EmptyState,
   HeadGrid,
   NameCell,
@@ -36,7 +37,7 @@ import {
   cellId,
   type HeadItem,
 } from "./parts";
-import { STUDENT_COL, dayAria, gridCols, groupTag, groupTitle, shortHospital, visibleStudents, type ViewProps } from "./common";
+import { STUDENT_COL, dayAria, gridCols, groupTitle, shortHospital, visibleStudents, type ViewProps } from "./common";
 import styles from "./gradeMatrix.module.css";
 
 export type Scope = "all" | "sum" | "day" | `p${number}`;
@@ -50,6 +51,8 @@ export function CombinedView(
     expanded: Record<string, boolean>;
     onToggle: (studentId: string, open: boolean) => void;
     onOpenDay: (column: number) => void;
+    show: number | null; // criterion shown in the cells; null = the day's total
+    sort: StudentSort;
   }
 ) {
   const { data, program, hospitalBy, hospitalOrder, mode, filter, query, periods } = p;
@@ -76,26 +79,18 @@ export function CombinedView(
     return byHosp ? rotationLayout(program, hospitalOrder, { avgColumns: false }) : dateLayout(program, holidays);
   }, [isSum, period, byHosp, program, hospitalOrder, holidays]);
 
-  // Per day column: which group is at each hospital (calendar order only).
-  const occupancy = useMemo(
-    () =>
-      layout && byDate
-        ? layout.columns.map((_, c) =>
-            dayBoard(program, layout, c, hospitalOrder).map((panel) => ({
-              hospitalId: panel.hospitalId,
-              groups: panel.groups.map((b) => program.groups[b.groupIndex].name),
-            }))
-          )
-        : null,
-    [layout, byDate, program, hospitalOrder]
-  );
+  // The cells show the day's total, or one criterion picked by the admin.
+  const showCi = p.show !== null && p.show < criteria.length ? p.show : null;
+  const cellMax = showCi === null ? maxTotal : criteria[showCi].max;
+  const asShown = (d: MatrixDay) => (showCi === null ? d : criterionDay(d, showCi));
 
   const H = hospitals.length;
   const C = criteria.length;
   const nCols = layout ? layout.columns.length : 0;
   const dayW = period ? 156 : 64;
+  // The whole course has no summary columns: «ملخص الطالب» is its own view.
   const sumWidths = isAll
-    ? [...hospitals.map(() => 66), 128, 62, 54]
+    ? []
     : period
       ? [96, 84, 86]
       : [...hospitals.map(() => 96), ...criteria.map(() => 88), 80, 64, 56, 128];
@@ -111,13 +106,13 @@ export function CombinedView(
     layout.heads.forEach((row, ri) => {
       row.forEach((h, i) => {
         const hosp = h.hospitalId ? hospitalBy.get(h.hospitalId) : undefined;
-        const occ = ri === headRows - 1 ? occupancy?.[i] : undefined;
+        const dayHead = byDate && ri === headRows - 1;
         head.push({
           key: `h${ri}:${i}`,
           row: ri + 1,
           colSpan: h.span,
-          label: occ ? (
-            <DayHead label={h.label} occ={occ} hospitalBy={hospitalBy} onOpen={() => p.onOpenDay(i)} />
+          label: dayHead ? (
+            <DayHead label={h.label} onOpen={() => p.onOpenDay(i)} />
           ) : ri === 0 && byHosp ? (
             hosp?.name ?? "—"
           ) : (
@@ -129,7 +124,7 @@ export function CombinedView(
           style: ri === headRows - 1 ? { fontSize: 11, fontWeight: 600, color: "var(--ink-muted)" } : undefined,
         });
       });
-      if (ri === 0) {
+      if (ri === 0 && sumN > 0) {
         head.push({
           key: "sumTitle",
           row: 1,
@@ -138,24 +133,13 @@ export function CombinedView(
           summary: true,
         });
       }
-      if (ri === 1) {
+      if (ri === 1 && sumN > 0) {
         const span = headRows - 1;
-        const labels: { label: string; sub?: string; dot?: string }[] = isAll
-          ? [
-              ...hospitals.map((h) => ({
-                label: shortHospital(hospitalBy.get(h)?.name ?? "—"),
-                sub: `من ${maxTotal}`,
-                dot: hospitalBy.get(h)?.color,
-              })),
-              { label: "الاتجاه", sub: "مجموع اليوم" },
-              { label: "النسبة", sub: "مبدئية" },
-              { label: "غياب", sub: "أيام" },
-            ]
-          : [
+        const labels: { label: string; sub?: string; dot?: string }[] = [
               { label: "معدل الفترة", sub: `من ${maxTotal}` },
               { label: "الحضور", sub: "أيام" },
               { label: "نسبة الدورة", sub: "مبدئية" },
-            ];
+        ];
         labels.forEach((l, i) =>
           head.push({ key: `sum${i}`, row: 2, rowSpan: span, colSpan: 1, summary: true, ...l })
         );
@@ -189,7 +173,11 @@ export function CombinedView(
     layout ? (layout.slots[groupId].filter((i) => i !== null) as number[]).map((i) => days[i]) : days;
   const isOpen = (studentId: string) => !isSum && (p.expanded[studentId] ?? mode === "criteria");
   const visibleByGroup = program.groups.map((g) =>
-    visibleStudents(g.students, query, filter, maxTotal, (s) => scopeDaysOf(g.id, s.days))
+    sortByStats(
+      visibleStudents(g.students, query, filter, maxTotal, (s) => scopeDaysOf(g.id, s.days)),
+      (r) => stats.get(r.student.id)!,
+      p.sort
+    )
   );
   const shown = visibleByGroup.reduce((n, rows) => n + rows.length, 0);
   // Arrow-key row numbers: each student row, then its criteria rows if open.
@@ -225,25 +213,47 @@ export function CombinedView(
             let text = "";
             if (byHosp) text = b.from ? `الدوران ${b.order} · ${rangeLabel(b.from, b.to!)}` : "لا دوران هنا";
             else if (h && b.from)
-              text = period
-                ? `${h.name} · الدوران ${b.order} · ${rangeLabel(b.from, b.to!)}`
-                : `${shortHospital(h.name)} · ${rangeLabel(b.from, b.to!)}`;
+              text = `${h.name} · الدوران ${b.order} · ${rangeLabel(b.from, b.to!)}`;
             return (
-              <BandCellView key={i} span={b.span} dot={h?.color} start={!!period}>
+              <BandCellView key={i} span={b.span} dot={h?.color} start tint={byHosp ? null : h?.color}>
                 {text}
               </BandCellView>
             );
           })}
-          <BandCellView span={sumN} />
+          {sumN > 0 && <BandCellView span={sumN} />}
         </>
       );
     }
 
     return (
       <div key={g.id}>
-        <BandRow cols={cols} name={`المجموعة ${g.name}`}>
+        <BandRow cols={cols} name={groupTitle(g.name)}>
           {band}
         </BandRow>
+        {layout && (
+          <div className={styles.row} style={{ gridTemplateColumns: cols }}>
+            <div className={`${styles.nameCell} ${styles.stickyStart}`}>
+              <span className={styles.meta} style={{ fontWeight: 700 }}>
+                معدل المجموعة
+              </span>
+            </div>
+            {layout.columns.map((col, c) => {
+              const i = slots[c];
+              if (i === null || i === undefined) return <div key={col.key} className={styles.cellEmpty} aria-hidden />;
+              const a = averageOf(g.students.map((s) => asShown(s.days[i])));
+              return (
+                <NumCell
+                  key={col.key}
+                  text={fmtScore(a)}
+                  weight={700}
+                  bg={heatBg(a === null ? null : (a / cellMax) * 100)}
+                  fg={a !== null && a / cellMax < 0.6 ? "var(--red-700)" : undefined}
+                />
+              );
+            })}
+            {sumN > 0 && <div style={{ gridColumn: `span ${sumN}` }} />}
+          </div>
+        )}
         {rows.map(({ student, index: si }) => {
           const st = stats.get(student.id)!;
           const open = isOpen(student.id);
@@ -281,31 +291,17 @@ export function CombinedView(
                     return (
                       <DayCell
                         key={col.key}
-                        day={x?.day ?? null}
-                        maxTotal={maxTotal}
+                        day={x ? asShown(x.day) : null}
+                        maxTotal={cellMax}
                         id={x ? cellId(gi, si, x.i) : ""}
                         aria={x ? dayAria(student, x.day, hospitalBy, maxTotal) : ""}
                         hit={!!x && dayMatches(filter, x.day, maxTotal)}
                         sub={sub}
                         size={period ? "lg" : "md"}
                         nav={{ r, c }}
-                        stripe={byDate && x ? hospitalBy.get(x.day.hospitalId)?.color : undefined}
                       />
                     );
                   })}
-                {isAll && (
-                  <>
-                    {hospitals.map((h) => {
-                      const a = st.hospAvg[h] ?? null;
-                      return (
-                        <NumCell key={h} text={fmtScore(a)} bg={heatBg(a === null ? null : (a / maxTotal) * 100)} />
-                      );
-                    })}
-                    <SparkCell days={student.days} maxTotal={maxTotal} label={`اتجاه مجموع اليوم لـ ${student.name}`} />
-                    <NumCell text={fmtPct(st.pct)} weight={800} />
-                    <NumCell text={String(st.absences)} weight={600} fg={st.absences ? "var(--red-700)" : undefined} />
-                  </>
-                )}
                 {period && <PeriodSummary days={inScope} maxTotal={maxTotal} coursePct={st.pct} />}
                 {isSum && (
                   <>
@@ -363,7 +359,7 @@ export function CombinedView(
                           />
                         );
                       })}
-                      <AvgBar value={avg} max={crit.max} span={sumN} />
+                      {sumN > 0 && <AvgBar value={avg} max={crit.max} span={sumN} />}
                     </div>
                   );
                 })}
@@ -402,40 +398,11 @@ function PeriodSummary({ days, maxTotal, coursePct }: { days: MatrixDay[]; maxTo
   );
 }
 
-// A calendar-order day header: the date, then one line per hospital with
-// the group there that day. Opens the day board for that day.
-function DayHead({
-  label,
-  occ,
-  hospitalBy,
-  onOpen,
-}: {
-  label: string;
-  occ: { hospitalId: string; groups: string[] }[];
-  hospitalBy: Map<string, { name: string; color: string }>;
-  onOpen: () => void;
-}) {
-  const where = occ
-    .map((o) => `${hospitalBy.get(o.hospitalId)?.name ?? "—"}: ${o.groups.length ? o.groups.map(groupTitle).join("، ") : "لا مجموعة"}`)
-    .join(" · ");
+// A calendar-order day header: opens «كشف اليوم» on that day.
+function DayHead({ label, onOpen }: { label: string; onOpen: () => void }) {
   return (
-    <button
-      type="button"
-      className={styles.dayHead}
-      onClick={onOpen}
-      title={`${where}
-اضغط لعرض اليوم في كل المستشفيات`}
-      aria-label={`${label}. ${where}. عرض اليوم في كل المستشفيات`}
-    >
-      <span>{label}</span>
-      <span className={styles.occ} aria-hidden>
-        {occ.map((o) => (
-          <span key={o.hospitalId}>
-            <Dot color={hospitalBy.get(o.hospitalId)?.color ?? "var(--ink-muted)"} />
-            {o.groups.length ? o.groups.map(groupTag).join("، ") : "—"}
-          </span>
-        ))}
-      </span>
+    <button type="button" className={styles.dayHead} onClick={onOpen} title="فتح كشف هذا اليوم" aria-label={`${label}، فتح كشف هذا اليوم`}>
+      {label}
     </button>
   );
 }

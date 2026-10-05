@@ -642,3 +642,24 @@ export function currentColumn(program: MatrixProgram, layout: Layout, todayISO: 
   });
   return best;
 }
+
+// The day as it shows when the grid displays one criterion instead of the
+// day's total: that criterion's score stands in for the total. Days with
+// no validated grade are returned unchanged.
+export function criterionDay(day: MatrixDay, ci: number): MatrixDay {
+  if (day.total === null) return day;
+  const v = day.scores?.[ci];
+  return { ...day, total: typeof v === "number" ? v : null };
+}
+
+export type StudentSort = "list" | "weakest" | "absences";
+
+// Order rows by the course average (weakest first, ungraded last) or by
+// absences (most first). "list" keeps the order they came in.
+export function sortByStats<T>(rows: T[], stat: (row: T) => StudentStats, by: StudentSort): T[] {
+  if (by === "list") return rows;
+  const out = rows.slice();
+  if (by === "weakest") out.sort((a, b) => (stat(a).avg ?? Infinity) - (stat(b).avg ?? Infinity));
+  else out.sort((a, b) => stat(b).absences - stat(a).absences);
+  return out;
+}

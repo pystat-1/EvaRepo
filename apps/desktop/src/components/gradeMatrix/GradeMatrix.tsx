@@ -6,13 +6,11 @@ import {
   useRef,
   useState,
   startTransition,
-  type CSSProperties,
   type KeyboardEvent,
   type MouseEvent,
 } from "react";
 import {
   FILTERS,
-  HEAT_STEPS,
   dayMatches,
   currentColumn,
   dateLayout,
@@ -30,7 +28,7 @@ import { HeatmapView } from "./HeatmapView";
 import { DayPopover } from "./DayPopover";
 import { DaySheet } from "./DaySheet";
 import { StudentFile } from "./StudentFile";
-import { Dot, EmptyState } from "./parts";
+import { EmptyState } from "./parts";
 import { visibleStudents, type Mode } from "./common";
 import styles from "./gradeMatrix.module.css";
 import "./gm.css";
@@ -71,6 +69,8 @@ export function GradeMatrix({ data, busy = false }: { data: GradeMatrixData; bus
   const [filter, setFilter] = useState<FilterId>("all");
   const [query, setQuery] = useState("");
   const [scope, setScope] = useState<Scope>("all");
+  // Where «→ رجوع» goes: the scopes (and day) the admin came through.
+  const [trail, setTrail] = useState<{ scope: Scope; dayCol: number | null }[]>([]);
   const [order, setOrder] = useState<Order>("date");
   const [show, setShow] = useState<number | null>(null); // criterion in the cells; null = the day's total
   const [sortBy, setSortBy] = useState<StudentSort>("list");
@@ -151,6 +151,19 @@ export function GradeMatrix({ data, busy = false }: { data: GradeMatrixData; bus
     }
     return null;
   })();
+
+  function goScope(next: Scope, day: number | null = dayCol) {
+    if (next === scope && day === dayCol) return;
+    setTrail((t) => [...t, { scope, dayCol }]);
+    setScope(next);
+    setDayCol(day);
+  }
+  function goBack() {
+    const prev = trail[trail.length - 1];
+    setTrail((t) => t.slice(0, -1));
+    setScope(prev ? prev.scope : "all");
+    setDayCol(prev ? prev.dayCol : null);
+  }
 
   function reset(next: () => void) {
     setPop(null);
@@ -252,6 +265,7 @@ export function GradeMatrix({ data, busy = false }: { data: GradeMatrixData; bus
                       setProgramId(p.id);
                       setFilter("all");
                       setScope("all");
+                      setTrail([]);
                       setDayCol(null);
                       setExpanded({});
                     })
@@ -288,9 +302,20 @@ export function GradeMatrix({ data, busy = false }: { data: GradeMatrixData; bus
             viewProps && (
               <>
                 <div className="flex items-center gap-3 flex-wrap">
+                  {view === "combined" && scope !== "all" && (
+                    <button
+                      type="button"
+                      className="btn"
+                      style={{ fontWeight: 700 }}
+                      onClick={() => reset(goBack)}
+                      title="العودة إلى العرض السابق"
+                    >
+                      → رجوع
+                    </button>
+                  )}
                   {view === "combined" && (
                     <div className={styles.seg} role="group" aria-label="النطاق">
-                      <button type="button" aria-pressed={scope === "all"} onClick={() => reset(() => setScope("all"))}>
+                      <button type="button" aria-pressed={scope === "all"} onClick={() => reset(() => goScope("all"))}>
                         الدورة كاملة
                       </button>
                       {periods.map((p) => (
@@ -298,12 +323,12 @@ export function GradeMatrix({ data, busy = false }: { data: GradeMatrixData; bus
                           key={p.index}
                           type="button"
                           aria-pressed={scope === `p${p.index}`}
-                          onClick={() => reset(() => setScope(`p${p.index}`))}
+                          onClick={() => reset(() => goScope(`p${p.index}`))}
                         >
                           الفترة {p.index + 1} · {rangeLabel(p.start, p.end)}
                         </button>
                       ))}
-                      <button type="button" aria-pressed={scope === "day"} onClick={() => reset(() => setScope("day"))}>
+                      <button type="button" aria-pressed={scope === "day"} onClick={() => reset(() => goScope("day"))}>
                         كشف اليوم
                       </button>
                     </div>
@@ -314,7 +339,7 @@ export function GradeMatrix({ data, busy = false }: { data: GradeMatrixData; bus
                         type="button"
                         aria-pressed={scope === "sum"}
                         title="صفحة بأسماء الطلاب وملخص كل منهم: المعدل في كل مستشفى وكل معيار، النسبة، الغياب والاتجاه"
-                        onClick={() => reset(() => setScope("sum"))}
+                        onClick={() => reset(() => goScope("sum"))}
                       >
                         ملخص الطالب
                       </button>
@@ -420,7 +445,7 @@ export function GradeMatrix({ data, busy = false }: { data: GradeMatrixData; bus
                   ))}
                 </div>
 
-                <Legend data={data} programHospitals={program.groups.flatMap((g) => g.dates.map((d) => d.hospitalId))} hospitalBy={hospitalBy} criteriaMode={mode === "criteria" && view === "rotation"} />
+                {mode === "criteria" && view === "rotation" && <CriteriaKey data={data} />}
 
                 {unplaced.length > 0 && (
                   <details className="card text-sm" style={{ padding: "10px 14px", borderColor: "var(--amber-700)" }}>
@@ -456,10 +481,7 @@ export function GradeMatrix({ data, busy = false }: { data: GradeMatrixData; bus
                       show={mode === "totals" ? show : null}
                       sort={sortBy}
                       onOpenDay={(c) =>
-                        reset(() => {
-                          setDayCol(c);
-                          setScope("day");
-                        })
+                        reset(() => goScope("day", c))
                       }
                     />
                   )}
@@ -516,67 +538,16 @@ export function GradeMatrix({ data, busy = false }: { data: GradeMatrixData; bus
   );
 }
 
-function Legend({
-  data,
-  programHospitals,
-  hospitalBy,
-  criteriaMode,
-}: {
-  data: GradeMatrixData;
-  programHospitals: string[];
-  hospitalBy: Map<string, { name: string; color: string }>;
-  criteriaMode: boolean;
-}) {
-  const used = new Set(programHospitals);
-  const hospitals = data.hospitals.filter((h) => used.has(h.id));
-  const tag = (label: string, style: CSSProperties) => (
-    <span className="inline-flex items-center rounded px-1.5 font-bold" style={{ fontSize: 11, ...style }}>
-      {label}
-    </span>
-  );
+// The rotation grid's criteria mode labels its narrow columns م1…م5.
+function CriteriaKey({ data }: { data: GradeMatrixData }) {
   return (
-    <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-xs">
-      <div className="flex items-center gap-2 flex-wrap">
-        <span className="font-bold">الدرجة من الحد الأعلى</span>
-        {HEAT_STEPS.map((s) => (
-          <span key={s.label} className="inline-flex items-center gap-1">
-            <span aria-hidden style={{ width: 18, height: 12, borderRadius: 3, background: s.bg, boxShadow: "inset 0 0 0 1px #d7dbd3" }} />
-            {s.label}
-          </span>
-        ))}
-      </div>
-      <div className="flex items-center gap-1.5 flex-wrap">
-        <span className="font-bold">الحالات</span>
-        {tag("ناقص", { background: "#fff", boxShadow: "inset 0 0 0 1.5px var(--red-700)", color: "var(--red-700)" })}
-        {tag("غائب", { background: "var(--red-100)", color: "var(--red-700)" })}
-        {tag("تعارض", { background: "var(--amber-100)", boxShadow: "inset 0 0 0 1.5px #d9b46a", color: "var(--amber-700)" })}
-        {tag("غير معتمد", { background: "#fff", outline: "1.5px dashed var(--amber-700)", outlineOffset: -2, color: "var(--amber-700)" })}
-        {tag("ضمن المهلة", { background: "#fff", outline: "1.5px dashed var(--border-strong)", outlineOffset: -2, color: "var(--ink-muted)" })}
-        {tag("عطلة", { background: "#eceee9", color: "var(--ink-muted)" })}
-        {tag("لا دوام للمجموعة", { background: "repeating-linear-gradient(-45deg,#f6f7f4,#f6f7f4 4px,#eef0ec 4px,#eef0ec 8px)", color: "var(--ink-muted)" })}
-      </div>
-      {hospitals.length > 0 && (
-        <div className="flex items-center gap-3 flex-wrap">
-          <span className="font-bold">المستشفيات</span>
-          {hospitals.map((h) => (
-            <span key={h.id} className="inline-flex items-center gap-1.5">
-              <Dot color={hospitalBy.get(h.id)?.color ?? h.color} />
-              {h.name}
-            </span>
-          ))}
-        </div>
-      )}
-      {criteriaMode && (
-        <div className="flex items-center gap-3 flex-wrap">
-          <span className="font-bold">المعايير</span>
-          {data.criteria.map((c, i) => (
-            <span key={c.id}>
-              م{i + 1} = {c.label} ({c.max})
-            </span>
-          ))}
-        </div>
-      )}
-      <span style={{ color: "var(--ink-muted)" }}>اضغط أي خلية لعرض تفاصيل اليوم · الأسهم للتنقل بين الخلايا</span>
+    <div className="flex items-center gap-3 flex-wrap text-xs">
+      <span className="font-bold">المعايير</span>
+      {data.criteria.map((c, i) => (
+        <span key={c.id}>
+          م{i + 1} = {c.label} ({c.max})
+        </span>
+      ))}
     </div>
   );
 }

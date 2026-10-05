@@ -61,6 +61,15 @@ export async function daysheet(browser: Browser, out: string) {
   if (shots) await d.screenshot({ path: path.join(shots, "gc-summary.png"), fullPage: true });
   log("✓ «ملخص الطالب» opens on its own with the names");
 
+  // «→ رجوع» walks back: summary → day sheet → whole course.
+  await d.click("main button:has-text('→ رجوع')");
+  await d.locator("main [role=region][aria-label='كشف اليوم']").waitFor();
+  await d.click("main button:has-text('→ رجوع')");
+  await heads.first().waitFor();
+  check((await d.locator("main button:has-text('→ رجوع')").count()) === 0, "no back button on the whole course");
+  check((await d.locator("main >> text=الدرجة من الحد الأعلى").count()) === 0, "the colour legend is gone");
+  log("✓ «→ رجوع» returns to the previous view, and the legend is gone");
+
   check(desk.errors.length === 0, `no page errors: ${desk.errors.join(" | ")}`);
   await d.close();
 }

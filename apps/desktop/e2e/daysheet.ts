@@ -1,6 +1,7 @@
 // Grading Center: the course matrix (calendar order, rotation bands, group
 // averages, one criterion in the cells), «كشف اليوم» opened from a day
-// header with every criterion, and «ملخص الطالب» as its own view.
+// header with every criterion, «ملف الطالب» from a name, and «ملخص الطالب»
+// as its own view.
 import path from "node:path";
 import { log, openDesktop, seedFile } from "./harness";
 import type { Browser } from "playwright";
@@ -37,6 +38,22 @@ export async function daysheet(browser: Browser, out: string) {
   await d.click("main button[aria-label='اليوم التالي']");
   check((await d.locator("main select[aria-label='اختر يوم الحضور']").inputValue()) === "2", "next day");
   log("✓ «كشف اليوم»: one day with every criterion, sortable, steps through days");
+
+  await d.click("main [aria-label='كشف اليوم'] button[data-student]");
+  const fileView = d.locator("[role=dialog][aria-label^='ملف الطالب']");
+  await fileView.waitFor();
+  check((await fileView.locator("tbody tr").count()) >= 30 + 3, "the file lists every scheduled day under its rotation");
+  check((await fileView.locator("thead th").allInnerTexts()).some((t) => t.includes("المناقشة")), "every criterion is a column");
+  if (shots) await d.screenshot({ path: path.join(shots, "gc-student-file.png") });
+  await fileView.locator("button[data-cell]").first().click();
+  const dialogs = d.locator("[role=dialog]");
+  await d.waitForFunction(() => document.querySelectorAll("[role=dialog]").length === 2);
+  await d.keyboard.press("Escape"); // closes the day popover, the file stays
+  await d.waitForFunction(() => document.querySelectorAll("[role=dialog]").length === 1);
+  check((await dialogs.count()) === 1 && (await fileView.count()) === 1, "Esc closes the popover first");
+  await d.keyboard.press("Escape");
+  await fileView.waitFor({ state: "detached" });
+  log("✓ clicking a name opens «ملف الطالب» with every day; a day opens its popover; Esc closes each in turn");
 
   await d.click("main button:has-text('ملخص الطالب')");
   await d.locator("main >> text=معدل كل معيار عبر الدورة").waitFor();

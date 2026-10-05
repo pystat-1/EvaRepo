@@ -31,6 +31,7 @@ import { RotationView } from "./RotationView";
 import { HeatmapView } from "./HeatmapView";
 import { DayPopover } from "./DayPopover";
 import { DaySheet } from "./DaySheet";
+import { StudentFile } from "./StudentFile";
 import { Dot, EmptyState } from "./parts";
 import type { Mode } from "./common";
 import styles from "./gradeMatrix.module.css";
@@ -85,6 +86,8 @@ export default function GradeMatrix({
   const [dayCol, setDayCol] = useState<number | null>(null); // day sheet column; null = today's
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [pop, setPop] = useState<Pop | null>(null);
+  // «ملف الطالب»: the student whose file is open, and the name that opened it.
+  const [file, setFile] = useState<{ id: string; anchor: HTMLElement } | null>(null);
   const gridRef = useRef<HTMLDivElement>(null);
 
   const program = data.programs.find((p) => p.id === programId) ?? null;
@@ -133,12 +136,37 @@ export default function GradeMatrix({
     if (restoreFocus && anchor?.isConnected) anchor.focus();
   }, []);
 
+  const fileRef = useRef(file);
+  useEffect(() => {
+    fileRef.current = file;
+  }, [file]);
+  const closeFile = useCallback(() => {
+    const anchor = fileRef.current?.anchor;
+    setPop(null);
+    setFile(null);
+    if (anchor?.isConnected) anchor.focus();
+  }, []);
+  const fileTarget = (() => {
+    if (!file || !program) return null;
+    for (let g = 0; g < program.groups.length; g++) {
+      const s = program.groups[g].students.findIndex((x) => x.id === file.id);
+      if (s >= 0) return { g, s, group: program.groups[g], student: program.groups[g].students[s] };
+    }
+    return null;
+  })();
+
   function reset(next: () => void) {
     setPop(null);
     next();
   }
 
   function onGridClick(e: MouseEvent<HTMLDivElement>) {
+    const name = (e.target as Element).closest<HTMLElement>("[data-student]");
+    if (name && gridRef.current?.contains(name)) {
+      setPop(null);
+      setFile({ id: name.dataset.student ?? "", anchor: name });
+      return;
+    }
     const el = (e.target as Element).closest<HTMLElement>("[data-cell]");
     if (!el || !gridRef.current?.contains(el)) return;
     const [g, s, d] = (el.dataset.cell ?? "").split(":").map(Number);
@@ -468,6 +496,21 @@ export default function GradeMatrix({
         </>
       )}
 
+      {file && program && fileTarget && (
+        <StudentFile
+          data={data}
+          group={fileTarget.group}
+          groupIndex={fileTarget.g}
+          student={fileTarget.student}
+          studentIndex={fileTarget.s}
+          hospitalBy={hospitalBy}
+          popoverOpen={!!pop}
+          onOpenDay={(d, anchor) =>
+            setPop((cur) => (cur && cur.anchor === anchor ? null : { g: fileTarget.g, s: fileTarget.s, d, anchor }))
+          }
+          onClose={closeFile}
+        />
+      )}
       {pop && program && popTarget && (
         <DayPopover
           data={data}

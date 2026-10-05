@@ -135,9 +135,15 @@ export function NameCell({
         </button>
       )}
       <div className={styles.nameText}>
-        <span className={styles.name} title={student.name}>
+        <button
+          type="button"
+          className={`${styles.nameBtn} ${styles.name}`}
+          data-student={student.id}
+          title={`${student.name} · فتح ملف الطالب`}
+          aria-haspopup="dialog"
+        >
           {student.name}
-        </span>
+        </button>
         <StudentIds student={student} />
       </div>
     </div>

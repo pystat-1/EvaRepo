@@ -159,23 +159,23 @@ Also queued, independent of the OAuth work:
       grade/account data). `npx tsc --noEmit` and `npx next build` both
       clean after the fix.
 
-**⚠️ NEEDS HUMAN ACTION — daily backup routine still broken, now 19+ days
-running (first flagged 2026-09-17, still failing as of 2026-10-06):** the
+**⚠️ NEEDS HUMAN ACTION — daily backup routine still broken, now 23+ days
+running (first flagged 2026-09-17, still failing as of 2026-10-10):** the
 `eva-db-daily-backup` routine's `create_snapshot` call (project
 `dry-cell-81671466`, branch `br-dark-hat-arg40fn4`) has failed with
 `NeonApiError: snapshots limit exceeded` on every run checked since
-2026-09-17, most recently today (2026-10-06, intended name
-`daily-backup-2026-10-06`, both the initial attempt and its one retry
+2026-09-17, most recently today (2026-10-10, intended name
+`daily-backup-2026-10-10`, both the initial attempt and its one retry
 failed identically). `list_snapshots` on the same project still shows only
 **one** snapshot total — the original `manual-backup-2026-09-15`
-(`snap-cool-paper-ar3c3h5v`, now 21 days old) — nowhere near a count that
+(`snap-cool-paper-ar3c3h5v`, now 25 days old) — nowhere near a count that
 should hit a limit, confirming this is a plan/quota ceiling (e.g. a
 free-tier snapshot cap of 1) rather than accumulated old snapshots. Per
 this routine's own rules, nothing was deleted (the one existing snapshot
 is well under the 30-day prune threshold and doesn't match for pruning
 anyway) and no other Neon operation was attempted.
 **Practical effect: this project has had zero rolling daily snapshots for
-20 days straight** — the only DB backup that exists at all is the single
+23+ days straight** — the only DB backup that exists at all is the single
 2026-09-15 manual baseline plus Neon's 6-hour PITR window (see above).
 **Not silently fatal but no longer just a minor gap** — a human should
 either raise the Neon project's snapshot quota/plan, or delete/replace the

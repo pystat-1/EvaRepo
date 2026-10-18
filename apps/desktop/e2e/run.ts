@@ -1,4 +1,4 @@
-// npm run e2e -w @eva/desktop [-- flow|perf|backup|holidays|daysheet|units|exports]   (all when nothing is given)
+// npm run e2e -w @eva/desktop [-- flow|perf|backup|holidays|daysheet|units|exports|supervisor]   (all when nothing is given)
 // Builds nothing itself: the phone app must be built (npm run build -w @eva/evaluator).
 import fs from "node:fs";
 import os from "node:os";
@@ -11,8 +11,9 @@ import { holidays } from "./holidays";
 import { daysheet } from "./daysheet";
 import { units } from "./units";
 import { exports } from "./exports";
+import { supervisor } from "./supervisor";
 
-const TESTS = { flow, perf, backup, holidays, daysheet, units, exports };
+const TESTS = { flow, perf, backup, holidays, daysheet, units, exports, supervisor };
 const which = process.argv.slice(2).filter((a): a is keyof typeof TESTS => a in TESTS);
 const run = which.length ? which : (Object.keys(TESTS) as Array<keyof typeof TESTS>);
 const out = fs.mkdtempSync(path.join(os.tmpdir(), "eva-e2e-"));
@@ -20,7 +21,7 @@ const out = fs.mkdtempSync(path.join(os.tmpdir(), "eva-e2e-"));
 let failed = false;
 try {
   await startVite("desktop", 1420);
-  if (run.includes("flow")) await startVite("evaluator", 1430, true);
+  if (run.includes("flow") || run.includes("supervisor")) await startVite("evaluator", 1430, true);
   const browser = await launch();
   try {
     for (const name of run) {

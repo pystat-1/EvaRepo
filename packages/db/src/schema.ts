@@ -206,6 +206,8 @@ export const accounts = sqliteTable("accounts", {
   role: text("role").$type<Role>().notNull().default("ADMIN"),
   studentId: text("studentId").references(() => students.id),
   active: bool("active").notNull().default(true),
+  /** An evaluator who supervises: on the phone, every hospital, group and evaluator of the course. */
+  supervisor: bool("supervisor").notNull().default(false),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });

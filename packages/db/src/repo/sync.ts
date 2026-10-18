@@ -6,13 +6,13 @@ import { and, eq, inArray } from "drizzle-orm";
 import { applyItemScores, normalizeScoresForAttendance, round2, validateScores } from "@eva/core/grading/validation";
 import { pickPlacement } from "@eva/core/grading/placement";
 import { withMakeupDays } from "@eva/core/schedule/holidays";
-import { BUNDLE_FORMAT, checkDaySubmission, type DaySubmission, type EvaluatorBundle, type HistoryDay, type SubmissionResult } from "@eva/core/sync/contract";
+import { BUNDLE_FORMAT, checkDaySubmission, type DaySubmission, type EvaluatorBundle, type HistoryDay, type SubmissionResult, type TeamMember } from "@eva/core/sync/contract";
 import { sha256Hex } from "@eva/core/sync/tokens";
 import { compareArabic } from "@eva/core/text/arabic";
 import * as t from "../schema";
 import { Plan, ValidationError, newId, nowISO, type Repo } from "./common";
 import { currentCourse } from "./students";
-import { autoName } from "./evaluators";
+import { autoName, listEvaluators } from "./evaluators";
 import { listHolidays } from "./courses";
 import { unitNamesByStudent } from "./units";
 
@@ -64,19 +64,21 @@ export async function buildPublication(r: Repo): Promise<{ evaluators: Published
   const history = await courseHistory(r, course.id, accounts);
   const holidays = await listHolidays(r, course.id);
   const unitsOf = await unitNamesByStudent(r, students.map((s) => s.id));
+  const team = accounts.some((a) => a.active && a.supervisor) ? await courseTeam(r, course.id) : [];
 
   const bundles: EvaluatorBundle[] = [];
   for (const acc of accounts.filter((a) => a.active)) {
     const mine = assignments.filter((a) => a.accountId === acc.id);
-    if (mine.length === 0) continue;
-    const hospitalIds = new Set(mine.map((a) => a.hospitalId));
-    const onlyGroups = new Set(mine.filter((a) => a.groupId).map((a) => a.groupId!));
+    if (mine.length === 0 && !acc.supervisor) continue;
+    // A supervisor covers the whole course, whatever their own assignments.
+    const hospitalIds = new Set(acc.supervisor ? blocks.map((x) => x.b.hospitalId) : mine.map((a) => a.hospitalId));
+    const onlyGroups = new Set(acc.supervisor ? [] : mine.filter((a) => a.groupId).map((a) => a.groupId!));
     const myBlocks = blocks.filter((x) => hospitalIds.has(x.b.hospitalId) && (onlyGroups.size === 0 || onlyGroups.has(x.b.groupId)));
     const groupIds = [...new Set(myBlocks.map((x) => x.b.groupId))];
     const myGroups = new Set(groupIds);
     const body = {
       format: BUNDLE_FORMAT,
-      evaluator: { id: acc.id, name: acc.name },
+      evaluator: { id: acc.id, name: acc.name, ...(acc.supervisor ? { supervisor: true } : {}) },
       course: { id: course.id, label: course.label ?? `${course.year}-${course.number}`, startDate: course.startDate },
       hospitals: [...new Map(myBlocks.map((x) => [x.b.hospitalId, { id: x.b.hospitalId, name: x.hospitalName }])).values()],
       groups: groups
@@ -101,11 +103,32 @@ export async function buildPublication(r: Repo): Promise<{ evaluators: Published
       rubric,
       // Days graded at this evaluator's hospitals for their groups.
       history: history.filter((d) => myGroups.has(d.groupId) && d.hospitalId !== null && hospitalIds.has(d.hospitalId)),
+      ...(acc.supervisor ? { team } : {}),
     };
     const version = (await sha256Hex(JSON.stringify(body))).slice(0, 16);
     bundles.push({ ...body, version, generatedAt: nowISO() } as EvaluatorBundle);
   }
   return { evaluators, bundles };
+}
+
+/** Every evaluator with their covers in this course and their phone activity (supervisors' bundles). */
+async function courseTeam(r: Repo, courseId: string): Promise<TeamMember[]> {
+  const phones = await phoneSignIns(r);
+  return (await listEvaluators(r)).map((e) => {
+    const p = phones.get(e.id);
+    return {
+      id: e.id,
+      name: e.name,
+      email: e.email,
+      active: e.active,
+      supervisor: e.supervisor,
+      covers: e.hospitals.filter((h) => h.courseId === courseId).map((h) => ({ hospitalName: h.hospitalName, groupName: h.groupName })),
+      phone: p ? { googleName: p.googleName, lastLoginAt: p.lastLoginAt, lastSeenAt: p.lastSeenAt } : null,
+      lastReceivedAt: e.lastReceivedAt,
+      daysApplied: e.daysApplied,
+      openConflicts: e.openConflicts,
+    };
+  });
 }
 
 /** Every validated day of the course, grouped by group + date + evaluator (for the bundles' history). */
@@ -234,7 +257,8 @@ export async function applyDaySubmission(r: Repo, pulled: PulledSubmission, forc
   const [group] = await r.db.select().from(t.groups).where(eq(t.groups.id, sub.groupId));
   if (!group) return reject("المجموعة غير موجودة");
 
-  // Scope: the group must be at one of this evaluator's hospitals around that date.
+  // Scope: the group must be at one of this evaluator's hospitals around that
+  // date (a supervisor's are all of them).
   const assignments = await r.db
     .select()
     .from(t.evaluatorAssignments)
@@ -246,7 +270,7 @@ export async function applyDaySubmission(r: Repo, pulled: PulledSubmission, forc
     .innerJoin(t.hospitals, eq(t.hospitals.id, t.rotationBlocks.hospitalId))
     .where(and(eq(t.rotationBlocks.groupId, group.id), eq(t.rotationBlocks.active, true)));
   const stints = blocks
-    .filter((x) => hospitals.has(x.b.hospitalId))
+    .filter((x) => evaluator.supervisor || hospitals.has(x.b.hospitalId))
     .map((x) => ({ groupId: x.b.groupId, hospitalId: x.b.hospitalId, hospitalName: x.hospitalName, startDate: x.b.startDate, endDate: x.b.endDate, daysOfWeek: x.b.daysOfWeek }));
   // Holidays: a make-up day counts as scheduled at the moved day's hospital; the holiday itself does not.
   const holidays = group.courseId ? await listHolidays(r, group.courseId) : [];

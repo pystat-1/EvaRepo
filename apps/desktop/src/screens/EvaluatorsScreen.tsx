@@ -70,7 +70,7 @@ export function EvaluatorsScreen() {
         (filter === "active" && e.active) ||
         (filter === "inactive" && !e.active) ||
         (filter === "nophone" && e.active && !signedIn(e.id)) ||
-        (filter === "nocover" && e.active && e.hospitals.length === 0))
+        (filter === "nocover" && e.active && !e.supervisor && e.hospitals.length === 0))
   );
   const active = rows.filter((e) => e.active);
   const assigned = active.filter((e) => e.hospitals.length > 0);
@@ -220,6 +220,11 @@ function EvaluatorCard({
         </div>
         <div className="row ev-badges">
           {e.active ? <span className="badge badge-ok">فعّال</span> : <span className="badge">معطّل</span>}
+          {e.supervisor && (
+            <span className="badge badge-sup" title="يرى على هاتفه كل المستشفيات والمجموعات والمقيّمين، ويقيّم أي مجموعة">
+              مشرف
+            </span>
+          )}
           {phone ? (
             <span className="badge badge-ok" title={"دخل بحساب Google" + (phone.googleName ? ": " + phone.googleName : "")}>
               دخل من الهاتف
@@ -232,7 +237,11 @@ function EvaluatorCard({
       </div>
 
       <div className="ev-covers">
-        {e.hospitals.length === 0 && <span className="muted">لا يغطي أي مستشفى — لن يرى مجموعات على هاتفه.</span>}
+        {e.supervisor ? (
+          <span className="muted">مشرف: يرى كل المستشفيات والمجموعات والمقيّمين على هاتفه.</span>
+        ) : (
+          e.hospitals.length === 0 && <span className="muted">لا يغطي أي مستشفى — لن يرى مجموعات على هاتفه.</span>
+        )}
         {e.hospitals.map((h) => (
           <span key={h.assignmentId} className="chip-tag">
             {h.hospitalName}
@@ -324,16 +333,16 @@ function EvaluatorDialog({
   onClose: () => void;
 }) {
   const e = evaluator && evaluator !== "new" ? evaluator : null;
-  const [form, setForm] = useState({ name: "", email: "", hospitalIds: [] as string[] });
+  const [form, setForm] = useState({ name: "", email: "", hospitalIds: [] as string[], supervisor: false });
   const [loadedFor, setLoadedFor] = useState<string | null>(null);
   const key = evaluator === "new" ? "new" : e?.id ?? null;
   if (key !== loadedFor) {
     setLoadedFor(key);
-    setForm({ name: e?.name ?? "", email: e?.email ?? "", hospitalIds: [] });
+    setForm({ name: e?.name ?? "", email: e?.email ?? "", hospitalIds: [], supervisor: e?.supervisor ?? false });
   }
   const save = useMutation({
     mutationFn: async () => {
-      const id = await saveEvaluator(r, { id: e?.id, name: form.name, email: form.email });
+      const id = await saveEvaluator(r, { id: e?.id, name: form.name, email: form.email, supervisor: form.supervisor });
       if (!e && courseId && form.hospitalIds.length) await setEvaluatorHospitals(r, id, courseId, form.hospitalIds);
     },
     onSuccess: () => close(),
@@ -358,7 +367,16 @@ function EvaluatorDialog({
         <Field label="الاسم (اختياري)" error={err("name")} hint="إن تُرك فارغًا يُؤخذ من حساب Google عند أول دخول.">
           <input className="input" value={form.name} onChange={(x) => setForm({ ...form, name: x.target.value })} />
         </Field>
-        {!e && courseId && (
+        <label className="row check sup-check">
+          <input type="checkbox" checked={form.supervisor} onChange={(x) => setForm({ ...form, supervisor: x.target.checked })} />
+          <span>
+            <b>مشرف</b>
+            <span className="muted small" style={{ display: "block" }}>
+              يرى على هاتفه كل المستشفيات والمجموعات والطلاب، وأيام كل المقيّمين ودرجاتهم، وقائمة المقيّمين ونشاطهم، ويستطيع تقييم أي مجموعة. تبقى الإدارة هنا.
+            </span>
+          </span>
+        </label>
+        {!e && courseId && !form.supervisor && (
           <Field label="يغطي المستشفيات (كل مجموعاتها)" hint="لتخصيص مجموعة واحدة فقط استخدم «+ تخصيص» في بطاقة المقيّم بعد الحفظ.">
             <div className="row">
               {hospitals.map((h) => (

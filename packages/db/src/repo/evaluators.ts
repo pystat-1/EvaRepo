@@ -20,6 +20,8 @@ export interface EvaluatorRow {
   name: string;
   email: string;
   active: boolean;
+  /** Sees the whole course on the phone (every hospital, group and evaluator) and may grade any group. */
+  supervisor: boolean;
   hospitals: EvaluatorAssignmentRow[];
   /** From the phone (sync inbox): last day received, days applied, conflicts waiting. */
   lastReceivedAt: string | null;
@@ -56,6 +58,7 @@ export async function listEvaluators(r: Repo, includeInactive = true): Promise<E
         name: acc.name,
         email: acc.email,
         active: acc.active,
+        supervisor: acc.supervisor,
         hospitals: assignments
           .filter((x) => x.a.accountId === acc.id)
           .map((x) => ({
@@ -86,8 +89,11 @@ const cleanEmail = (s: string) => s.trim().toLowerCase();
  */
 export const autoName = (email: string) => email.split("@")[0];
 
-/** The name is optional: left empty, it comes from the Google account at first sign-in. */
-export async function saveEvaluator(r: Repo, input: { id?: string; name?: string; email: string }): Promise<string> {
+/**
+ * The name is optional: left empty, it comes from the Google account at
+ * first sign-in. `supervisor` left out keeps what the evaluator has.
+ */
+export async function saveEvaluator(r: Repo, input: { id?: string; name?: string; email: string; supervisor?: boolean }): Promise<string> {
   const email = cleanEmail(input.email);
   if (!EMAIL.test(email)) throw new ValidationError("البريد الإلكتروني غير صالح", "email");
   const name = cleanName(input.name ?? "") || autoName(email);
@@ -95,9 +101,10 @@ export async function saveEvaluator(r: Repo, input: { id?: string; name?: string
   if (clash && clash.id !== input.id) throw new ValidationError("هذا البريد مستخدم لحساب آخر", "email");
   const plan = new Plan(r);
   const id = input.id ?? newId();
-  if (input.id) plan.add(r.db.update(t.accounts).set({ name, email, updatedAt: nowISO() }).where(eq(t.accounts.id, id)));
-  else plan.add(r.db.insert(t.accounts).values({ id, name, email, role: "EVALUATOR", active: true }));
-  plan.audit("Evaluator", id, input.id ? "update" : "create", undefined, { name, email });
+  const supervisor = input.supervisor === undefined ? {} : { supervisor: input.supervisor };
+  if (input.id) plan.add(r.db.update(t.accounts).set({ name, email, ...supervisor, updatedAt: nowISO() }).where(eq(t.accounts.id, id)));
+  else plan.add(r.db.insert(t.accounts).values({ id, name, email, role: "EVALUATOR", active: true, ...supervisor }));
+  plan.audit("Evaluator", id, input.id ? "update" : "create", undefined, { name, email, ...supervisor });
   await plan.commit();
   return id;
 }

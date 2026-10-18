@@ -4,6 +4,7 @@ import type { DaySubmission } from "@eva/core/sync/contract";
 import * as t from "../schema";
 import { applyConflictAnyway, applyDaySubmission, buildPublication, inbox, markReported, phoneSignIns, recordPhoneSignIns, unreportedResults } from "./sync";
 import { listEvaluations } from "./grading";
+import { saveEvaluator } from "./evaluators";
 import { IDS, groupId, seeded } from "./testSeed";
 
 const full = { "ri-dailynote": 4.5, "ri-gdisc": 3.25, "ri-cdisc": 3, "ri-staff": 0.25, "ri-std": 0.25, "ri-late": 0.25, "ri-badge": 0.25 };
@@ -163,5 +164,52 @@ describe("dates never limit grading", () => {
     expect(res).toMatchObject({ outcome: "applied", message: "اعتُمد 2 تقييم (يوم خارج الجدول)" });
     const [wd] = await r.db.select().from(t.groupWorkDays);
     expect(wd).toMatchObject({ dateISO: "2027-03-01", scheduled: false });
+  });
+});
+
+describe("supervisors", () => {
+  async function withSupervisor() {
+    const r = await seeded(2);
+    const id = await saveEvaluator(r, { name: "عمار", email: "boss@x.iq", supervisor: true }); // no assignments of their own
+    return { r, id };
+  }
+
+  it("get the whole course and the team, without assignments of their own", async () => {
+    const { r, id } = await withSupervisor();
+    await recordPhoneSignIns(r, [{ id: IDS.evaluators[0], googleName: "Sara G", lastLoginAt: "2026-10-01T08:00:00Z", lastSeenAt: "2026-10-02T08:00:00Z" }]);
+    const { bundles } = await buildPublication(r);
+    const boss = bundles.find((b) => b.evaluator.id === id)!;
+    expect(boss.evaluator.supervisor).toBe(true);
+    expect(boss.hospitals).toHaveLength(3);
+    expect(boss.groups).toHaveLength(6);
+    expect(new Set(boss.stints.map((s) => s.hospitalId)).size).toBe(3);
+    const team = new Map(boss.team!.map((m) => [m.email, m]));
+    expect([...team.keys()].sort()).toEqual(["ali@x.iq", "boss@x.iq", "sara@x.iq"]);
+    expect(team.get("sara@x.iq")).toMatchObject({ covers: [{ hospitalName: "مستشفى اليرموك", groupName: null }], phone: { googleName: "Sara G" }, supervisor: false });
+    expect(team.get("boss@x.iq")).toMatchObject({ supervisor: true, covers: [], phone: null });
+    // An ordinary evaluator's bundle has no team and stays in their hospital.
+    const sara = bundles.find((b) => b.evaluator.id === IDS.evaluators[0])!;
+    expect(sara.team).toBeUndefined();
+    expect(sara.evaluator.supervisor).toBeUndefined();
+  });
+
+  it("see every evaluator's graded days and may grade any group", async () => {
+    const { r, id } = await withSupervisor();
+    // Neither has an assignment: only the supervisor's day is accepted.
+    const plain = await saveEvaluator(r, { email: "plain@x.iq" });
+    const other = day({ clientId: "c-other", evaluatorId: plain, groupId: groupId("MORNING", 2), records: [{ studentId: "s3", attendance: "present", dailyNote: true, scores: full }, { studentId: "s4", attendance: "absent", dailyNote: null, scores: {} }] });
+    expect((await applyDaySubmission(r, pulled(other))).outcome).toBe("rejected");
+    expect((await applyDaySubmission(r, pulled({ ...other, clientId: "c-boss", evaluatorId: id }, 2))).outcome).toBe("applied");
+    await applyDaySubmission(r, pulled(day(), 3)); // Sara's own day at اليرموك
+    const boss = (await buildPublication(r)).bundles.find((b) => b.evaluator.id === id)!;
+    expect(boss.history!.map((h) => `${h.groupId}:${h.evaluatorId}`).sort()).toEqual([`${groupId("MORNING", 1)}:${IDS.evaluators[0]}`, `${groupId("MORNING", 2)}:${id}`].sort());
+  });
+
+  it("an evaluator saved without the flag keeps it unchanged", async () => {
+    const { r, id } = await withSupervisor();
+    await saveEvaluator(r, { id, name: "عمار عامر", email: "boss@x.iq" });
+    expect((await r.db.select().from(t.accounts).where(eq(t.accounts.id, id)))[0].supervisor).toBe(true);
+    await saveEvaluator(r, { id, email: "boss@x.iq", supervisor: false });
+    expect((await r.db.select().from(t.accounts).where(eq(t.accounts.id, id)))[0].supervisor).toBe(false);
   });
 });

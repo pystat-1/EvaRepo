@@ -26,7 +26,7 @@ export function Records({ bundle, entries, onOpen }: { bundle: EvaluatorBundle; 
 }
 
 function History({ bundle, entries, onOpen }: { bundle: EvaluatorBundle; entries: DayEntry[]; onOpen: (x: { groupId: string; dateISO: string }) => void }) {
-  const [all, setAll] = useState(false);
+  const [all, setAll] = useState(!!bundle.evaluator.supervisor); // a supervisor sees everyone's days first
   const shown = entries.filter((e) => all || e.mine);
   const groupName = (id: string) => bundle.groups.find((g) => g.id === id)?.name ?? "—";
   return (

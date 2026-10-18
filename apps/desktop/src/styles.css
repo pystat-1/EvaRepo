@@ -250,3 +250,6 @@ table.unit-plan thead th:first-child { z-index: 3; background: var(--paper-100);
 .unit-cell[data-unit=""] { color: var(--ink-muted); }
 .unit-cell:hover { text-decoration: underline; }
 .unit-cell:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+.badge-sup { background: var(--brand); color: #fff; border-color: transparent; }
+.sup-check { align-items: flex-start; flex-wrap: nowrap; }
+.sup-check input { margin-top: 5px; }

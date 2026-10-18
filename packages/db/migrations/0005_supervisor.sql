@@ -1,0 +1,1 @@
+ALTER TABLE `accounts` ADD `supervisor` integer DEFAULT false NOT NULL;

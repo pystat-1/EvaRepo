@@ -12,7 +12,8 @@ export interface EvaluatorBundle {
   format: typeof BUNDLE_FORMAT;
   version: string; // content hash: unchanged bundles are not re-sent
   generatedAt: string;
-  evaluator: { id: string; name: string };
+  /** `supervisor`: this bundle holds the whole course (every hospital, group and day) and the team. */
+  evaluator: { id: string; name: string; supervisor?: boolean };
   course: { id: string; label: string; startDate: string | null };
   hospitals: Array<{ id: string; name: string }>;
   groups: Array<{
@@ -47,6 +48,25 @@ export interface EvaluatorBundle {
    * attendance log and student records, all readable offline.
    */
   history?: HistoryDay[];
+  /** Supervisors only: every evaluator of the course and their activity. */
+  team?: TeamMember[];
+}
+
+/** One evaluator as a supervisor sees them on the phone (المقيّمون). */
+export interface TeamMember {
+  id: string;
+  name: string;
+  email: string;
+  active: boolean;
+  supervisor: boolean;
+  /** What they cover in this course: a hospital, and one group or (null) all of its groups. */
+  covers: Array<{ hospitalName: string; groupName: string | null }>;
+  /** Their last Google sign-in on a phone, if any. */
+  phone: { googleName: string | null; lastLoginAt: string; lastSeenAt: string | null } | null;
+  /** From their phone: last day received, days applied, conflicts waiting for the manager. */
+  lastReceivedAt: string | null;
+  daysApplied: number;
+  openConflicts: number;
 }
 
 /** One student's validated grade as the desktop holds it. */

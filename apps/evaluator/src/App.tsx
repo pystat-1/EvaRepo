@@ -10,15 +10,18 @@ import { DayScreen } from "./screens/DayScreen";
 import { Schedule } from "./screens/Schedule";
 import { Records } from "./screens/Records";
 import { Students } from "./screens/Students";
+import { Team } from "./screens/Team";
 
 export type SyncState = { kind: "idle" | "syncing" | "offline" | "error"; message?: string; last?: SyncReport };
-type Tab = "today" | "schedule" | "records" | "students";
+type Tab = "today" | "schedule" | "records" | "students" | "team";
 const TABS: Array<{ key: Tab; label: string; icon: string }> = [
   { key: "today", label: "اليوم", icon: "M4 5h16v15H4zM4 9h16M9 3v4M15 3v4" },
   { key: "schedule", label: "جدولي", icon: "M4 4h16v16H4zM4 9h16M4 14h16M9 9v11M15 9v11" },
   { key: "records", label: "السجلات", icon: "M6 3h9l4 4v14H6zM9 12h7M9 16h7M9 8h3" },
   { key: "students", label: "طلابي", icon: "M9 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM3 20c0-3.3 2.7-6 6-6s6 2.7 6 6M16 11a3 3 0 1 0 0-6M18 20c0-2.4-1-4.3-2.5-5.3" },
 ];
+// Supervisors only: every evaluator of the course.
+const TEAM_TAB = { key: "team" as const, label: "المقيّمون", icon: "M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6zM9 12l2 2 4-4" };
 
 export function App() {
   const [session, setSess] = useState<Session | null | undefined>(undefined);
@@ -146,6 +149,7 @@ export function App() {
       <header className="top">
         <div>
           <b>{bundle?.evaluator.name ?? session.evaluator.name}</b>
+          {bundle?.evaluator.supervisor && <span className="top-sup">مشرف</span>}
           <div className="muted small">{bundle?.course.label ?? "—"}</div>
         </div>
         <div className="row">
@@ -167,13 +171,15 @@ export function App() {
         <Schedule bundle={bundle} entries={entries} drafts={local.drafts} lastSync={local.lastSync} onOpen={openDay} />
       ) : tab === "records" ? (
         <Records bundle={bundle} entries={entries} onOpen={openDay} />
+      ) : tab === "team" && bundle.team ? (
+        <Team bundle={bundle} onOpen={openDay} />
       ) : (
         <Students bundle={bundle} entries={entries} />
       )}
         </>
       )}
       <nav className="tabbar" aria-label="أقسام التطبيق">
-        {TABS.map((t) => (
+        {(bundle?.team ? [...TABS, TEAM_TAB] : TABS).map((t) => (
           <button
             key={t.key}
             aria-current={tab === t.key && !open ? "page" : undefined}

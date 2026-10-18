@@ -19,7 +19,11 @@ export interface EvaluatorBundle {
     id: string;
     name: string;
     shift: "MORNING" | "EVENING" | null;
-    students: Array<{ id: string; name: string; universityNumber: string }>;
+    /**
+     * `units`: the hospital unit (القسم) the student is in, by date
+     * ("YYYY-MM-DD" -> "العناية"). Optional: older bundles have none.
+     */
+    students: Array<{ id: string; name: string; universityNumber: string; units?: Record<string, string> }>;
   }>;
   /** Rotation blocks at this evaluator's hospitals (same shape as @eva/core placement stints). */
   stints: Array<{ groupId: string; hospitalId: string; hospitalName: string; startDate: string; endDate: string; daysOfWeek: string | null }>;

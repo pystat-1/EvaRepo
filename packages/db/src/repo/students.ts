@@ -269,6 +269,7 @@ export async function importStudents(
       plan.add(r.db.delete(t.evaluations).where(inArray(t.evaluations.studentId, ids)));
       plan.add(r.db.delete(t.attendanceRecords).where(inArray(t.attendanceRecords.studentId, ids)));
       plan.add(r.db.delete(t.flags).where(inArray(t.flags.studentId, ids)));
+      plan.add(r.db.delete(t.studentDayUnits).where(inArray(t.studentDayUnits.studentId, ids)));
       plan.add(r.db.update(t.accounts).set({ studentId: null }).where(inArray(t.accounts.studentId, ids)));
       plan.add(r.db.delete(t.students).where(inArray(t.students.id, ids)));
       samplesRemoved = ids.length;

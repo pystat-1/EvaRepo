@@ -172,6 +172,31 @@ export const students = sqliteTable(
   ]
 );
 
+// The hospital units (الأقسام) students train in: one standard list
+// (صالة الولادة، العناية…), the same at every hospital.
+export const units = sqliteTable("units", {
+  id: id(),
+  name: text("name").notNull().unique(),
+  sortOrder: integer("sortOrder").notNull().default(0),
+  active: bool("active").notNull().default(true),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
+
+// Which unit a student is in on one attendance day (توزيع الأقسام).
+export const studentDayUnits = sqliteTable(
+  "student_day_units",
+  {
+    id: id(),
+    studentId: text("studentId").notNull().references(() => students.id),
+    dateISO: text("dateISO").notNull(),
+    unitId: text("unitId").notNull().references(() => units.id),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex("student_day_units_student_date").on(t.studentId, t.dateISO), index("student_day_units_unit").on(t.unitId)]
+);
+
 export const accounts = sqliteTable("accounts", {
   id: id(),
   email: text("email").notNull().unique(),
@@ -401,6 +426,8 @@ export const TABLES_IN_DEPENDENCY_ORDER = [
   groups,
   rotationBlocks,
   students,
+  units,
+  studentDayUnits,
   accounts,
   evaluatorAssignments,
   rubricSections,

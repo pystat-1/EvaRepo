@@ -3,6 +3,7 @@
 // it meets on `movedTo` instead, at the same hospital (a make-up day). The
 // rotation blocks stay as they are: make-up days are derived here, so the
 // desktop, the Grading Center and the phones all read the same answer.
+import { addDaysISO } from "../date";
 import { isDateInScheduledDays, weekdayCodeOf } from "../weekdays";
 
 export interface Holiday {
@@ -42,4 +43,16 @@ export function makeupStints<S extends StintLike>(stints: S[], holidays: Holiday
 /** The blocks plus the make-up days, for placement (which hospital, scheduled or not). */
 export function withMakeupDays<S extends StintLike>(stints: S[], holidays: Holiday[]): S[] {
   return [...stints, ...makeupStints(stints, holidays)];
+}
+
+/**
+ * The dates one group attends, in order: every meeting day of its blocks
+ * except holidays, plus the make-up days those holidays moved to.
+ */
+export function attendanceDatesOf<S extends StintLike>(stints: S[], holidays: Holiday[], groupId: string): string[] {
+  const mine = stints.filter((s) => s.groupId === groupId);
+  const off = new Set(holidays.map((h) => h.dateISO));
+  const out = new Set(makeupStints(mine, holidays).map((s) => s.startDate));
+  for (const s of mine) for (let d = s.startDate; d <= s.endDate; d = addDaysISO(d, 1)) if (meetsOn(s, d) && !off.has(d)) out.add(d);
+  return [...out].sort();
 }

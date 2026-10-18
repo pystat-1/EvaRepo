@@ -57,4 +57,6 @@
 | 2026-10-02 | Grading Center combined design (scope tabs, hospital/date order, heat cells, criteria as expandable rows, filter chips, search, summary columns) | Approved |
 | 2026-10-02 | Combined design, rotation grid and heatmap ported to Eva Desktop (0.5.0) | Done |
 | 2026-10-02 | Implement combined + rotation grid + heatmap as read-only views on real data; show validated grades only; old sheet/table/tree kept | Implemented (user request) |
+| 2026-10-18 | Test version for مستشفى اليرموك only: old courses, other hospitals and all evaluators deleted; one evaluator (ا.م.د. سراب نصر فاضل, sarab@conursing.uobaghdad.edu.iq, whole hospital); المجموعة الصباحية 3 with 22 students (placeholder numbers SMP-YRM3-NN) — `scripts/setup-yarmouk-test.ts` | Done (user request) |
+| 2026-10-18 | Units per day (توزيع الأقسام) are standard: one unit list (صالة الولادة، العناية، العمليات، الردهة + admin-added), each student's unit per attendance day; edited in الدورات والجدول, shown beside the name on the phone (Eva Desktop 0.10.0, migration 0004) | Built (user request) |
 | — | Open items: Grading Center admin actions (dispute approval, review queue, exports); `FINAL_PLAN.md` §12 (final grade formula!, v3 data migration, hosting, Google Sign-In, icons, cell colors) | Awaiting user |

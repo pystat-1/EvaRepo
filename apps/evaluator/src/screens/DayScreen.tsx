@@ -116,6 +116,8 @@ export function DayScreen({
   const setNote = (sid: string, v: boolean | null) => update(sid, (x) => ({ ...x, attendance: x.attendance ?? "present", dailyNote: v }));
 
   const rows = group.students.map((s) => ({ s, r: rowOf(s.id) }));
+  const unitOf = (s: { units?: Record<string, string> }) => s.units?.[dateISO];
+  const unitCounts = [...rows.reduce((m, { s }) => (unitOf(s) ? m.set(unitOf(s)!, (m.get(unitOf(s)!) ?? 0) + 1) : m), new Map<string, number>())];
   const marked = rows.filter((x) => x.r?.attendance).length;
   const meta: DayMeta = { groupId, dateISO, hospitalName: info?.hospitalName ?? onDesktop?.hospitalName ?? "", evaluatorName: fromDesktop?.evaluatorName ?? bundle.evaluator.name };
   const filled = () =>
@@ -205,6 +207,16 @@ export function DayScreen({
         </span>
       </div>
 
+      {unitCounts.length > 0 && (
+        <div className="unit-sum" aria-label="الأقسام اليوم">
+          {unitCounts.map(([u, n]) => (
+            <span key={u} className="unit-tag">
+              {u} {n}
+            </span>
+          ))}
+        </div>
+      )}
+
       {fromDesktop && (
         <p className="note ok">{fromDesktop.mine ? "هذا اليوم معتمد لدى المدير — للعرض فقط." : `قيّم هذا اليوم زميلك ${fromDesktop.evaluatorName} — للعرض فقط.`}</p>
       )}
@@ -231,6 +243,7 @@ export function DayScreen({
             index={current}
             count={rows.length}
             name={rows[current].s.name}
+            unit={unitOf(rows[current].s)}
             row={rows[current].r}
             total={rows[current].r?.attendance ? totalOf(rows[current].s.id, rows[current].r!) : null}
             locked={locked}
@@ -270,6 +283,7 @@ export function DayScreen({
                     <th className="sticky-name" scope="row">
                       <button className="name-btn" onClick={() => openCard(i)}>
                         <span className="idx">{i + 1}</span> {s.name}
+                        {unitOf(s) && <span className="unit-tag">{unitOf(s)}</span>}
                       </button>
                     </th>
                     <td>
@@ -342,6 +356,7 @@ export function DayScreen({
                       <th className="sticky-name" scope="row">
                         <button className="name-btn" onClick={() => openCard(i)}>
                           <span className="idx">{i + 1}</span> {s.name}
+                          {unitOf(s) && <span className="unit-tag">{unitOf(s)}</span>}
                           <span className="name-total">{r?.attendance ? r2(totalOf(s.id, r)) : "—"}</span>
                         </button>
                       </th>
@@ -399,7 +414,7 @@ export function DayScreen({
           )}
         </>
       ) : (
-        <DayReview bundle={bundle} students={group.students} records={filled()} gaps={gaps} onOpen={openCard} />
+        <DayReview bundle={bundle} students={group.students} dateISO={dateISO} records={filled()} gaps={gaps} onOpen={openCard} />
       )}
 
       {tab === "review" && problem && (
@@ -440,12 +455,14 @@ export function DayScreen({
 function DayReview({
   bundle,
   students,
+  dateISO,
   records,
   gaps,
   onOpen,
 }: {
   bundle: EvaluatorBundle;
   students: EvaluatorBundle["groups"][number]["students"];
+  dateISO: string;
   records: Map<string, HistoryRecord>;
   gaps: ReturnType<typeof missing> | null;
   onOpen: (i: number) => void;
@@ -497,6 +514,7 @@ function DayReview({
                   <th className="sticky-name" scope="row">
                     <button className="name-btn" onClick={() => onOpen(i)}>
                       <span className="idx">{i + 1}</span> {s.name}
+                      {s.units?.[dateISO] && <span className="unit-tag">{s.units[dateISO]}</span>}
                       {gap && <span className="gap">{gap}</span>}
                     </button>
                   </th>
@@ -522,6 +540,7 @@ function StudentCard({
   index,
   count,
   name,
+  unit,
   row,
   total,
   locked,
@@ -535,6 +554,7 @@ function StudentCard({
   index: number;
   count: number;
   name: string;
+  unit?: string;
   row: DraftRow | undefined;
   total: number | null;
   locked: boolean;
@@ -552,7 +572,10 @@ function StudentCard({
         <span className="muted small">
           {index + 1} / {count}
         </span>
-        <b className="scard-name">{name}</b>
+        <b className="scard-name">
+          {name}
+          {unit && <span className="unit-tag">{unit}</span>}
+        </b>
         <span className="scard-total">
           {total === null ? "—" : total.toFixed(2)}
           <small>/{maxTotal(bundle)}</small>

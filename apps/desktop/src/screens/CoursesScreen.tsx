@@ -21,6 +21,7 @@ import { Dialog, Empty, Field, Notice, PageHeader, SHIFT_AR } from "../component
 import { errorText, r } from "../lib/repo";
 import { AttendanceDaysCard, CalendarByHospital } from "../components/AttendanceDays";
 import { HolidayDialog, HolidaysCard } from "../components/Holidays";
+import { UnitPlanCard } from "../components/UnitPlan";
 
 // A few distinct, readable fills for hospitals in the schedule grid.
 const HOSPITAL_COLORS = ["#dcece9", "#f4ecd6", "#e8e2f3", "#e2f0e7", "#f6e5e3", "#e3ecf6"];
@@ -146,6 +147,7 @@ export function CoursesScreen() {
           <HolidaysCard courseId={courseId} onOpen={setHolidayDate} />
           <CalendarByHospital courseId={courseId} onPickDay={setHolidayDate} />
           <HolidayDialog courseId={courseId} dateISO={holidayDate} onClose={() => setHolidayDate(null)} />
+          <UnitPlanCard groups={o.groups} />
         </>
       )}
 

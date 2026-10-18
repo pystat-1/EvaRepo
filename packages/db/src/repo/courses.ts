@@ -469,6 +469,7 @@ export async function deleteCourse(r: Repo, courseId: string): Promise<void> {
   plan.add(r.db.delete(t.groupWorkDays).where(inArray(t.groupWorkDays.groupId, groupIds)));
   plan.add(r.db.delete(t.syncInbox).where(inArray(t.syncInbox.groupId, groupIds)));
   plan.add(r.db.delete(t.flags).where(inArray(t.flags.studentId, studentIds)));
+  plan.add(r.db.delete(t.studentDayUnits).where(inArray(t.studentDayUnits.studentId, studentIds)));
   plan.add(r.db.update(t.accounts).set({ studentId: null }).where(inArray(t.accounts.studentId, studentIds)));
   plan.add(r.db.delete(t.evaluatorAssignments).where(or(eq(t.evaluatorAssignments.courseId, courseId), inArray(t.evaluatorAssignments.groupId, groupIds))));
   plan.add(r.db.delete(t.rotationBlocks).where(or(eq(t.rotationBlocks.courseId, courseId), inArray(t.rotationBlocks.groupId, groupIds))));

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { pickPlacement } from "../grading/placement";
-import { makeupStints, withMakeupDays } from "./holidays";
+import { attendanceDatesOf, makeupStints, withMakeupDays } from "./holidays";
 
 const stints = [
   { groupId: "g1", hospitalId: "h1", hospitalName: "اليرموك", startDate: "2026-10-04", endDate: "2026-10-08", daysOfWeek: "SUN,MON,TUE,WED,THU" },
@@ -22,5 +22,17 @@ describe("holiday make-up days", () => {
     const all = withMakeupDays(stints, [{ dateISO: "2026-10-06", label: null, movedTo: "2026-10-10" }]);
     expect(pickPlacement(all, "g2", "2026-10-10")).toEqual({ hospitalId: "h2", hospitalName: "العلوية", scheduled: true });
     expect(pickPlacement(stints, "g2", "2026-10-10")?.scheduled).toBe(false);
+  });
+});
+
+describe("attendanceDatesOf", () => {
+  it("lists a group's days, skips holidays and adds their make-up days", () => {
+    const holidays = [
+      { dateISO: "2026-10-04", label: null, movedTo: null },
+      { dateISO: "2026-10-06", label: null, movedTo: "2026-10-10" },
+    ];
+    expect(attendanceDatesOf(stints, holidays, "g2")).toEqual(["2026-10-10"]);
+    expect(attendanceDatesOf(stints, [], "g2")).toEqual(["2026-10-04", "2026-10-06"]);
+    expect(attendanceDatesOf(stints, holidays, "nobody")).toEqual([]);
   });
 });

@@ -14,6 +14,7 @@ import { Plan, ValidationError, newId, nowISO, type Repo } from "./common";
 import { currentCourse } from "./students";
 import { autoName } from "./evaluators";
 import { listHolidays } from "./courses";
+import { unitNamesByStudent } from "./units";
 
 // ---- publishing ----------------------------------------------------------
 
@@ -62,6 +63,7 @@ export async function buildPublication(r: Repo): Promise<{ evaluators: Published
   const students = await r.db.select().from(t.students).where(and(eq(t.students.courseId, course.id), eq(t.students.active, true)));
   const history = await courseHistory(r, course.id, accounts);
   const holidays = await listHolidays(r, course.id);
+  const unitsOf = await unitNamesByStudent(r, students.map((s) => s.id));
 
   const bundles: EvaluatorBundle[] = [];
   for (const acc of accounts.filter((a) => a.active)) {
@@ -87,7 +89,10 @@ export async function buildPublication(r: Repo): Promise<{ evaluators: Published
           students: students
             .filter((s) => s.groupId === g.id)
             .sort((a, b) => compareArabic(a.nameAr, b.nameAr))
-            .map((s) => ({ id: s.id, name: s.nameAr, universityNumber: s.universityNumber })),
+            .map((s) => {
+              const units = unitsOf.get(s.id);
+              return { id: s.id, name: s.nameAr, universityNumber: s.universityNumber, ...(units ? { units } : {}) };
+            }),
         })),
       stints: myBlocks
         .map((x) => ({ groupId: x.b.groupId, hospitalId: x.b.hospitalId, hospitalName: x.hospitalName, startDate: x.b.startDate, endDate: x.b.endDate, daysOfWeek: x.b.daysOfWeek }))

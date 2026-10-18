@@ -95,46 +95,69 @@ const addDays = (iso: string, n: number) => {
   return d.toISOString().slice(0, 10);
 };
 
+/** (Re)sets the units of every listed student in the database; students not there are reported, not fatal. */
 async function setStudentUnits(r: ReturnType<typeof repo>) {
   const students = await r.db.select({ id: t.students.id, nameAr: t.students.nameAr }).from(t.students);
   const idOf = new Map(students.map((s) => [s.nameAr, s.id]));
+  const missing: string[] = [];
   const rows = GROUPS.flatMap((g) => g.students).flatMap(([name, units]) => {
     const studentId = idOf.get(name);
-    if (!studentId) throw new Error(`student not found: ${name}`);
+    if (!studentId) return (missing.push(name), []);
     return units.split("، ").map((u, i) => {
       if (!UNIT_IDS[u]) throw new Error(`unknown unit: ${u}`);
       return { studentId, dateISO: UNIT_DATES[i], unitId: UNIT_IDS[u] };
     });
   });
   await setUnits(r, rows);
-  return rows.length;
+  return { unitDays: rows.length, studentsNotFound: missing };
 }
 
-/** Adds each group not yet in the course: its weekly blocks at اليرموك and its students. */
+/** Does this file have the units tables yet (Eva Desktop 0.10.0, migration 0004)? */
+async function hasUnitTables(r: ReturnType<typeof repo>) {
+  const rows = await r.exec.query<{ n: number }>(`SELECT COUNT(*) AS "n" FROM sqlite_master WHERE type = 'table' AND name = 'student_day_units'`, []);
+  return (rows[0]?.n ?? 0) > 0;
+}
+
+/**
+ * Brings the course's groups up to the lists above: a missing group is
+ * created with its weekly blocks at اليرموك (the schedule version goes up),
+ * and any of its listed students not yet in it are added. Safe to run
+ * again after a failure: it finishes what is missing.
+ */
 async function addGroups(r: ReturnType<typeof repo>, courseId: string): Promise<string[]> {
   const [yarmouk] = await r.db.select().from(t.hospitals).where(eq(t.hospitals.name, HOSPITAL));
   const [nursing] = await r.db.select().from(t.studyTypes).where(eq(t.studyTypes.code, "N"));
   if (!yarmouk || !nursing) throw new Error(`${HOSPITAL} or study type N not found`);
-  const existing = new Set((await r.db.select({ name: t.groups.name }).from(t.groups).where(eq(t.groups.courseId, courseId))).map((g) => g.name));
+  const groups = await r.db.select().from(t.groups).where(eq(t.groups.courseId, courseId));
   const added: string[] = [];
-  for (const g of GROUPS.filter((g) => !existing.has(g.name))) {
-    const groupId = newId();
-    const plan = new Plan(r);
-    plan.add(r.db.insert(t.groups).values({ id: groupId, name: g.name, courseId, shift: g.shift, studyTypeId: nursing.id }));
-    for (let w = 0; w < COURSE.weekCount; w++) {
-      const start = addDays(COURSE.startDate, w * 7);
-      plan.add(
-        r.db.insert(t.rotationBlocks).values({
-          id: newId(), groupId, hospitalId: yarmouk.id, courseId, weekIndex: w, startDate: start, endDate: addDays(start, 6), daysOfWeek: DAYS,
-        })
-      );
+  for (const g of GROUPS) {
+    let groupId = groups.find((x) => x.name === g.name)?.id;
+    if (!groupId) {
+      groupId = newId();
+      const [course] = await r.db.select().from(t.courses).where(eq(t.courses.id, courseId));
+      const plan = new Plan(r);
+      plan.add(r.db.insert(t.groups).values({ id: groupId, name: g.name, courseId, shift: g.shift, studyTypeId: nursing.id }));
+      for (let w = 0; w < COURSE.weekCount; w++) {
+        const start = addDays(COURSE.startDate, w * 7);
+        plan.add(
+          r.db.insert(t.rotationBlocks).values({
+            id: newId(), groupId, hospitalId: yarmouk.id, courseId, weekIndex: w, startDate: start, endDate: addDays(start, 6), daysOfWeek: DAYS,
+          })
+        );
+      }
+      plan.add(r.db.update(t.courses).set({ scheduleVersion: (course?.scheduleVersion ?? 0) + 1, updatedAt: new Date().toISOString() }).where(eq(t.courses.id, courseId)));
+      plan.audit("Group", groupId, "create", undefined, { name: g.name, hospital: HOSPITAL, days: DAYS });
+      await plan.commit();
     }
-    plan.audit("Group", groupId, "create", undefined, { name: g.name, hospital: HOSPITAL, days: DAYS });
-    await plan.commit();
+    const have = new Set((await r.db.select({ uni: t.students.universityNumber }).from(t.students).where(eq(t.students.groupId, groupId))).map((s) => s.uni));
+    let n = 0;
     for (const [i, [nameAr]] of g.students.entries()) {
-      await saveStudent(r, { universityNumber: `${g.prefix}${String(i + 1).padStart(2, "0")}`, nameAr, groupId });
+      const universityNumber = `${g.prefix}${String(i + 1).padStart(2, "0")}`;
+      if (have.has(universityNumber)) continue;
+      await saveStudent(r, { universityNumber, nameAr, groupId });
+      n++;
     }
-    added.push(`${g.name} (${g.students.length})`);
+    if (n) added.push(`${g.name}: ${n} students`);
   }
   return added;
 }
@@ -147,13 +170,16 @@ async function main() {
   if (flags.includes("--add-groups")) {
     const [course] = await r.db.select().from(t.courses).where(eq(t.courses.label, COURSE.label));
     if (!course) throw new Error("the Al-Yarmouk test course is not in this database");
-    console.log("groups added:", await addGroups(r, course.id));
+    console.log("added:", await addGroups(r, course.id));
+    // Units only where the file already has their tables (never a schema change here).
+    if (await hasUnitTables(r)) console.log("units:", await setStudentUnits(r));
+    else console.log("units: not set — this file predates Eva Desktop 0.10.0; run --units-only after it is installed and opened once");
     db.close();
     return;
   }
   console.log("migrations applied:", await migrate(exec));
   if (flags.includes("--units-only")) {
-    console.log("unit days set:", await setStudentUnits(r));
+    console.log("units:", await setStudentUnits(r));
     db.close();
     return;
   }

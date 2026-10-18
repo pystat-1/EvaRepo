@@ -249,7 +249,7 @@ export function DayScreen({
                 title={s.name}
               >
                 <small>{i + 1}</small>
-                {short[i]}
+                <span className="pick-name">{short[i]}</span>
               </button>
             ))}
           </div>

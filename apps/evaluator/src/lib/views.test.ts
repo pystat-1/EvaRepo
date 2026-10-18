@@ -74,4 +74,8 @@ describe("shortNames", () => {
       "نور",
     ]);
   });
+
+  it("adds names until students sharing the first two are told apart", () => {
+    expect(shortNames(["زينب رياض حسن", "زينب رياض علي", "زينب مسلم", "سارة"])).toEqual(["زينب رياض حسن", "زينب رياض علي", "زينب مسلم", "سارة"]);
+  });
 });

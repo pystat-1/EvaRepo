@@ -148,7 +148,8 @@ export async function dayExcel(bundle: EvaluatorBundle, m: DayMeta, records: Map
   const { g, fileTitle, lines } = dayTitle(bundle, m, blank);
   const cols = formColumns(bundle);
   const total = maxTotal(bundle);
-  const fixedStart = ["No.\nت", "Student Name\nاسم الطالب", placeHeader(hasUnits(g.students, m)), "Attendance\nالحضور"];
+  const withUnits = hasUnits(g.students, m);
+  const fixedStart = ["No.\nت", "Student Name\nاسم الطالب", placeHeader(withUnits), "Attendance\nالحضور"];
   const fixedEnd = [`Total (${total})\nالمجموع`, "Assessment\nالتقدير"];
   const width = fixedStart.length + cols.length + fixedEnd.length;
   const wb = await workbook();
@@ -204,7 +205,7 @@ export async function dayExcel(bundle: EvaluatorBundle, m: DayMeta, records: Map
   const last = ws.rowCount;
   for (let rr = H1; rr <= last; rr++)
     for (let cc = 1; cc <= width; cc++) ws.getCell(rr, cc).border = { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } };
-  [5, 26, hasUnits(g.students, m) ? 28 : 20, 10, ...cols.map(() => 6.5), 9, 22].forEach((w, i) => (ws.getColumn(i + 1).width = w));
+  [5, 26, withUnits ? 28 : 20, 10, ...cols.map(() => 6.5), 9, 22].forEach((w, i) => (ws.getColumn(i + 1).width = w));
   ws.addRow([]);
   ws.addRow(["", "توقيع المقيّم: ........................", "", "", "", "", "", "", "التاريخ: ................"]);
   ws.pageSetup = { orientation: "landscape", paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 0, printTitlesRow: `${H1}:${H3}` };

@@ -31,8 +31,9 @@ export const SHIFT_AR = { MORNING: "صباحي", EVENING: "مسائي" } as cons
 const NAME_PREFIXES = new Set(["عبد", "ابو", "أبو", "ام", "أم"]);
 
 /**
- * A short label per student for the card picker: the first name, or the
- * first two names where two students of the group share a first name.
+ * A short label per student for the card picker: the first name, with as
+ * many more names as it takes to tell apart students of the group who
+ * share it (up to the full name).
  */
 export function shortNames(names: string[]): string[] {
   const parts = names.map((n) => {
@@ -40,9 +41,17 @@ export function shortNames(names: string[]): string[] {
     // "عبد الرحمن عدنان" -> ["عبد الرحمن", "عدنان", …]
     return NAME_PREFIXES.has(w[0]) && w.length > 1 ? [`${w[0]} ${w[1]}`, ...w.slice(2)] : w;
   });
-  const count = new Map<string, number>();
-  for (const p of parts) count.set(p[0], (count.get(p[0]) ?? 0) + 1);
-  return parts.map((p) => ((count.get(p[0]) ?? 0) > 1 && p[1] ? `${p[0]} ${p[1]}` : p[0]));
+  const words = parts.map(() => 1);
+  const label = (i: number) => parts[i].slice(0, words[i]).join(" ");
+  for (let grew = true; grew; ) {
+    grew = false;
+    const count = new Map<string, number>();
+    parts.forEach((_, i) => count.set(label(i), (count.get(label(i)) ?? 0) + 1));
+    parts.forEach((p, i) => {
+      if ((count.get(label(i)) ?? 0) > 1 && words[i] < p.length) (words[i]++, (grew = true));
+    });
+  }
+  return parts.map((_, i) => label(i));
 }
 
 /** A draft row in the desktop's shape (section totals, items). */

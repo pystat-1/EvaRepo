@@ -132,6 +132,12 @@ function cellValue(c: FormColumn, r: HistoryRecord | undefined): string | number
   return r.items ? fmt(r.items[c.id] ?? 0) : ""; // older website grades: section totals only
 }
 
+// The form's "Hospital Name" column, with the student's unit that day when set.
+type DayStudent = EvaluatorBundle["groups"][number]["students"][number];
+const placeText = (s: DayStudent, m: DayMeta) => (s.units?.[m.dateISO] ? `${m.hospitalName} — ${s.units[m.dateISO]}` : m.hospitalName);
+const hasUnits = (students: DayStudent[], m: DayMeta) => students.some((s) => s.units?.[m.dateISO]);
+const placeHeader = (withUnits: boolean) => (withUnits ? "Hospital / Unit\nالمستشفى / القسم" : "Hospital Name\nالمستشفى");
+
 const attendanceText = (r: HistoryRecord | undefined) => (r ? ATTENDANCE_AR[r.attendance] : "");
 const assessmentText = (r: HistoryRecord | undefined) =>
   !r ? "" : [r.attendance !== "absent" && r.dailyNote === false ? "لم يسلّم الديلي نوت" : "", r.notes ?? ""].filter(Boolean).join(" — ");
@@ -142,7 +148,7 @@ export async function dayExcel(bundle: EvaluatorBundle, m: DayMeta, records: Map
   const { g, fileTitle, lines } = dayTitle(bundle, m, blank);
   const cols = formColumns(bundle);
   const total = maxTotal(bundle);
-  const fixedStart = ["No.\nت", "Student Name\nاسم الطالب", "Hospital Name\nالمستشفى", "Attendance\nالحضور"];
+  const fixedStart = ["No.\nت", "Student Name\nاسم الطالب", placeHeader(hasUnits(g.students, m)), "Attendance\nالحضور"];
   const fixedEnd = [`Total (${total})\nالمجموع`, "Assessment\nالتقدير"];
   const width = fixedStart.length + cols.length + fixedEnd.length;
   const wb = await workbook();
@@ -187,7 +193,7 @@ export async function dayExcel(bundle: EvaluatorBundle, m: DayMeta, records: Map
   ws.getRow(H3).height = 92;
   g.students.forEach((s, i) => {
     const r = records?.get(s.id);
-    const row = ws.addRow([i + 1, s.name, m.hospitalName, attendanceText(r), ...cols.map((c) => cellValue(c, r)), r ? fmt(r.total) : "", assessmentText(r)]);
+    const row = ws.addRow([i + 1, s.name, placeText(s, m), attendanceText(r), ...cols.map((c) => cellValue(c, r)), r ? fmt(r.total) : "", assessmentText(r)]);
     row.eachCell({ includeEmpty: true }, (cell, n) => {
       if (n > width) return;
       cell.alignment = { vertical: "middle", horizontal: n === 2 || n === 3 || n === width ? "right" : "center", wrapText: n === width };
@@ -198,7 +204,7 @@ export async function dayExcel(bundle: EvaluatorBundle, m: DayMeta, records: Map
   const last = ws.rowCount;
   for (let rr = H1; rr <= last; rr++)
     for (let cc = 1; cc <= width; cc++) ws.getCell(rr, cc).border = { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } };
-  [5, 26, 20, 10, ...cols.map(() => 6.5), 9, 22].forEach((w, i) => (ws.getColumn(i + 1).width = w));
+  [5, 26, hasUnits(g.students, m) ? 28 : 20, 10, ...cols.map(() => 6.5), 9, 22].forEach((w, i) => (ws.getColumn(i + 1).width = w));
   ws.addRow([]);
   ws.addRow(["", "توقيع المقيّم: ........................", "", "", "", "", "", "", "التاريخ: ................"]);
   ws.pageSetup = { orientation: "landscape", paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 0, printTitlesRow: `${H1}:${H3}` };
@@ -234,7 +240,7 @@ export async function dayWord(bundle: EvaluatorBundle, m: DayMeta, records: Map<
       textDirection: o.vertical ? d.TextDirection.BOTTOM_TO_TOP_LEFT_TO_RIGHT : undefined,
       margins: { top: 30, bottom: 30, left: 30, right: 30 },
     });
-  const fixedStart = ["No.\nت", "Student Name\nاسم الطالب", "Hospital Name\nالمستشفى", "Attendance\nالحضور"];
+  const fixedStart = ["No.\nت", "Student Name\nاسم الطالب", placeHeader(hasUnits(g.students, m)), "Attendance\nالحضور"];
   const fixedEnd = [`Total (${total})\nالمجموع`, "Assessment\nالتقدير"];
   const row1 = new d.TableRow({
     tableHeader: true,
@@ -253,7 +259,7 @@ export async function dayWord(bundle: EvaluatorBundle, m: DayMeta, records: Map<
   const body = g.students.map((s, i) => {
     const r = records?.get(s.id);
     const absent = r?.attendance === "absent";
-    const values = [String(i + 1), s.name, m.hospitalName, attendanceText(r), ...cols.map((c) => String(cellValue(c, r))), r ? String(fmt(r.total)) : "", assessmentText(r)];
+    const values = [String(i + 1), s.name, placeText(s, m), attendanceText(r), ...cols.map((c) => String(cellValue(c, r))), r ? String(fmt(r.total)) : "", assessmentText(r)];
     return new d.TableRow({ children: values.map((v, n) => cell(v, { start: n === 1 || n === 2 || n === values.length - 1, absent })) });
   });
   const doc = new d.Document({

@@ -27,6 +27,24 @@ export const ATTENDANCE_AR = { present: "حاضر", late: "متأخر", absent: 
 export const ATTENDANCE_MARK = { present: "✓", late: "م", absent: "✗" } as const;
 export const SHIFT_AR = { MORNING: "صباحي", EVENING: "مسائي" } as const;
 
+// Words that only make a first name together with the next one (عبد الرحمن).
+const NAME_PREFIXES = new Set(["عبد", "ابو", "أبو", "ام", "أم"]);
+
+/**
+ * A short label per student for the card picker: the first name, or the
+ * first two names where two students of the group share a first name.
+ */
+export function shortNames(names: string[]): string[] {
+  const parts = names.map((n) => {
+    const w = n.trim().split(/\s+/);
+    // "عبد الرحمن عدنان" -> ["عبد الرحمن", "عدنان", …]
+    return NAME_PREFIXES.has(w[0]) && w.length > 1 ? [`${w[0]} ${w[1]}`, ...w.slice(2)] : w;
+  });
+  const count = new Map<string, number>();
+  for (const p of parts) count.set(p[0], (count.get(p[0]) ?? 0) + 1);
+  return parts.map((p) => ((count.get(p[0]) ?? 0) > 1 && p[1] ? `${p[0]} ${p[1]}` : p[0]));
+}
+
 /** A draft row in the desktop's shape (section totals, items). */
 export function draftRecord(bundle: EvaluatorBundle, studentId: string, r: DraftRow): HistoryRecord {
   const absent = r.attendance === "absent";

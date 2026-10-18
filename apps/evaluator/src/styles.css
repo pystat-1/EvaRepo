@@ -146,7 +146,8 @@ h3 { font-size: 16px; margin: 8px 0 0; }
 
 /* student picker: numbers coloured by state */
 .picker { display: flex; gap: 6px; overflow-x: auto; padding: 2px 0 4px; scrollbar-width: thin; }
-.pick { flex: none; width: 40px; height: 40px; border-radius: 10px; border: 1px solid var(--border-strong); background: #fff; font-weight: 700; cursor: pointer; }
+.pick { flex: none; min-width: 44px; max-width: 120px; height: 44px; padding: 0 8px; border-radius: 10px; border: 1px solid var(--border-strong); background: #fff; color: var(--ink); font-weight: 700; font-size: 13px; line-height: 1.15; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pick small { font-size: 10px; font-weight: 600; opacity: .7; }
 .pick.done { background: var(--ok-bg); border-color: transparent; color: var(--ok); }
 .pick.half { background: var(--warn-bg); border-color: transparent; color: var(--warn); }
 .pick.absent { background: var(--err-bg); border-color: transparent; color: var(--err); }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { EvaluatorBundle } from "@eva/core/sync/contract";
-import { dayEntries, mergeBlocks, schedule, stintDates, studentSummaries } from "./views";
+import { dayEntries, mergeBlocks, schedule, shortNames, stintDates, studentSummaries } from "./views";
 import { groupsForDate, type Draft } from "./day";
 
 const block = (groupId: string, startDate: string, endDate: string) => ({ groupId, hospitalId: "h1", hospitalName: "مستشفى اليرموك", startDate, endDate, daysOfWeek: "SUN,MON,TUE,WED,THU" });
@@ -61,5 +61,17 @@ describe("phone views", () => {
     expect(groupsForDate(withHoliday, "2026-10-10")).toMatchObject([{ id: "g1", hospitalName: "مستشفى اليرموك", scheduled: true }]);
     expect(groupsForDate(withHoliday, "2026-10-06")[0].scheduled).toBe(false);
     expect(groupsForDate(bundle, "2026-10-10")[0].scheduled).toBe(false);
+  });
+});
+
+describe("shortNames", () => {
+  it("uses the first name, both names when a first name repeats, and keeps عبد with its name", () => {
+    expect(shortNames(["اسراء عيسى علي", "اسراء مظهر علي", "ايه امين حميد", "عبد الرحمن عدنان عبد الغفور", "نور"])).toEqual([
+      "اسراء عيسى",
+      "اسراء مظهر",
+      "ايه",
+      "عبد الرحمن",
+      "نور",
+    ]);
   });
 });

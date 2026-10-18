@@ -1,4 +1,4 @@
-// npm run e2e -w @eva/desktop [-- flow|perf|backup|holidays|daysheet|units]   (all when nothing is given)
+// npm run e2e -w @eva/desktop [-- flow|perf|backup|holidays|daysheet|units|exports]   (all when nothing is given)
 // Builds nothing itself: the phone app must be built (npm run build -w @eva/evaluator).
 import fs from "node:fs";
 import os from "node:os";
@@ -10,8 +10,9 @@ import { backup } from "./backup";
 import { holidays } from "./holidays";
 import { daysheet } from "./daysheet";
 import { units } from "./units";
+import { exports } from "./exports";
 
-const TESTS = { flow, perf, backup, holidays, daysheet, units };
+const TESTS = { flow, perf, backup, holidays, daysheet, units, exports };
 const which = process.argv.slice(2).filter((a): a is keyof typeof TESTS => a in TESTS);
 const run = which.length ? which : (Object.keys(TESTS) as Array<keyof typeof TESTS>);
 const out = fs.mkdtempSync(path.join(os.tmpdir(), "eva-e2e-"));

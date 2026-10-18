@@ -6,12 +6,16 @@
 import fs from "node:fs";
 import path from "node:path";
 import ExcelJS from "exceljs";
+import JSZip from "jszip";
+import { todayISO } from "../../../packages/core/src/date";
 import { ADMIN, log, openDesktop, openPhone, seedFile, startRelay, waitFor, type Relay } from "./harness";
 import type { Browser } from "playwright";
 
 export async function flow(browser: Browser, out: string) {
   const file = path.join(out, "flow.db");
   const db = await seedFile(file, 20);
+  // Every student is in العناية today (توزيع الأقسام): shown on the phone and in its files.
+  db.prepare("INSERT INTO student_day_units (id, studentId, dateISO, unitId) SELECT 'u-' || id, id, ?, 'unit-icu' FROM students").run(todayISO());
   const relay: Relay = await startRelay();
   const errors: string[] = [];
   const check = (ok: boolean, what: string) => {
@@ -60,11 +64,15 @@ export async function flow(browser: Browser, out: string) {
   await p.evaluate('document.querySelectorAll("details.others").forEach((d) => (d.open = true))');
   await p.locator("button.group").first().click();
   await p.waitForSelector(".name-btn"); // the day opens on the group's table
+  check((await p.locator(".name-btn .unit-tag", { hasText: "العناية" }).count()) > 0, "today's unit beside the names");
   await p.locator(".name-btn").first().click(); // a name opens that student's card
   await p.waitForSelector(".scard");
   check((await p.locator("nav.tabbar").isVisible()) === true, "tabs stay visible inside a day");
   await phone.ctx.setOffline(true);
   const n = await p.locator(".picker .pick").count();
+  const firstPick = await p.locator(".picker .pick").first().innerText();
+  check(/طالب/.test(firstPick), `the picker shows names, not only numbers (got "${firstPick}")`);
+  if (process.env.EVA_E2E_SHOTS) await p.screenshot({ path: path.join(process.env.EVA_E2E_SHOTS, "phone-card.png") });
   for (let i = 0; i < n; i++) {
     const card = p.locator(".scard");
     if (i === 1) {
@@ -122,19 +130,56 @@ export async function flow(browser: Browser, out: string) {
   await p.locator(".review .name-btn").first().click();
   await p.waitForSelector(".scard");
   check((await p.locator(".scard button.choice:not([disabled])").count()) === 0, "validated day is read-only");
-  for (const item of ["التقييم اليومي — Excel", "التقييم اليومي — Word", "قالب فارغ للطباعة — Word", "قالب فارغ للطباعة — Excel"]) {
-    await p.click(".day-head .dl > button");
+  // Each file is opened and read back: names, the unit, and grades only in the filled ones.
+  const download = async (menu: string, item: string) => {
+    await p.click(menu);
     const [dl] = await Promise.all([p.waitForEvent("download"), p.click(`.dl-item:has-text("${item}")`)]);
     const f = path.join(out, dl.suggestedFilename());
     await dl.saveAs(f);
-    if (f.endsWith(".xlsx")) {
-      const wb = new ExcelJS.Workbook();
-      await wb.xlsx.readFile(f);
-      check(wb.worksheets[0].rowCount >= n + 3, `${item}: rows`);
-    } else check(fs.readFileSync(f).subarray(0, 2).toString() === "PK", `${item}: a Word file`);
+    return f;
+  };
+  const sheetText = async (f: string) => {
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.readFile(f);
+    const ws = wb.worksheets[0];
+    const rows: string[][] = [];
+    ws.eachRow((row) => rows.push((row.values as unknown[]).slice(1).map((v) => (v === null || v === undefined ? "" : String(v)))));
+    return rows;
+  };
+  const studentName = (await p.locator(".picker .pick.on").getAttribute("title")) ?? ""; // the open card: the group's first student
+  for (const [item, filled] of [["التقييم اليومي — Excel", true], ["قالب فارغ للطباعة — Excel", false]] as const) {
+    const rows = await sheetText(await download(".day-head .dl > button", item));
+    const student = rows.find((r) => r[1] === studentName);
+    check(!!student, `${item}: ${studentName} listed`);
+    check(student![2].includes("العناية"), `${item}: the unit beside the hospital (got "${student![2]}")`);
+    check(rows.filter((r) => /^طالب/.test(r[1] ?? "")).length === n, `${item}: ${n} students`);
+    const totals = rows.filter((r) => /^طالب/.test(r[1] ?? "")).map((r) => r[r.length - 2]);
+    check(filled ? totals.some((t) => Number(t) > 0) : totals.every((t) => t === ""), `${item}: totals ${filled ? "filled" : "empty"}`);
   }
+  for (const [item, filled] of [["التقييم اليومي — Word", true], ["قالب فارغ للطباعة — Word", false]] as const) {
+    const f = await download(".day-head .dl > button", item);
+    const xml = await (await JSZip.loadAsync(fs.readFileSync(f))).file("word/document.xml")!.async("string");
+    check(xml.includes(studentName) && xml.includes("العناية"), `${item}: names and units in the document`);
+    check(xml.includes("حاضر") === filled, `${item}: attendance ${filled ? "filled" : "empty"}`);
+  }
+  log("✓ phone offline: the day's Excel and Word (filled and blank) open with names, units and grades");
+
+  await p.click(".day-head .back");
+  await p.click('nav.tabbar button:has-text("السجلات")');
+  await p.click(".seg button:has-text('التقييمات السابقة')");
+  const history = await sheetText(await download(".dl > button", "التقييمات السابقة — Excel"));
+  check(history.filter((r) => /^طالب/.test(r[4] ?? "")).length === n, "previous assessments Excel: one row per graded student");
+  await p.click(".seg button:has-text('سجل الحضور')");
+  const attendance = await sheetText(await download(".dl > button", "سجل حضور"));
+  check(attendance.filter((r) => /^طالب/.test(r[1] ?? "")).length === n && attendance.some((r) => r.includes("غائب")), "attendance Excel: every student, the absence marked");
+  await p.click('nav.tabbar button:has-text("جدولي")');
+  const sched = await sheetText(await download(".dl > button", "الجدول الكامل — Excel"));
+  check(sched.filter((r) => /^مستشفى /.test(r[0] ?? "") && /^\d{4}-\d{2}-\d{2}$/.test(r[7] ?? "")).length >= 5, `schedule Excel: the days at the hospital (${JSON.stringify(sched.slice(0, 5))})`);
+  await p.click('nav.tabbar button:has-text("طلابي")');
+  const studentsFile = await sheetText(await download(".dl > button", "سجل الطلاب — Excel"));
+  check(studentsFile.filter((r) => /^طالب/.test(r[1] ?? "")).length === 120, "students Excel: 120 students");
   await phone.ctx.setOffline(false);
-  log("✓ phone offline: read-only day, Excel and Word downloads (filled and blank)");
+  log("✓ phone offline: previous assessments, attendance, schedule and students Excel files open with their rows");
 
   // ---- desktop: grading center and self-check ----
   await d.click("nav >> text=مركز الدرجات");

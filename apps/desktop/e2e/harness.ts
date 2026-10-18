@@ -128,13 +128,18 @@ export function stopServers() {
 /** Tauri's IPC answered from a SQLite file (the commands the Rust side implements). */
 export interface TauriLog {
   restored: string[];
+  /** Files written through the save dialog (Excel exports, templates…), in order. */
+  saved: string[];
 }
 function tauriCommands(db: Database.Database, file: string, out: string, log: TauriLog) {
   const bind = (p: unknown[] = []) => p.map((v) => (Array.isArray(v) ? Buffer.from(v as number[]) : v));
   const dir = path.join(out, `backups-${path.basename(file)}`);
   fs.mkdirSync(dir, { recursive: true });
   const valid = (n: string) => /^eva-[A-Za-z0-9.-]+\.db$/.test(n);
-  type Args = { sql: string; params?: unknown[]; statements: Array<{ sql: string; params?: unknown[] }>; name: string; names: string[]; __raw?: string; __name?: string };
+  type Args = {
+    sql: string; params?: unknown[]; statements: Array<{ sql: string; params?: unknown[] }>; name: string; names: string[]; __raw?: string; __name?: string;
+    options?: { defaultPath?: string }; path?: string; bytes?: number[];
+  };
   return async (cmd: string, a: Args): Promise<unknown> => {
     switch (cmd) {
       case "db_open": return { path: file, backups_dir: dir, created: false };
@@ -158,6 +163,16 @@ function tauriCommands(db: Database.Database, file: string, out: string, log: Ta
       case "system_info": return { version: "0.2.0", data_dir: out, log_dir: out, db_bytes: fs.statSync(file).size, wal_bytes: 0, free_disk_bytes: 50e9, os: "e2e" };
       case "log_tail": return "";
       case "plugin:updater|check": return null; // no update in tests
+      // The save dialog "chooses" the suggested name in the test folder; file_write
+      // allows the same file types as the app (src-tauri/src/files.rs).
+      case "plugin:dialog|save": return path.join(out, "saved", path.basename(a.options?.defaultPath ?? "file.xlsx"));
+      case "file_write": {
+        if (!/\.(xlsx|csv|db|txt)$/i.test(a.path ?? "")) throw new Error("نوع الملف غير مسموح");
+        fs.mkdirSync(path.dirname(a.path!), { recursive: true });
+        fs.writeFileSync(a.path!, Buffer.from(a.bytes ?? []));
+        log.saved.push(a.path!);
+        return null;
+      }
       default: return null;
     }
   };
@@ -187,7 +202,7 @@ export async function openDesktop(browser: Browser, db: Database.Database, file:
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, locale: "ar" });
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.length < 20 && errors.push("desktop: " + e.message));
-  const tauriLog: TauriLog = { restored: [] };
+  const tauriLog: TauriLog = { restored: [], saved: [] };
   const run = tauriCommands(db, file, out, tauriLog);
   await page.exposeFunction("__evaNode", async (cmd: string, args: Parameters<typeof run>[1] | undefined) => {
     try {

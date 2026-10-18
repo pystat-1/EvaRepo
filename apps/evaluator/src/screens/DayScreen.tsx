@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { EvaluatorBundle, HistoryRecord } from "@eva/core/sync/contract";
 import { getDraft, putDraft, queueValidatedDay, type Session } from "../lib/store";
 import { buildSubmission, compactColumns, draftKey, gradeColumns, groupsForDate, maxTotal, missing, rowTotal, type Draft, type DraftRow } from "../lib/day";
-import { ATTENDANCE_AR, ATTENDANCE_MARK, draftRecord, weekdayAr, type DayEntry } from "../lib/views";
+import { ATTENDANCE_AR, ATTENDANCE_MARK, draftRecord, shortNames, weekdayAr, type DayEntry } from "../lib/views";
 import { DownloadMenu } from "../components/DownloadMenu";
 import { dayExcel, dayWord, type DayMeta } from "../lib/exports";
 
@@ -76,6 +76,11 @@ export function DayScreen({
     getDraft(id, key).then((d) => setDraft(d));
   }, [id, key]);
 
+  // A new card: its name in the picker comes into sight.
+  useEffect(() => {
+    if (current !== null) document.querySelector(".picker .pick.on")?.scrollIntoView({ block: "nearest", inline: "center" });
+  }, [current]);
+
   // Back on the table: keep the student just graded in sight.
   useEffect(() => {
     if (current === null && lastCard.current) document.getElementById(`row-${lastCard.current}`)?.scrollIntoView({ block: "nearest" });
@@ -116,6 +121,7 @@ export function DayScreen({
   const setNote = (sid: string, v: boolean | null) => update(sid, (x) => ({ ...x, attendance: x.attendance ?? "present", dailyNote: v }));
 
   const rows = group.students.map((s) => ({ s, r: rowOf(s.id) }));
+  const short = shortNames(group.students.map((s) => s.name));
   const unitOf = (s: { units?: Record<string, string> }) => s.units?.[dateISO];
   const unitCounts = [...rows.reduce((m, { s }) => (unitOf(s) ? m.set(unitOf(s)!, (m.get(unitOf(s)!) ?? 0) + 1) : m), new Map<string, number>())];
   const marked = rows.filter((x) => x.r?.attendance).length;
@@ -233,8 +239,17 @@ export function DayScreen({
           </div>
           <div className="picker" role="tablist" aria-label="الطلاب">
             {rows.map(({ s, r }, i) => (
-              <button key={s.id} role="tab" aria-selected={i === current} className={`pick ${stateOf(r)} ${i === current ? "on" : ""}`} onClick={() => openCard(i)} title={s.name}>
-                {i + 1}
+              <button
+                key={s.id}
+                role="tab"
+                aria-selected={i === current}
+                aria-label={`${i + 1}. ${s.name}`}
+                className={`pick ${stateOf(r)} ${i === current ? "on" : ""}`}
+                onClick={() => openCard(i)}
+                title={s.name}
+              >
+                <small>{i + 1}</small>
+                {short[i]}
               </button>
             ))}
           </div>

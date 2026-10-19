@@ -258,6 +258,8 @@ export function DayScreen({
       {!fromDesktop && working.status === "validated" && (
         <p className="note ok">{onDesktop?.mine ? "وصل للمدير ✓ — للعرض فقط." : "هذا اليوم معتمد — لا يمكن تعديله. يصل للمدير عند المزامنة."}</p>
       )}
+      {/* At the top, so it is in sight without scrolling past the whole group. */}
+      {tab === "work" && current === null && !adding && !locked && <AddGuestButton onClick={() => setAdding(true)} />}
 
       {tab === "work" && current !== null ? (
         <>
@@ -398,7 +400,6 @@ export function DayScreen({
               </tbody>
             </table>
           </div>
-          {!locked && <AddGuestButton onClick={() => setAdding(true)} />}
         </>
       ) : tab === "work" ? (
         <>
@@ -480,7 +481,6 @@ export function DayScreen({
               </tbody>
             </table>
           </div>
-          {!locked && <AddGuestButton onClick={() => setAdding(true)} />}
           {!locked && (
             <button className="btn" onClick={() => showTab("review")}>
               مراجعة تقييم اليوم واعتماده ›

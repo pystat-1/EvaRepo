@@ -258,5 +258,5 @@ button:disabled { cursor: default; }
 .guest-opt:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
 .prior { border-top: 1px solid var(--border); padding-top: 10px; }
 .evaluated .same-day { background: var(--warn-bg); border-radius: 6px; padding-inline: 6px; }
-.btn.add-guest { border-style: dashed; color: var(--brand-dark); width: 100%; margin-top: 8px; }
+.btn.add-guest { border-style: dashed; color: var(--brand-dark); width: 100%; font-weight: 700; }
 .remove-guest { color: var(--err); align-self: flex-start; }

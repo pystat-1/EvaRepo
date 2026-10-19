@@ -409,6 +409,47 @@ export const syncInbox = sqliteTable(
   (t) => [index("sync_inbox_status").on(t.status), index("sync_inbox_seq").on(t.relaySeq)]
 );
 
+// Hosted students (طلاب مستضافون): a student graded for one day with a
+// group they are not in, as validated on a phone. The grade itself is an
+// ordinary evaluation of the student when they are registered here
+// (studentId); `record` keeps it whole either way, so a student typed in
+// by hand who is not in this database loses nothing.
+export const hostedStudents = sqliteTable(
+  "hosted_students",
+  {
+    id: id(),
+    courseId: text("courseId"),
+    hostGroupId: text("hostGroupId").notNull(),
+    dateISO: text("dateISO").notNull(),
+    hospitalId: text("hospitalId"),
+    evaluatorId: text("evaluatorId").notNull(),
+    /** The registered student, when found (by id or university number). */
+    studentId: text("studentId").references(() => students.id),
+    /** The id the phone used (the student's, or one it made for a typed-in student). */
+    phoneStudentId: text("phoneStudentId").notNull(),
+    universityNumber: text("universityNumber").notNull(),
+    name: text("name").notNull(),
+    kind: text("kind").$type<"same-shift" | "other-shift">().notNull(),
+    shift: text("shift").$type<Shift>().notNull(),
+    homeGroupId: text("homeGroupId"),
+    homeGroupName: text("homeGroupName").notNull(),
+    /** «قُيّم في مجموعته» as the evaluator recorded it (JSON), or null. */
+    priorEvaluation: text("priorEvaluation", { mode: "json" }).$type<{ dateISO?: string; evaluatorName?: string; total?: number; notes?: string }>(),
+    attendance: text("attendance").$type<Attendance>().notNull(),
+    total: real("total").notNull().default(0),
+    /** The grade as applied (a HistoryRecord, JSON). */
+    record: text("record").notNull(),
+    submissionId: text("submissionId").notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    uniqueIndex("hosted_students_day").on(t.hostGroupId, t.dateISO, t.universityNumber),
+    index("hosted_students_student").on(t.studentId),
+    index("hosted_students_course").on(t.courseId),
+  ]
+);
+
 // Facts about this database file itself (schema version, when it was
 // created, where its data came from). Key/value, read at start-up.
 export const meta = sqliteTable("meta", {
@@ -438,6 +479,7 @@ export const TABLES_IN_DEPENDENCY_ORDER = [
   evaluationScores,
   attendanceRecords,
   groupWorkDays,
+  hostedStudents,
   flags,
   auditLog,
   termSettings,

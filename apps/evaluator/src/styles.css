@@ -242,3 +242,21 @@ button:disabled { cursor: default; }
 .link-line { all: unset; display: flex; gap: 8px; align-items: center; justify-content: space-between; padding: 6px 0; border-bottom: 1px dashed var(--border); cursor: pointer; font-size: 13px; }
 .link-line:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
 .top-sup { display: inline-block; margin-inline-start: 6px; font-size: 11px; padding: 0 7px; border-radius: 999px; background: var(--brand); color: #fff; vertical-align: middle; }
+/* Hosted students (طلاب مستضافون) */
+.tabular { font-variant-numeric: tabular-nums; }
+.stack.tight { gap: 6px; }
+.btn.danger { background: var(--err); border-color: var(--err); color: #fff; }
+.guest-tag { display: inline-block; margin-inline-start: 6px; padding: 0 7px; border-radius: 999px; font-size: 11px; font-weight: 600; line-height: 1.6; color: var(--warn); background: var(--warn-bg); white-space: nowrap; vertical-align: middle; }
+.guest-panel .guest-tag { margin-inline-start: 0; }
+.pick.guest { border-style: dashed; }
+.choice.tall { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 8px 6px; line-height: 1.3; }
+.choice.tall small { font-size: 12px; font-weight: 400; opacity: .85; }
+.guest-list { display: flex; flex-direction: column; max-height: 300px; overflow-y: auto; border: 1px solid var(--border); border-radius: 10px; }
+.guest-opt { all: unset; display: flex; align-items: center; gap: 8px; padding: 10px 12px; min-height: 28px; border-bottom: 1px solid var(--border); cursor: pointer; }
+.guest-opt:last-child { border-bottom: 0; }
+.guest-opt.on { background: var(--tint); font-weight: 700; box-shadow: inset 3px 0 0 var(--brand); }
+.guest-opt:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+.prior { border-top: 1px solid var(--border); padding-top: 10px; }
+.evaluated .same-day { background: var(--warn-bg); border-radius: 6px; padding-inline: 6px; }
+.btn.add-guest { border-style: dashed; color: var(--brand-dark); width: 100%; margin-top: 8px; }
+.remove-guest { color: var(--err); align-self: flex-start; }

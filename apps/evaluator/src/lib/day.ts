@@ -1,7 +1,7 @@
 // Grading rules on the phone. Pure functions: which groups to show today,
 // a day's completeness, totals, and the validated-day package the relay
 // receives. The desktop re-checks everything when it applies the day.
-import type { DayRecord, DaySubmission, EvaluatorBundle } from "@eva/core/sync/contract";
+import type { DayRecord, DaySubmission, EvaluatedDay, EvaluatorBundle, GuestInfo } from "@eva/core/sync/contract";
 import { pickPlacement, OFF_SCHEDULE_GRACE_DAYS } from "@eva/core/grading/placement";
 import { addDaysISO } from "@eva/core/date";
 import { withMakeupDays } from "@eva/core/schedule/holidays";
@@ -22,6 +22,8 @@ export interface Draft {
   groupId: string;
   dateISO: string;
   rows: Record<string, DraftRow>; // studentId -> row
+  /** Hosted students added to this day (studentId -> who they are), in the order added. */
+  guests?: Record<string, GuestInfo>;
   status: "draft" | "validated";
   clientId?: string;
   updatedAt: string;
@@ -100,12 +102,45 @@ export function rowTotal(bundle: EvaluatorBundle, row: DraftRow | undefined): nu
   return Math.round(total * 100) / 100;
 }
 
+/** A student in a day's list: one of the group, or a hosted student (guest). */
+export type DayStudent = EvaluatorBundle["groups"][number]["students"][number] & { guest?: GuestInfo };
+
+/** The day's list: the group's students, then the hosted students added to the day. */
+export function dayStudents(bundle: EvaluatorBundle, groupId: string, guests: Record<string, GuestInfo> | undefined): DayStudent[] {
+  const g = bundle.groups.find((x) => x.id === groupId);
+  const hosted = Object.entries(guests ?? {}).map(([id, guest]): DayStudent => ({ id, name: guest.name, universityNumber: guest.universityNumber, guest }));
+  return [...(g?.students ?? []), ...hosted];
+}
+
+/** Groups of the course a hosted student can come from: of that study type, not the host group. */
+export function guestGroups(bundle: EvaluatorBundle, hostGroupId: string, shift: "MORNING" | "EVENING") {
+  return (bundle.directory ?? []).filter((g) => g.id !== hostGroupId && g.shift === shift);
+}
+
+/** The days a student of the course was already evaluated (newest first), wherever it was. */
+export function evaluatedDays(bundle: EvaluatorBundle, studentId: string): EvaluatedDay[] {
+  for (const g of bundle.directory ?? []) {
+    const s = g.students.find((x) => x.id === studentId);
+    if (s) return s.evaluated ?? [];
+  }
+  return [];
+}
+
+/** Why a hosted student cannot be added to the day, or null. */
+export function guestProblem(bundle: EvaluatorBundle, groupId: string, draft: Draft | undefined, guest: GuestInfo): string | null {
+  if (!guest.name.trim()) return "اكتب اسم الطالب";
+  if (!guest.universityNumber.trim()) return "اكتب الرقم الجامعي";
+  if (!guest.homeGroupName.trim()) return "اختر مجموعة الطالب أو اكتبها";
+  const number = guest.universityNumber.trim();
+  if (dayStudents(bundle, groupId, draft?.guests).some((s) => s.universityNumber.trim() === number)) return "هذا الطالب في قائمة اليوم أصلًا";
+  return null;
+}
+
 /** What still blocks validation: students without attendance, and present students not graded. */
 export function missing(bundle: EvaluatorBundle, groupId: string, draft: Draft | undefined) {
-  const g = bundle.groups.find((x) => x.id === groupId);
   const noAttendance: string[] = [];
   const notGraded: string[] = [];
-  for (const s of g?.students ?? []) {
+  for (const s of dayStudents(bundle, groupId, draft?.guests)) {
     const row = draft?.rows[s.id];
     if (!row?.attendance) noAttendance.push(s.name);
     else if (row.attendance !== "absent" && !row.touched) notGraded.push(s.name);
@@ -115,7 +150,6 @@ export function missing(bundle: EvaluatorBundle, groupId: string, draft: Draft |
 
 /** The package sent to the relay when the evaluator validates (اعتماد) the day. */
 export function buildSubmission(bundle: EvaluatorBundle, draft: Draft, clientId: string, now: Date): DaySubmission {
-  const g = bundle.groups.find((x) => x.id === draft.groupId)!;
   return {
     clientId,
     kind: "day",
@@ -124,7 +158,7 @@ export function buildSubmission(bundle: EvaluatorBundle, draft: Draft, clientId:
     dateISO: draft.dateISO,
     bundleVersion: bundle.version,
     validatedAt: now.toISOString(),
-    records: g.students.map((s) => {
+    records: dayStudents(bundle, draft.groupId, draft.guests).map((s) => {
       const r = draft.rows[s.id]!;
       const absent = r.attendance === "absent";
       return {
@@ -133,6 +167,7 @@ export function buildSubmission(bundle: EvaluatorBundle, draft: Draft, clientId:
         dailyNote: absent ? null : r.dailyNote,
         scores: absent ? {} : r.scores,
         ...(r.notes?.trim() ? { notes: r.notes.trim() } : {}),
+        ...(s.guest ? { guest: s.guest } : {}),
       };
     }),
   };

@@ -43,6 +43,13 @@
       "when": 1792354453306,
       "tag": "0005_supervisor",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1792428918575,
+      "tag": "0006_hosted_students",
+      "breakpoints": true
     }
   ]
 }

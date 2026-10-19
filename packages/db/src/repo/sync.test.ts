@@ -5,7 +5,7 @@ import * as t from "../schema";
 import { applyConflictAnyway, applyDaySubmission, buildPublication, inbox, markReported, phoneSignIns, recordPhoneSignIns, unreportedResults } from "./sync";
 import { listEvaluations } from "./grading";
 import { saveEvaluator } from "./evaluators";
-import { IDS, groupId, seeded } from "./testSeed";
+import { IDS, addEvaluation, groupId, seeded } from "./testSeed";
 
 const full = { "ri-dailynote": 4.5, "ri-gdisc": 3.25, "ri-cdisc": 3, "ri-staff": 0.25, "ri-std": 0.25, "ri-late": 0.25, "ri-badge": 0.25 };
 
@@ -211,5 +211,100 @@ describe("supervisors", () => {
     expect((await r.db.select().from(t.accounts).where(eq(t.accounts.id, id)))[0].supervisor).toBe(true);
     await saveEvaluator(r, { id, email: "boss@x.iq", supervisor: false });
     expect((await r.db.select().from(t.accounts).where(eq(t.accounts.id, id)))[0].supervisor).toBe(false);
+  });
+});
+
+describe("hosted students (طلاب مستضافون)", () => {
+  const guest = (studentId: string, g: Partial<import("@eva/core/sync/contract").GuestInfo> = {}) => ({
+    studentId,
+    attendance: "present" as const,
+    dailyNote: true,
+    scores: full,
+    guest: {
+      kind: "other-shift" as const,
+      homeGroupId: groupId("EVENING", 1),
+      homeGroupName: "المجموعة المسائية 1",
+      shift: "EVENING" as const,
+      name: "طالب 7",
+      universityNumber: "SMP-007",
+      ...g,
+    },
+  });
+
+  it("grades a registered hosted student as theirs, with the host group, and keeps the hosting", async () => {
+    const r = await seeded(2);
+    const sub = day({ records: [...day().records, guest("s7", { priorEvaluation: { dateISO: "2026-10-01", evaluatorName: "م. علي", total: 12 } })] });
+    const res = await applyDaySubmission(r, pulled(sub));
+    expect(res).toMatchObject({ outcome: "applied", message: "اعتُمد 3 تقييم (منها 1 مستضاف)" });
+    const [ev] = await r.db.select().from(t.evaluations).where(and(eq(t.evaluations.studentId, "s7"), eq(t.evaluations.dateISO, "2026-10-04")));
+    expect(ev).toMatchObject({ groupId: groupId("MORNING", 1), hospitalId: IDS.hospitals[0], total: 11.75 });
+    const [h] = await r.db.select().from(t.hostedStudents);
+    expect(h).toMatchObject({ studentId: "s7", hostGroupId: groupId("MORNING", 1), kind: "other-shift", shift: "EVENING", priorEvaluation: { dateISO: "2026-10-01", evaluatorName: "م. علي", total: 12 } });
+
+    // The phones see the hosted student in the host group's day, and in the directory.
+    const sara = (await buildPublication(r)).bundles.find((b) => b.evaluator.id === IDS.evaluators[0])!;
+    const hostDay = sara.history!.find((d) => d.groupId === groupId("MORNING", 1) && d.dateISO === "2026-10-04")!;
+    expect(hostDay.records.find((x) => x.studentId === "s7")?.guest?.homeGroupName).toBe("المجموعة المسائية 1");
+    const s7 = sara.directory!.flatMap((g) => g.students).find((s) => s.id === "s7")!;
+    expect(s7.evaluated).toEqual([{ dateISO: "2026-10-04", groupName: "المجموعة الصباحية 1", hospitalName: "مستشفى اليرموك", evaluatorName: "د. سارة", attendance: "present", total: 11.75 }]);
+    expect(sara.directory!.map((g) => g.id)).toHaveLength(6); // every group of the course
+  });
+
+  it("finds the registered student by university number; keeps an unregistered one in hosted_students only", async () => {
+    const r = await seeded(2);
+    const sub = day({
+      records: [
+        ...day().records,
+        guest("guest-a", { universityNumber: "SMP-008", name: "طالب 8" }),
+        guest("guest-b", { universityNumber: "999", name: "طالب من خارج القائمة", homeGroupId: null, homeGroupName: "المجموعة المسائية 9" }),
+      ],
+    });
+    expect((await applyDaySubmission(r, pulled(sub))).outcome).toBe("applied");
+    expect((await r.db.select().from(t.evaluations).where(eq(t.evaluations.studentId, "s8"))).map((e) => e.total)).toEqual([11.75]);
+    const hosted = await r.db.select().from(t.hostedStudents);
+    expect(hosted.map((h) => [h.universityNumber, h.studentId]).sort()).toEqual([["999", null], ["SMP-008", "s8"]]);
+    const evals = await r.db.select().from(t.evaluations);
+    expect(evals).toHaveLength(3); // s1, s2, s8 — nothing made up for the unregistered one
+
+    const sara = (await buildPublication(r)).bundles.find((b) => b.evaluator.id === IDS.evaluators[0])!;
+    const recs = sara.history!.find((d) => d.groupId === groupId("MORNING", 1))!.records;
+    expect(recs.find((x) => x.studentId === "guest-b")).toMatchObject({ total: 11.75, guest: { name: "طالب من خارج القائمة", homeGroupId: null } });
+
+    const { listHostedStudents } = await import("./sync");
+    const list = await listHostedStudents(r, IDS.course);
+    expect(list.map((x) => [x.name, x.registered, x.hostGroupName, x.evaluatorName])).toEqual([
+      ["طالب 8", true, "المجموعة الصباحية 1", "د. سارة"],
+      ["طالب من خارج القائمة", false, "المجموعة الصباحية 1", "د. سارة"],
+    ]);
+  });
+
+  it("a hosted student already graded that day in their own group waits for the manager", async () => {
+    const r = await seeded(2);
+    await addEvaluation(r, { id: "ev-home", studentId: "s7", dateISO: "2026-10-04", scores: [5, 7, 1, 1, 1], evaluatorId: IDS.evaluators[0], groupId: groupId("EVENING", 1) });
+    const sub = day({ records: [...day().records, guest("s7")] });
+    expect((await applyDaySubmission(r, pulled(sub))).outcome).toBe("conflict");
+    expect(await r.db.select().from(t.hostedStudents)).toHaveLength(0);
+    // The manager approves this day: the hosted grade replaces the other one.
+    expect((await applyConflictAnyway(r, "c-1")).outcome).toBe("applied");
+    const [ev] = await r.db.select().from(t.evaluations).where(eq(t.evaluations.studentId, "s7"));
+    expect(ev.groupId).toBe(groupId("MORNING", 1));
+    expect(await r.db.select().from(t.hostedStudents)).toHaveLength(1);
+  });
+
+  it("refuses a 'hosted' student who is in the group, and a group student sent without the hosted details", async () => {
+    const r = await seeded(2);
+    const member = day({ clientId: "m", records: [guest("x", { universityNumber: "SMP-002" })] });
+    expect((await applyDaySubmission(r, pulled(member))).message).toMatch(/من هذه المجموعة أصلًا/);
+    const outsider = day({ clientId: "o", records: [{ studentId: "s7", attendance: "absent", dailyNote: null, scores: {} }] });
+    expect((await applyDaySubmission(r, pulled(outsider))).message).toMatch(/ليس في هذه المجموعة/);
+    expect(await r.db.select().from(t.evaluations)).toHaveLength(0);
+  });
+
+  it("deleting the course removes its hosted students", async () => {
+    const r = await seeded(2);
+    await applyDaySubmission(r, pulled(day({ records: [...day().records, guest("s7")] })));
+    const { deleteCourse } = await import("./courses");
+    await deleteCourse(r, IDS.course);
+    expect(await r.db.select().from(t.hostedStudents)).toHaveLength(0);
   });
 });

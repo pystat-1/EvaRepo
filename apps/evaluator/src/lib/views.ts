@@ -106,7 +106,7 @@ export function dayEntries(bundle: EvaluatorBundle, drafts: Draft[], results: St
       evaluatorName: bundle.evaluator.name,
       mine: true,
       state,
-      records: new Map(Object.entries(d.rows).map(([sid, r]) => [sid, draftRecord(bundle, sid, r)])),
+      records: new Map(Object.entries(d.rows).map(([sid, r]) => [sid, { ...draftRecord(bundle, sid, r), ...(d.guests?.[sid] ? { guest: d.guests[sid] } : {}) }])),
     });
   }
   return out.sort((a, b) => b.dateISO.localeCompare(a.dateISO) || a.groupId.localeCompare(b.groupId));

@@ -2,11 +2,23 @@
 // build each evaluator's bundle, apply validated days pulled from the
 // relay (one transaction per day, all checks re-done here because the
 // desktop is the source of truth), and let the admin resolve conflicts.
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, or } from "drizzle-orm";
 import { applyItemScores, normalizeScoresForAttendance, round2, validateScores } from "@eva/core/grading/validation";
 import { pickPlacement } from "@eva/core/grading/placement";
 import { withMakeupDays } from "@eva/core/schedule/holidays";
-import { BUNDLE_FORMAT, checkDaySubmission, type DaySubmission, type EvaluatorBundle, type HistoryDay, type SubmissionResult, type TeamMember } from "@eva/core/sync/contract";
+import {
+  BUNDLE_FORMAT,
+  checkDaySubmission,
+  type DaySubmission,
+  type DirectoryGroup,
+  type EvaluatedDay,
+  type EvaluatorBundle,
+  type GuestInfo,
+  type HistoryDay,
+  type HistoryRecord,
+  type SubmissionResult,
+  type TeamMember,
+} from "@eva/core/sync/contract";
 import { sha256Hex } from "@eva/core/sync/tokens";
 import { compareArabic } from "@eva/core/text/arabic";
 import * as t from "../schema";
@@ -65,6 +77,7 @@ export async function buildPublication(r: Repo): Promise<{ evaluators: Published
   const holidays = await listHolidays(r, course.id);
   const unitsOf = await unitNamesByStudent(r, students.map((s) => s.id));
   const team = accounts.some((a) => a.active && a.supervisor) ? await courseTeam(r, course.id) : [];
+  const directory = await courseDirectory(r, groups, students, history);
 
   const bundles: EvaluatorBundle[] = [];
   for (const acc of accounts.filter((a) => a.active)) {
@@ -104,6 +117,7 @@ export async function buildPublication(r: Repo): Promise<{ evaluators: Published
       // Days graded at this evaluator's hospitals for their groups.
       history: history.filter((d) => myGroups.has(d.groupId) && d.hospitalId !== null && hospitalIds.has(d.hospitalId)),
       ...(acc.supervisor ? { team } : {}),
+      directory,
     };
     const version = (await sha256Hex(JSON.stringify(body))).slice(0, 16);
     bundles.push({ ...body, version, generatedAt: nowISO() } as EvaluatorBundle);
@@ -131,13 +145,57 @@ async function courseTeam(r: Repo, courseId: string): Promise<TeamMember[]> {
   });
 }
 
+/**
+ * Every group of the course with its students and the days each was
+ * evaluated (the phone's hosted-student picker).
+ */
+async function courseDirectory(
+  r: Repo,
+  groups: Array<typeof t.groups.$inferSelect>,
+  students: Array<typeof t.students.$inferSelect>,
+  history: HistoryDay[]
+): Promise<DirectoryGroup[]> {
+  const hospitalName = new Map((await r.db.select({ id: t.hospitals.id, name: t.hospitals.name }).from(t.hospitals)).map((h) => [h.id, h.name]));
+  const groupName = new Map(groups.map((g) => [g.id, g.name]));
+  const evaluated = new Map<string, EvaluatedDay[]>();
+  for (const d of history) {
+    for (const x of d.records) {
+      const day: EvaluatedDay = {
+        dateISO: d.dateISO,
+        groupName: groupName.get(d.groupId) ?? "",
+        hospitalName: (d.hospitalId && hospitalName.get(d.hospitalId)) || "",
+        evaluatorName: d.evaluatorName,
+        attendance: x.attendance,
+        total: x.total,
+      };
+      evaluated.set(x.studentId, [...(evaluated.get(x.studentId) ?? []), day]);
+    }
+  }
+  return groups
+    .slice()
+    .sort((a, b) => (a.shift ?? "").localeCompare(b.shift ?? "") * -1 || a.name.localeCompare(b.name, "ar", { numeric: true }))
+    .map((g) => ({
+      id: g.id,
+      name: g.name,
+      shift: g.shift,
+      students: students
+        .filter((s) => s.groupId === g.id)
+        .sort((a, b) => compareArabic(a.nameAr, b.nameAr))
+        .map((s) => {
+          const days = evaluated.get(s.id)?.sort((a, b) => b.dateISO.localeCompare(a.dateISO));
+          return { id: s.id, name: s.nameAr, universityNumber: s.universityNumber, ...(days ? { evaluated: days } : {}) };
+        }),
+    }));
+}
+
 /** Every validated day of the course, grouped by group + date + evaluator (for the bundles' history). */
 async function courseHistory(r: Repo, courseId: string, accounts: Array<{ id: string; name: string }>): Promise<HistoryDay[]> {
   const evals = await r.db
     .select()
     .from(t.evaluations)
     .where(and(eq(t.evaluations.courseId, courseId), eq(t.evaluations.pendingValidation, false)));
-  if (evals.length === 0) return [];
+  const hosted = await r.db.select().from(t.hostedStudents).where(eq(t.hostedStudents.courseId, courseId));
+  if (evals.length === 0 && hosted.length === 0) return [];
   const scores = await r.db
     .select({ evaluationId: t.evaluationScores.evaluationId, sectionId: t.evaluationScores.rubricSectionId, score: t.evaluationScores.score })
     .from(t.evaluationScores)
@@ -150,15 +208,21 @@ async function courseHistory(r: Repo, courseId: string, accounts: Array<{ id: st
   const sectionsOf = new Map<string, Record<string, number>>();
   for (const s of scores) sectionsOf.set(s.evaluationId, { ...(sectionsOf.get(s.evaluationId) ?? {}), [s.sectionId]: s.score });
   const nameOf = new Map(accounts.map((a) => [a.id, a.name]));
+  const guestOf = new Map(hosted.filter((h) => h.studentId).map((h) => [`${h.hostGroupId}:${h.dateISO}:${h.studentId}`, guestInfo(h)]));
   const days = new Map<string, HistoryDay>();
-  for (const e of evals) {
-    if (!e.groupId) continue;
-    const key = `${e.groupId}:${e.dateISO}:${e.evaluatorId}`;
+  const dayOf = (groupId: string, dateISO: string, hospitalId: string | null, evaluatorId: string) => {
+    const key = `${groupId}:${dateISO}:${evaluatorId}`;
     let d = days.get(key);
     if (!d) {
-      d = { groupId: e.groupId, dateISO: e.dateISO, hospitalId: e.hospitalId, evaluatorId: e.evaluatorId, evaluatorName: nameOf.get(e.evaluatorId) ?? "—", records: [] };
+      d = { groupId, dateISO, hospitalId, evaluatorId, evaluatorName: nameOf.get(evaluatorId) ?? "—", records: [] };
       days.set(key, d);
     }
+    return d;
+  };
+  for (const e of evals) {
+    if (!e.groupId) continue;
+    const d = dayOf(e.groupId, e.dateISO, e.hospitalId, e.evaluatorId);
+    const guest = guestOf.get(`${e.groupId}:${e.dateISO}:${e.studentId}`);
     const note = noteOf.get(`${e.studentId}:${e.dateISO}`);
     d.records.push({
       studentId: e.studentId,
@@ -168,11 +232,76 @@ async function courseHistory(r: Repo, courseId: string, accounts: Array<{ id: st
       sections: sectionsOf.get(e.id) ?? {},
       items: e.itemScores ?? null,
       ...(e.notes ? { notes: e.notes } : {}),
+      ...(guest ? { guest } : {}),
     });
+  }
+  // Hosted students not registered here: their grade lives in hosted_students only.
+  for (const h of hosted) {
+    if (h.studentId) continue;
+    const rec = JSON.parse(h.record) as HistoryRecord;
+    dayOf(h.hostGroupId, h.dateISO, h.hospitalId, h.evaluatorId).records.push({ ...rec, studentId: h.phoneStudentId, guest: guestInfo(h) });
   }
   return [...days.values()]
     .map((d) => ({ ...d, records: d.records.sort((a, b) => a.studentId.localeCompare(b.studentId)) }))
     .sort((a, b) => b.dateISO.localeCompare(a.dateISO) || a.groupId.localeCompare(b.groupId));
+}
+
+const guestInfo = (h: typeof t.hostedStudents.$inferSelect): GuestInfo => ({
+  kind: h.kind,
+  homeGroupId: h.homeGroupId,
+  homeGroupName: h.homeGroupName,
+  shift: h.shift,
+  name: h.name,
+  universityNumber: h.universityNumber,
+  priorEvaluation: h.priorEvaluation ?? null,
+});
+
+// ---- hosted students -------------------------------------------------------
+
+export interface HostedStudentRow {
+  id: string;
+  dateISO: string;
+  name: string;
+  universityNumber: string;
+  registered: boolean;
+  kind: GuestInfo["kind"];
+  shift: GuestInfo["shift"];
+  homeGroupName: string;
+  hostGroupName: string;
+  hospitalName: string;
+  evaluatorName: string;
+  attendance: HistoryRecord["attendance"];
+  total: number;
+  priorEvaluation: GuestInfo["priorEvaluation"];
+}
+
+/** Hosted students of a course (newest first), for the desktop. */
+export async function listHostedStudents(r: Repo, courseId: string): Promise<HostedStudentRow[]> {
+  const rows = await r.db
+    .select({ h: t.hostedStudents, hostGroupName: t.groups.name, hospitalName: t.hospitals.name, evaluatorName: t.accounts.name })
+    .from(t.hostedStudents)
+    .leftJoin(t.groups, eq(t.groups.id, t.hostedStudents.hostGroupId))
+    .leftJoin(t.hospitals, eq(t.hospitals.id, t.hostedStudents.hospitalId))
+    .leftJoin(t.accounts, eq(t.accounts.id, t.hostedStudents.evaluatorId))
+    .where(eq(t.hostedStudents.courseId, courseId));
+  return rows
+    .map(({ h, hostGroupName, hospitalName, evaluatorName }) => ({
+      id: h.id,
+      dateISO: h.dateISO,
+      name: h.name,
+      universityNumber: h.universityNumber,
+      registered: !!h.studentId,
+      kind: h.kind,
+      shift: h.shift,
+      homeGroupName: h.homeGroupName,
+      hostGroupName: hostGroupName ?? "—",
+      hospitalName: hospitalName ?? "—",
+      evaluatorName: evaluatorName ?? "—",
+      attendance: h.attendance,
+      total: h.total,
+      priorEvaluation: h.priorEvaluation ?? null,
+    }))
+    .sort((a, b) => b.dateISO.localeCompare(a.dateISO) || compareArabic(a.name, b.name));
 }
 
 // ---- phone sign-ins ------------------------------------------------------
@@ -281,14 +410,32 @@ export async function applyDaySubmission(r: Repo, pulled: PulledSubmission, forc
   const members = new Set(
     (await r.db.select({ id: t.students.id }).from(t.students).where(eq(t.students.groupId, group.id))).map((s) => s.id)
   );
-  const outsider = sub.records.find((x) => !members.has(x.studentId));
+  const outsider = sub.records.find((x) => !x.guest && !members.has(x.studentId));
   if (outsider) return reject("سجل لطالب ليس في هذه المجموعة");
+
+  // Hosted students: the registered student with that id or university
+  // number, when there is one in this course; otherwise kept by name.
+  const guests = sub.records.filter((x) => x.guest);
+  const known = guests.length
+    ? await r.db
+        .select({ id: t.students.id, uni: t.students.universityNumber, groupId: t.students.groupId, courseId: t.students.courseId })
+        .from(t.students)
+        .where(or(inArray(t.students.id, guests.map((x) => x.studentId)), inArray(t.students.universityNumber, guests.map((x) => x.guest!.universityNumber.trim()))))
+    : [];
+  const registeredId = new Map<string, string | null>();
+  for (const x of guests) {
+    const s = known.find((k) => k.id === x.studentId) ?? known.find((k) => k.uni === x.guest!.universityNumber.trim());
+    if (s && members.has(s.id)) return reject(`الطالب المستضاف ${x.guest!.name} من هذه المجموعة أصلًا`);
+    registeredId.set(x.studentId, s && (!s.courseId || !group.courseId || s.courseId === group.courseId) ? s.id : null);
+  }
+  // The student each record grades here (null: a hosted student not registered here).
+  const target = (rec: DaySubmission["records"][number]) => (rec.guest ? registeredId.get(rec.studentId)! : rec.studentId);
 
   // Scores: validated against the desktop's own rubric.
   const rubric = await rubricWithItems(r);
   const sections = rubric.map((s) => ({ id: s.id, labelAr: s.labelAr, maxScore: s.maxScore, items: s.items }));
   const itemIds = new Set(rubric.flatMap((s) => s.items.map((i) => i.id)));
-  const prepared: Array<{ rec: DaySubmission["records"][number]; scores: Record<string, number>; itemScores: Record<string, number>; total: number }> = [];
+  const prepared: Array<{ rec: DaySubmission["records"][number]; studentId: string | null; scores: Record<string, number>; itemScores: Record<string, number>; total: number }> = [];
   try {
     for (const rec of sub.records) {
       const itemScores = Object.fromEntries(Object.entries(rec.scores).filter(([k]) => itemIds.has(k)));
@@ -297,18 +444,21 @@ export async function applyDaySubmission(r: Repo, pulled: PulledSubmission, forc
       const applied = applyItemScores(plain, absent ? {} : itemScores, sections);
       const scores = normalizeScoresForAttendance(rec.attendance, applied.scores, sections);
       validateScores(scores, sections);
-      prepared.push({ rec, scores, itemScores: applied.itemScores, total: round2(Object.values(scores).reduce((a, b) => a + b, 0)) });
+      prepared.push({ rec, studentId: target(rec), scores, itemScores: applied.itemScores, total: round2(Object.values(scores).reduce((a, b) => a + b, 0)) });
     }
   } catch (e) {
     return reject(`درجات غير صالحة: ${e instanceof Error ? e.message : String(e)}`);
   }
 
-  // Conflicts: another evaluator already has a grade for one of these student-days.
+  // Conflicts: another evaluator already has a grade for one of these
+  // student-days (for a hosted student, any grade from another group too).
+  const graded = prepared.flatMap((p) => (p.studentId ? [p.studentId] : []));
+  const hostedIds = new Set(prepared.filter((p) => p.rec.guest && p.studentId).map((p) => p.studentId!));
   const existing = await r.db
     .select()
     .from(t.evaluations)
-    .where(and(eq(t.evaluations.dateISO, sub.dateISO), inArray(t.evaluations.studentId, sub.records.map((x) => x.studentId))));
-  const others = existing.filter((e) => e.evaluatorId !== evaluator.id);
+    .where(and(eq(t.evaluations.dateISO, sub.dateISO), inArray(t.evaluations.studentId, graded)));
+  const others = existing.filter((e) => e.evaluatorId !== evaluator.id || (hostedIds.has(e.studentId) && e.groupId !== group.id));
   if (others.length > 0 && !force) {
     return record("conflict", `يوجد تقييم لنفس اليوم من مقيّم آخر لـ ${others.length} طالب — بانتظار قرار المدير`);
   }
@@ -318,7 +468,45 @@ export async function applyDaySubmission(r: Repo, pulled: PulledSubmission, forc
   const stamp = nowISO();
   const byStudent = new Map(existing.map((e) => [e.studentId, e]));
   for (const p of prepared) {
-    const prev = byStudent.get(p.rec.studentId);
+    if (p.rec.guest) {
+      const g = p.rec.guest;
+      const record: HistoryRecord = {
+        studentId: p.studentId ?? p.rec.studentId,
+        attendance: p.rec.attendance,
+        dailyNote: p.rec.attendance === "absent" ? null : p.rec.dailyNote,
+        total: p.total,
+        sections: p.scores,
+        items: p.itemScores,
+        ...(p.rec.notes?.trim() ? { notes: p.rec.notes.trim() } : {}),
+      };
+      const hosted = {
+        courseId: group.courseId,
+        hospitalId: placement.hospitalId,
+        evaluatorId: evaluator.id,
+        studentId: p.studentId,
+        phoneStudentId: p.rec.studentId,
+        name: g.name.trim(),
+        kind: g.kind,
+        shift: g.shift,
+        homeGroupId: g.homeGroupId,
+        homeGroupName: g.homeGroupName.trim(),
+        priorEvaluation: g.priorEvaluation ?? null,
+        attendance: p.rec.attendance,
+        total: p.total,
+        record: JSON.stringify(record),
+        submissionId: sub.clientId,
+        updatedAt: stamp,
+      };
+      plan.add(
+        r.db
+          .insert(t.hostedStudents)
+          .values({ id: newId(), hostGroupId: group.id, dateISO: sub.dateISO, universityNumber: g.universityNumber.trim(), ...hosted })
+          .onConflictDoUpdate({ target: [t.hostedStudents.hostGroupId, t.hostedStudents.dateISO, t.hostedStudents.universityNumber], set: hosted })
+      );
+      if (!p.studentId) continue; // not registered here: kept in hosted_students only
+    }
+    const studentId = p.studentId!;
+    const prev = byStudent.get(studentId);
     const evaluationId = prev?.id ?? newId();
     const fields = {
       evaluatorId: evaluator.id,
@@ -340,7 +528,7 @@ export async function applyDaySubmission(r: Repo, pulled: PulledSubmission, forc
     plan.add(
       r.db
         .insert(t.evaluations)
-        .values({ id: evaluationId, studentId: p.rec.studentId, dateISO: sub.dateISO, ...fields })
+        .values({ id: evaluationId, studentId, dateISO: sub.dateISO, ...fields })
         .onConflictDoUpdate({ target: [t.evaluations.studentId, t.evaluations.dateISO], set: fields })
     );
     plan.add(r.db.delete(t.evaluationScores).where(eq(t.evaluationScores.evaluationId, evaluationId)));
@@ -353,7 +541,7 @@ export async function applyDaySubmission(r: Repo, pulled: PulledSubmission, forc
     plan.add(
       r.db
         .insert(t.attendanceRecords)
-        .values({ id: newId(), studentId: p.rec.studentId, dateISO: sub.dateISO, ...att })
+        .values({ id: newId(), studentId, dateISO: sub.dateISO, ...att })
         .onConflictDoUpdate({ target: [t.attendanceRecords.studentId, t.attendanceRecords.dateISO], set: att })
     );
   }
@@ -368,9 +556,13 @@ export async function applyDaySubmission(r: Repo, pulled: PulledSubmission, forc
     source: "phone",
     evaluator: evaluator.name,
     students: prepared.length,
+    ...(guests.length ? { hosted: guests.length } : {}),
     replaced: force ? others.length : 0,
   });
-  const msg = force ? `طُبّق بقرار المدير (استُبدل ${others.length} تقييم)` : `اعتُمد ${prepared.length} تقييم${placement.scheduled ? "" : " (يوم خارج الجدول)"}`;
+  const hostedNote = guests.length ? ` (منها ${guests.length} مستضاف)` : "";
+  const msg = force
+    ? `طُبّق بقرار المدير (استُبدل ${others.length} تقييم)`
+    : `اعتُمد ${prepared.length} تقييم${hostedNote}${placement.scheduled ? "" : " (يوم خارج الجدول)"}`;
   return record("applied", msg, plan);
 }
 

@@ -1,10 +1,12 @@
-import { useEffect, useRef, useState } from "react";
-import type { EvaluatorBundle, HistoryRecord } from "@eva/core/sync/contract";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import type { EvaluatorBundle, GuestInfo, HistoryRecord } from "@eva/core/sync/contract";
 import { getDraft, putDraft, queueValidatedDay, type Session } from "../lib/store";
-import { buildSubmission, compactColumns, draftKey, gradeColumns, groupsForDate, maxTotal, missing, rowTotal, type Draft, type DraftRow } from "../lib/day";
+import { buildSubmission, compactColumns, dayStudents, draftKey, gradeColumns, groupsForDate, maxTotal, missing, rowTotal, type DayStudent, type Draft, type DraftRow } from "../lib/day";
 import { ATTENDANCE_AR, ATTENDANCE_MARK, draftRecord, shortNames, weekdayAr, type DayEntry } from "../lib/views";
 import { DownloadMenu } from "../components/DownloadMenu";
 import { dayExcel, dayWord, type DayMeta } from "../lib/exports";
+import { AddGuest } from "../components/AddGuest";
+import { GuestPanel } from "../components/EvaluatedList";
 
 const emptyRow = (): DraftRow => ({ attendance: null, dailyNote: null, scores: {}, touched: false });
 const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -69,6 +71,7 @@ export function DayScreen({
   const [problem, setProblem] = useState<string | null>(null);
   const [view, setView] = useState<View | null>(null);
   const [current, setCurrent] = useState<number | null>(null); // the student whose card is open
+  const [adding, setAdding] = useState(false); // إضافة طالب مستضاف is open
   const lastCard = useRef<string | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
@@ -120,12 +123,36 @@ export function DayScreen({
   const setAttendance = (sid: string, a: DraftRow["attendance"]) => update(sid, (x) => ({ ...x, attendance: a, dailyNote: a === "absent" ? null : x.dailyNote }));
   const setNote = (sid: string, v: boolean | null) => update(sid, (x) => ({ ...x, attendance: x.attendance ?? "present", dailyNote: v }));
 
-  const rows = group.students.map((s) => ({ s, r: rowOf(s.id) }));
-  const short = shortNames(group.students.map((s) => s.name));
+  // A hosted student joins the day's list (saved at once) or leaves it.
+  function changeGuests(change: (d: Draft) => Draft) {
+    if (locked) return;
+    clearTimeout(saveTimer.current);
+    setDraft((prev) => {
+      const next = { ...change(prev ?? working), updatedAt: new Date().toISOString() };
+      void putDraft(id, next);
+      return next;
+    });
+  }
+  const addGuest = (sid: string, guest: GuestInfo) =>
+    changeGuests((d) => ({ ...d, guests: { ...d.guests, [sid]: guest }, rows: { ...d.rows, [sid]: d.rows[sid] ?? emptyRow() } }));
+  const removeGuest = (sid: string) =>
+    changeGuests((d) => {
+      const { [sid]: _g, ...guests } = d.guests ?? {};
+      const { [sid]: _r, ...rest } = d.rows;
+      return { ...d, guests, rows: rest };
+    });
+
+  // Hosted students: from the draft, or (a day on the desktop) from its records.
+  const guests: Record<string, GuestInfo> | undefined = fromDesktop
+    ? Object.fromEntries([...fromDesktop.records.values()].filter((x) => x.guest && !group.students.some((s) => s.id === x.studentId)).map((x) => [x.studentId, x.guest!]))
+    : working.guests;
+  const students = dayStudents(bundle, groupId, guests);
+  const rows = students.map((s) => ({ s, r: rowOf(s.id) }));
+  const short = shortNames(students.map((s) => s.name));
   const unitOf = (s: { units?: Record<string, string> }) => s.units?.[dateISO];
   const unitCounts = [...rows.reduce((m, { s }) => (unitOf(s) ? m.set(unitOf(s)!, (m.get(unitOf(s)!) ?? 0) + 1) : m), new Map<string, number>())];
   const marked = rows.filter((x) => x.r?.attendance).length;
-  const meta: DayMeta = { groupId, dateISO, hospitalName: info?.hospitalName ?? onDesktop?.hospitalName ?? "", evaluatorName: fromDesktop?.evaluatorName ?? bundle.evaluator.name };
+  const meta: DayMeta = { groupId, dateISO, hospitalName: info?.hospitalName ?? onDesktop?.hospitalName ?? "", evaluatorName: fromDesktop?.evaluatorName ?? bundle.evaluator.name, guests };
   const filled = () =>
     fromDesktop ? fromDesktop.records : new Map(Object.entries(working.rows).filter(([, r]) => r.attendance).map(([sid, r]) => [sid, draftRecord(bundle, sid, r)]));
   const stateOf = (r: DraftRow | undefined) => (!r?.attendance ? "todo" : r.attendance === "absent" ? "absent" : r.touched ? "done" : "half");
@@ -141,6 +168,7 @@ export function DayScreen({
     setView(v);
     setCurrent(null);
     setConfirming(false);
+    setAdding(false);
   };
 
   async function validate() {
@@ -209,7 +237,8 @@ export function DayScreen({
           </button>
         </div>
         <span className="muted small">
-          {marked}/{group.students.length} طالب
+          {marked}/{students.length} طالب
+          {students.length > group.students.length ? ` (${students.length - group.students.length} مستضاف)` : ""}
         </span>
       </div>
 
@@ -244,7 +273,7 @@ export function DayScreen({
                 role="tab"
                 aria-selected={i === current}
                 aria-label={`${i + 1}. ${s.name}`}
-                className={`pick ${stateOf(r)} ${i === current ? "on" : ""}`}
+                className={`pick ${stateOf(r)} ${i === current ? "on" : ""} ${s.guest ? "guest" : ""}`}
                 onClick={() => openCard(i)}
                 title={s.name}
               >
@@ -259,6 +288,15 @@ export function DayScreen({
             count={rows.length}
             name={rows[current].s.name}
             unit={unitOf(rows[current].s)}
+            guest={rows[current].s.guest ? <GuestPanel bundle={bundle} studentId={rows[current].s.id} guest={rows[current].s.guest!} dateISO={dateISO} /> : null}
+            onRemove={
+              rows[current].s.guest && !locked
+                ? () => {
+                    removeGuest(rows[current].s.id);
+                    setCurrent(null);
+                  }
+                : undefined
+            }
             row={rows[current].r}
             total={rows[current].r?.attendance ? totalOf(rows[current].s.id, rows[current].r!) : null}
             locked={locked}
@@ -269,80 +307,99 @@ export function DayScreen({
             onNext={() => openCard(Math.min(rows.length - 1, current + 1))}
           />
         </>
+      ) : tab === "work" && adding ? (
+        <AddGuest
+          bundle={bundle}
+          group={group}
+          dateISO={dateISO}
+          draft={working}
+          onCancel={() => setAdding(false)}
+          onAdd={(sid, guest) => {
+            addGuest(sid, guest);
+            setAdding(false);
+            // Straight to their card, at the end of the list.
+            lastCard.current = sid;
+            setCurrent(students.length);
+          }}
+        />
       ) : tab === "work" && wide ? (
-        <div className="grid-wrap" role="region" aria-label="جدول الدرجات" tabIndex={0}>
-          <table className="grid">
-            <thead>
-              <tr>
-                <th className="sticky-name">الطالب</th>
-                <th>الحضور</th>
-                <th>الديلي نوت</th>
-                {columns.map((c) => (
-                  <th key={c.id} className={c.first ? "sec" : undefined} title={`${c.section} — ${c.label}`}>
-                    <span className="sec-name">{c.section}</span>
-                    <span>
-                      {c.label === c.section ? "الدرجة" : c.label} <span className="muted">/{c.max}</span>
-                    </span>
-                  </th>
-                ))}
-                <th>
-                  المجموع <span className="muted">/{maxTotal(bundle)}</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map(({ s, r }, i) => {
-                const absent = r?.attendance === "absent";
-                return (
-                  <tr key={s.id} id={`row-${s.id}`} className={absent ? "absent" : undefined}>
-                    <th className="sticky-name" scope="row">
-                      <button className="name-btn" onClick={() => openCard(i)}>
-                        <span className="idx">{i + 1}</span> {s.name}
-                        {unitOf(s) && <span className="unit-tag">{unitOf(s)}</span>}
-                      </button>
+        <>
+          <div className="grid-wrap" role="region" aria-label="جدول الدرجات" tabIndex={0}>
+            <table className="grid">
+              <thead>
+                <tr>
+                  <th className="sticky-name">الطالب</th>
+                  <th>الحضور</th>
+                  <th>الديلي نوت</th>
+                  {columns.map((c) => (
+                    <th key={c.id} className={c.first ? "sec" : undefined} title={`${c.section} — ${c.label}`}>
+                      <span className="sec-name">{c.section}</span>
+                      <span>
+                        {c.label === c.section ? "الدرجة" : c.label} <span className="muted">/{c.max}</span>
+                      </span>
                     </th>
-                    <td>
-                      <select aria-label={`حضور ${s.name}`} value={r?.attendance ?? ""} disabled={locked} onChange={(e) => setAttendance(s.id, (e.target.value || null) as DraftRow["attendance"])}>
-                        <option value="">—</option>
-                        <option value="present">✓ حاضر</option>
-                        <option value="late">م متأخر</option>
-                        <option value="absent">✗ غائب</option>
-                      </select>
-                    </td>
-                    <td>
-                      <select
-                        aria-label={`الديلي نوت ${s.name}`}
-                        value={r?.dailyNote === true ? "1" : r?.dailyNote === false ? "0" : ""}
-                        disabled={locked || absent}
-                        onChange={(e) => setNote(s.id, e.target.value === "1" ? true : e.target.value === "0" ? false : null)}
-                      >
-                        <option value="">—</option>
-                        <option value="1">سلّم</option>
-                        <option value="0">لم يسلّم</option>
-                      </select>
-                    </td>
-                    {columns.map((c) => (
-                      <td key={c.id} className={c.first ? "sec" : undefined}>
-                        {c.kind === "check" ? (
-                          <input
-                            type="checkbox"
-                            aria-label={`${c.label} — ${s.name}`}
-                            checked={!absent && (r?.scores[c.id] ?? 0) === c.max}
-                            disabled={locked || absent}
-                            onChange={(e) => setScore(s.id, c.id, e.target.checked ? c.max : 0)}
-                          />
-                        ) : (
-                          numberInput(s.id, s.name, c.id, c.label, c.max, r, absent)
-                        )}
+                  ))}
+                  <th>
+                    المجموع <span className="muted">/{maxTotal(bundle)}</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map(({ s, r }, i) => {
+                  const absent = r?.attendance === "absent";
+                  return (
+                    <tr key={s.id} id={`row-${s.id}`} className={absent ? "absent" : undefined}>
+                      <th className="sticky-name" scope="row">
+                        <button className="name-btn" onClick={() => openCard(i)}>
+                          <span className="idx">{i + 1}</span> {s.name}
+                          {unitOf(s) && <span className="unit-tag">{unitOf(s)}</span>}
+                          {s.guest && <GuestTag guest={s.guest} />}
+                        </button>
+                      </th>
+                      <td>
+                        <select aria-label={`حضور ${s.name}`} value={r?.attendance ?? ""} disabled={locked} onChange={(e) => setAttendance(s.id, (e.target.value || null) as DraftRow["attendance"])}>
+                          <option value="">—</option>
+                          <option value="present">✓ حاضر</option>
+                          <option value="late">م متأخر</option>
+                          <option value="absent">✗ غائب</option>
+                        </select>
                       </td>
-                    ))}
-                    <td className="total">{r?.attendance ? totalOf(s.id, r).toFixed(2) : "—"}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                      <td>
+                        <select
+                          aria-label={`الديلي نوت ${s.name}`}
+                          value={r?.dailyNote === true ? "1" : r?.dailyNote === false ? "0" : ""}
+                          disabled={locked || absent}
+                          onChange={(e) => setNote(s.id, e.target.value === "1" ? true : e.target.value === "0" ? false : null)}
+                        >
+                          <option value="">—</option>
+                          <option value="1">سلّم</option>
+                          <option value="0">لم يسلّم</option>
+                        </select>
+                      </td>
+                      {columns.map((c) => (
+                        <td key={c.id} className={c.first ? "sec" : undefined}>
+                          {c.kind === "check" ? (
+                            <input
+                              type="checkbox"
+                              aria-label={`${c.label} — ${s.name}`}
+                              checked={!absent && (r?.scores[c.id] ?? 0) === c.max}
+                              disabled={locked || absent}
+                              onChange={(e) => setScore(s.id, c.id, e.target.checked ? c.max : 0)}
+                            />
+                          ) : (
+                            numberInput(s.id, s.name, c.id, c.label, c.max, r, absent)
+                          )}
+                        </td>
+                      ))}
+                      <td className="total">{r?.attendance ? totalOf(s.id, r).toFixed(2) : "—"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          {!locked && <AddGuestButton onClick={() => setAdding(true)} />}
+        </>
       ) : tab === "work" ? (
         <>
           <p className="muted small hint">اضغط اسم الطالب لفتح بطاقته وتعديل كل بند على حدة. خانة البنود تمنح البند كاملًا أو تمسحه.</p>
@@ -372,6 +429,7 @@ export function DayScreen({
                         <button className="name-btn" onClick={() => openCard(i)}>
                           <span className="idx">{i + 1}</span> {s.name}
                           {unitOf(s) && <span className="unit-tag">{unitOf(s)}</span>}
+                          {s.guest && <GuestTag guest={s.guest} />}
                           <span className="name-total">{r?.attendance ? r2(totalOf(s.id, r)) : "—"}</span>
                         </button>
                       </th>
@@ -422,6 +480,7 @@ export function DayScreen({
               </tbody>
             </table>
           </div>
+          {!locked && <AddGuestButton onClick={() => setAdding(true)} />}
           {!locked && (
             <button className="btn" onClick={() => showTab("review")}>
               مراجعة تقييم اليوم واعتماده ›
@@ -429,7 +488,7 @@ export function DayScreen({
           )}
         </>
       ) : (
-        <DayReview bundle={bundle} students={group.students} dateISO={dateISO} records={filled()} gaps={gaps} onOpen={openCard} />
+        <DayReview bundle={bundle} students={students} dateISO={dateISO} records={filled()} gaps={gaps} onOpen={openCard} />
       )}
 
       {tab === "review" && problem && (
@@ -441,12 +500,13 @@ export function DayScreen({
         <div className="validate-bar">
           {!confirming ? (
             <button className="btn primary big" onClick={() => setConfirming(true)}>
-              اعتماد اليوم وإرساله للمدير ({marked}/{group.students.length})
+              اعتماد اليوم وإرساله للمدير ({marked}/{students.length})
             </button>
           ) : (
             <>
               <p>
-                اعتماد درجات {group.students.length} طالب ليوم {dateISO}؟ لا يمكن التعديل بعده.
+                اعتماد درجات {students.length} طالب ليوم {dateISO}
+                {students.length > group.students.length ? ` (منهم ${students.length - group.students.length} مستضاف)` : ""}؟ لا يمكن التعديل بعده.
               </p>
               <div className="row">
                 <button className="btn primary big grow" onClick={validate}>
@@ -476,7 +536,7 @@ function DayReview({
   onOpen,
 }: {
   bundle: EvaluatorBundle;
-  students: EvaluatorBundle["groups"][number]["students"];
+  students: DayStudent[];
   dateISO: string;
   records: Map<string, HistoryRecord>;
   gaps: ReturnType<typeof missing> | null;
@@ -530,6 +590,7 @@ function DayReview({
                     <button className="name-btn" onClick={() => onOpen(i)}>
                       <span className="idx">{i + 1}</span> {s.name}
                       {s.units?.[dateISO] && <span className="unit-tag">{s.units[dateISO]}</span>}
+                      {s.guest && <GuestTag guest={s.guest} />}
                       {gap && <span className="gap">{gap}</span>}
                     </button>
                   </th>
@@ -556,6 +617,8 @@ function StudentCard({
   count,
   name,
   unit,
+  guest,
+  onRemove,
   row,
   total,
   locked,
@@ -570,6 +633,9 @@ function StudentCard({
   count: number;
   name: string;
   unit?: string;
+  /** A hosted student's details, and how to take them off the day's list. */
+  guest?: ReactNode;
+  onRemove?: () => void;
   row: DraftRow | undefined;
   total: number | null;
   locked: boolean;
@@ -596,6 +662,8 @@ function StudentCard({
           <small>/{maxTotal(bundle)}</small>
         </span>
       </div>
+      {guest}
+      {onRemove && <RemoveGuest onRemove={onRemove} />}
 
       <div className="field-label">الحضور</div>
       <div className="choice3">
@@ -701,5 +769,42 @@ function StudentCard({
         </button>
       </div>
     </div>
+  );
+}
+
+// «مستضاف» beside a hosted student's name, with the group they came from.
+function GuestTag({ guest }: { guest: GuestInfo }) {
+  return (
+    <span className="guest-tag" title={`مستضاف من ${guest.homeGroupName}`}>
+      مستضاف · {guest.homeGroupName}
+    </span>
+  );
+}
+
+function AddGuestButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button className="btn add-guest" onClick={onClick}>
+      ＋ إضافة طالب مستضاف
+    </button>
+  );
+}
+
+// Taking a hosted student off the list asks once more (their marks go too).
+function RemoveGuest({ onRemove }: { onRemove: () => void }) {
+  const [sure, setSure] = useState(false);
+  return sure ? (
+    <div className="row">
+      <span className="small grow">إزالته من قائمة اليوم مع درجاته؟</span>
+      <button className="btn tiny danger" onClick={onRemove}>
+        نعم، إزالة
+      </button>
+      <button className="btn tiny" onClick={() => setSure(false)}>
+        لا
+      </button>
+    </div>
+  ) : (
+    <button className="btn ghost tiny remove-guest" onClick={() => setSure(true)}>
+      إزالة الطالب المستضاف من قائمة اليوم
+    </button>
   );
 }

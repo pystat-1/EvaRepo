@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { applyConflictAnyway, inbox } from "@eva/db/repo/sync";
+import { applyConflictAnyway, inbox, listHostedStudents } from "@eva/db/repo/sync";
 import { listEvaluators } from "@eva/db/repo/evaluators";
+import { currentCourse } from "@eva/db/repo/students";
 import type { DaySubmission } from "@eva/core/sync/contract";
 import { Field, Notice, PageHeader } from "../components/ui";
 import { confirmAction } from "../components/confirm";
@@ -10,6 +11,8 @@ import { DEFAULT_RELAY_URL, relayConfig, relayStatus, saveRelayConfig } from "..
 import { syncNow, useSyncState } from "../lib/autoSync";
 
 const STATUS_AR = { applied: "اعتُمد", conflict: "تعارض", rejected: "مرفوض" } as const;
+const ATTENDANCE_AR = { present: "حاضر", late: "متأخر", absent: "غائب" } as const;
+const SHIFT_AR = { MORNING: "صباحي", EVENING: "مسائي" } as const;
 const fmtTime = (iso: string | null) =>
   iso ? new Date(iso).toLocaleString("ar-IQ-u-nu-latn", { dateStyle: "short", timeStyle: "short", timeZone: "Asia/Baghdad" }) : "—";
 
@@ -20,6 +23,13 @@ export function SyncScreen() {
   const config = useQuery({ queryKey: ["relayConfig"], queryFn: relayConfig });
   const box = useQuery({ queryKey: ["inbox"], queryFn: () => inbox(r) });
   const evaluators = useQuery({ queryKey: ["evaluators"], queryFn: () => listEvaluators(r) });
+  const hosted = useQuery({
+    queryKey: ["hostedStudents"],
+    queryFn: async () => {
+      const course = await currentCourse(r);
+      return course ? listHostedStudents(r, course.id) : [];
+    },
+  });
   const sync = useSyncState();
   const [form, setForm] = useState({ url: DEFAULT_RELAY_URL, key: "" });
   const [editing, setEditing] = useState(false);
@@ -165,6 +175,58 @@ export function SyncScreen() {
             </div>
           );
         })}
+      </div>
+
+      <div className="card">
+        <h2>الطلاب المستضافون ({hosted.data?.length ?? 0})</h2>
+        <p className="muted" style={{ marginTop: 0 }}>
+          طلاب قيّمهم مقيّم مع مجموعة ليست مجموعتهم. درجة الطالب المسجّل تُحفظ في سجله؛ وغير المسجّل في البرنامج تُحفظ هنا كاملة.
+        </p>
+        {!hosted.data?.length ? (
+          <p className="muted">لا يوجد طلاب مستضافون بعد.</p>
+        ) : (
+          <table className="list">
+            <thead>
+              <tr>
+                <th>التاريخ</th>
+                <th>الطالب</th>
+                <th>من</th>
+                <th>استُضيف في</th>
+                <th>المقيّم</th>
+                <th>الدرجة</th>
+                <th>قُيّم في مجموعته</th>
+              </tr>
+            </thead>
+            <tbody>
+              {hosted.data.map((h) => (
+                <tr key={h.id}>
+                  <td className="tabular">{h.dateISO}</td>
+                  <td>
+                    {h.name} <span className="muted tabular">{h.universityNumber}</span>
+                    {!h.registered && <div className="muted">غير مسجّل في البرنامج</div>}
+                  </td>
+                  <td>
+                    {h.homeGroupName} ({SHIFT_AR[h.shift]})
+                    <div className="muted">{h.kind === "same-shift" ? "نفس نوع الدراسة" : "نوع دراسة آخر"}</div>
+                  </td>
+                  <td>
+                    {h.hostGroupName}
+                    <div className="muted">{h.hospitalName}</div>
+                  </td>
+                  <td>{h.evaluatorName}</td>
+                  <td className="tabular">{h.attendance === "absent" ? ATTENDANCE_AR.absent : h.total}</td>
+                  <td>
+                    {h.priorEvaluation
+                      ? [h.priorEvaluation.dateISO, h.priorEvaluation.evaluatorName, h.priorEvaluation.total !== undefined ? `${h.priorEvaluation.total}` : "", h.priorEvaluation.notes]
+                          .filter(Boolean)
+                          .join(" · ") || "نعم"
+                      : "—"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
 
       <div className="card">

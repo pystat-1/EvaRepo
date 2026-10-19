@@ -2,8 +2,8 @@
 // work offline): a day's grades or a blank template to print (Excel and
 // Word), the whole schedule, the attendance log, previous assessments and
 // the students' records (Excel). The libraries load only when needed.
-import type { EvaluatorBundle, HistoryRecord } from "@eva/core/sync/contract";
-import { maxTotal } from "./day";
+import type { EvaluatorBundle, GuestInfo, HistoryRecord } from "@eva/core/sync/contract";
+import { dayStudents, maxTotal, type DayStudent } from "./day";
 import { ATTENDANCE_AR, SHIFT_AR, STATE_AR, weekdayAr, type DayEntry, type ScheduleStint, type StudentSummary } from "./views";
 
 type Workbook = import("exceljs").Workbook;
@@ -75,6 +75,8 @@ export interface DayMeta {
   dateISO: string;
   hospitalName: string;
   evaluatorName: string;
+  /** Hosted students of the day (listed after the group's own). */
+  guests?: Record<string, GuestInfo>;
 }
 
 // The layout of the college's paper form "Daily Evaluation of Hospital
@@ -133,7 +135,8 @@ function cellValue(c: FormColumn, r: HistoryRecord | undefined): string | number
 }
 
 // The form's "Hospital Name" column, with the student's unit that day when set.
-type DayStudent = EvaluatorBundle["groups"][number]["students"][number];
+// A hosted student's name says so, and which group they came from.
+const nameText = (s: DayStudent) => (s.guest ? `${s.name} (مستضاف — ${s.guest.homeGroupName} ${SHIFT_AR[s.guest.shift]})` : s.name);
 const placeText = (s: DayStudent, m: DayMeta) => (s.units?.[m.dateISO] ? `${m.hospitalName} — ${s.units[m.dateISO]}` : m.hospitalName);
 const hasUnits = (students: DayStudent[], m: DayMeta) => students.some((s) => s.units?.[m.dateISO]);
 const placeHeader = (withUnits: boolean) => (withUnits ? "Hospital / Unit\nالمستشفى / القسم" : "Hospital Name\nالمستشفى");
@@ -148,7 +151,8 @@ export async function dayExcel(bundle: EvaluatorBundle, m: DayMeta, records: Map
   const { g, fileTitle, lines } = dayTitle(bundle, m, blank);
   const cols = formColumns(bundle);
   const total = maxTotal(bundle);
-  const withUnits = hasUnits(g.students, m);
+  const students = dayStudents(bundle, g.id, m.guests);
+  const withUnits = hasUnits(students, m);
   const fixedStart = ["No.\nت", "Student Name\nاسم الطالب", placeHeader(withUnits), "Attendance\nالحضور"];
   const fixedEnd = [`Total (${total})\nالمجموع`, "Assessment\nالتقدير"];
   const width = fixedStart.length + cols.length + fixedEnd.length;
@@ -192,9 +196,9 @@ export async function dayExcel(bundle: EvaluatorBundle, m: DayMeta, records: Map
   });
   ws.getRow(H1).height = 34;
   ws.getRow(H3).height = 92;
-  g.students.forEach((s, i) => {
+  students.forEach((s, i) => {
     const r = records?.get(s.id);
-    const row = ws.addRow([i + 1, s.name, placeText(s, m), attendanceText(r), ...cols.map((c) => cellValue(c, r)), r ? fmt(r.total) : "", assessmentText(r)]);
+    const row = ws.addRow([i + 1, nameText(s), placeText(s, m), attendanceText(r), ...cols.map((c) => cellValue(c, r)), r ? fmt(r.total) : "", assessmentText(r)]);
     row.eachCell({ includeEmpty: true }, (cell, n) => {
       if (n > width) return;
       cell.alignment = { vertical: "middle", horizontal: n === 2 || n === 3 || n === width ? "right" : "center", wrapText: n === width };
@@ -219,6 +223,7 @@ export async function dayWord(bundle: EvaluatorBundle, m: DayMeta, records: Map<
   const { g, fileTitle, lines } = dayTitle(bundle, m, blank);
   const cols = formColumns(bundle);
   const total = maxTotal(bundle);
+  const students = dayStudents(bundle, g.id, m.guests);
   const size = 15; // half-points
   const para = (t: string, o: { bold?: boolean; sz?: number; start?: boolean } = {}) =>
     t.split("\n").map(
@@ -241,7 +246,7 @@ export async function dayWord(bundle: EvaluatorBundle, m: DayMeta, records: Map<
       textDirection: o.vertical ? d.TextDirection.BOTTOM_TO_TOP_LEFT_TO_RIGHT : undefined,
       margins: { top: 30, bottom: 30, left: 30, right: 30 },
     });
-  const fixedStart = ["No.\nت", "Student Name\nاسم الطالب", placeHeader(hasUnits(g.students, m)), "Attendance\nالحضور"];
+  const fixedStart = ["No.\nت", "Student Name\nاسم الطالب", placeHeader(hasUnits(students, m)), "Attendance\nالحضور"];
   const fixedEnd = [`Total (${total})\nالمجموع`, "Assessment\nالتقدير"];
   const row1 = new d.TableRow({
     tableHeader: true,
@@ -257,10 +262,10 @@ export async function dayWord(bundle: EvaluatorBundle, m: DayMeta, records: Map<
     height: { value: 1300, rule: d.HeightRule.ATLEAST },
     children: cols.map((c) => cell(c.name.replace("\n", " / "), { fill: true, vertical: true })),
   });
-  const body = g.students.map((s, i) => {
+  const body = students.map((s, i) => {
     const r = records?.get(s.id);
     const absent = r?.attendance === "absent";
-    const values = [String(i + 1), s.name, placeText(s, m), attendanceText(r), ...cols.map((c) => String(cellValue(c, r))), r ? String(fmt(r.total)) : "", assessmentText(r)];
+    const values = [String(i + 1), nameText(s), placeText(s, m), attendanceText(r), ...cols.map((c) => String(cellValue(c, r))), r ? String(fmt(r.total)) : "", assessmentText(r)];
     return new d.TableRow({ children: values.map((v, n) => cell(v, { start: n === 1 || n === 2 || n === values.length - 1, absent })) });
   });
   const doc = new d.Document({

@@ -159,45 +159,41 @@ Also queued, independent of the OAuth work:
       grade/account data). `npx tsc --noEmit` and `npx next build` both
       clean after the fix.
 
-**⚠️ NEEDS HUMAN ACTION — daily backup routine still broken, now 28+ days
-running (first flagged 2026-09-17, still failing as of 2026-10-15):** the
+**⚠️ NEEDS HUMAN ACTION — daily backup routine is structurally broken by a
+snapshot quota of 1, not just stuck (confirmed 2026-10-20):** the
 `eva-db-daily-backup` routine's `create_snapshot` call (project
-`dry-cell-81671466`, branch `br-dark-hat-arg40fn4`) has failed with
-`NeonApiError: snapshots limit exceeded` on every run checked since
-2026-09-17, most recently today (2026-10-15, intended name
-`daily-backup-2026-10-15`, both the initial attempt and its one retry
-failed identically). `list_snapshots` on the same project still shows only
-**one** snapshot total — the original `manual-backup-2026-09-15`
-(`snap-cool-paper-ar3c3h5v`, now exactly 30 days old as of today) — nowhere
-near a count that should hit a limit, confirming this is a plan/quota
-ceiling (e.g. a free-tier snapshot cap of 1) rather than accumulated old
-snapshots. Per this routine's own rules, nothing was deleted today — the
-existing snapshot is exactly 30 days old, not yet *older than* 30 days, so
-it doesn't qualify for pruning until tomorrow's run — and no other Neon
-operation was attempted. Not re-sending a push notification for this run —
-already escalated twice before (2026-09-18, 2026-09-24) and nothing new has
-changed; see the self-resolving timeline below, unchanged. **Expected to
-self-resolve with tomorrow's run (2026-10-16):** `manual-backup-2026-09-15`
-will then be *older than* 30 days and will be auto-pruned by this routine's
-own rule (still matches the `manual-backup-` naming pattern), freeing the
-single snapshot slot for `daily-backup-2026-10-16` to succeed — a human
-should confirm this actually happened on the next check, since this note
-has been "about to self-resolve" for a while without actually doing so.
-**Practical effect: this project has had zero rolling daily snapshots for
-26+ days straight** — the only DB backup that exists at all is the single
-2026-09-15 manual baseline plus Neon's 6-hour PITR window (see above).
-**Not silently fatal but no longer just a minor gap** — a human should
-either raise the Neon project's snapshot quota/plan, or delete/replace the
-existing `manual-backup-2026-09-15` snapshot (outside this routine's own
-prune authority since it's <30 days old, but a human can do it directly)
-to free the single slot for rolling daily backups, or set up an external
-`pg_dump`-based backup as a stopgap. Note that `manual-backup-2026-09-15`
-turns 30 days old on 2026-10-15, so it becomes "older than 30 days"
-starting with the 2026-10-16 run — if it still exists and still matches
-the `manual-backup-` naming pattern at that point, this routine's own
-pruning rule will delete it on its own, which should incidentally free the
-slot for the next day's `daily-backup-` snapshot to succeed without any
-human action.
+`dry-cell-81671466`, branch `br-dark-hat-arg40fn4`) failed again today with
+`snapshots limit exceeded` (initial attempt + the one allowed retry, both
+identical). `list_snapshots` shows exactly **one** snapshot:
+`daily-backup-2026-10-16` (`snap-snowy-lab-arh0c6ia`, created 2026-10-16,
+only 4 days old) — confirming the earlier prediction in this note: the old
+`manual-backup-2026-09-15` snapshot *did* age past 30 days and got
+auto-pruned by this routine's own rule around 2026-10-16, which freed the
+slot and let `daily-backup-2026-10-16` succeed exactly as predicted.
+**But that "self-resolution" was not a fix — it just proves the real
+problem: this Neon plan allows only 1 snapshot to exist at any time.** Each
+time a snapshot ages past 30 days it gets pruned and the *next* day's
+`create_snapshot` succeeds once, then the fresh snapshot occupies the only
+slot for the next ~30 days, blocking every daily attempt in between. This
+is a recurring ~30-day cycle, not a one-off quota glitch — nothing a human
+needs to "unstick" today, but the design cannot ever produce a real
+rolling multi-day backup window under this quota: in practice the project
+has had at most 1 snapshot at any given time since 2026-09-15, not a
+30-day rolling set. No pruning action was taken today (the one existing
+snapshot is only 4 days old, doesn't match the >30-day prune rule, and
+nothing else matched the `daily-backup-`/`manual-backup-` naming pattern
+anyway). **Expected next successful `create_snapshot`: on/around
+2026-11-15**, when `daily-backup-2026-10-16` itself turns 30+ days old and
+gets auto-pruned by this same rule, repeating this exact cycle indefinitely
+unless a human intervenes. **Not re-notifying every day this recurs** —
+already escalated multiple times (2026-09-18, 2026-09-24, 2026-09-26); this
+note is updated now because the cycle has completed once and confirms the
+quota is the root cause, which is new information worth recording. A human
+should raise the Neon project's snapshot quota/plan if a real rolling
+backup window matters, since no change this routine can make (within its
+narrow create/prune-only scope) will produce more than one live snapshot at
+a time. Neon's 6-hour PITR window remains the only other recovery
+mechanism in the gaps (see above).
 
 ## Goal 3: Evaluator — download the day's detailed evaluation as Excel
 

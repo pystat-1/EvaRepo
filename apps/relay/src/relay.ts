@@ -2,7 +2,18 @@
 // phones (docs/adr/0002). Written against a tiny D1-shaped interface so it
 // is tested with real SQLite in Node and runs unchanged on Cloudflare.
 // Every handler does a few indexed queries: a few ms of CPU.
-import { checkDaySubmission, type DaySubmission, type EvaluatorBundle, type SubmissionResult } from "@eva/core/sync/contract";
+import {
+  checkDaySubmission,
+  checkShare,
+  type Colleague,
+  type DayShare,
+  type DaySubmission,
+  type EvaluatorBundle,
+  type InboxShare,
+  type SentShare,
+  type ShareStatus,
+  type SubmissionResult,
+} from "@eva/core/sync/contract";
 import { randomToken, sha256Hex } from "@eva/core/sync/tokens";
 import { GoogleTokenError, googleKeys, verifyGoogleIdToken, type KeyLookup } from "./google";
 
@@ -37,6 +48,8 @@ export interface BackupBucket {
 
 const SESSION_DAYS = 90; // sliding: an evaluator who uses the app never has to sign in again
 const MAX_SUBMISSIONS_PER_CALL = 20;
+const MAX_SHARES_PER_CALL = 20;
+const SHARE_DAYS = 60; // older shares drop out of the inbox
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } });
@@ -167,6 +180,106 @@ async function getResults(env: Env, who: { evaluatorId: string }) {
   return json({ results });
 }
 
+// ---- «من الزملاء»: shares between evaluators of the same group ---------------
+
+/** Evaluators who have at least one of my groups in their bundles. */
+async function colleagues(env: Env, who: { evaluatorId: string }): Promise<Colleague[]> {
+  const { results } = await env.DB.prepare(
+    `SELECT e.id, e.name, json_group_array(o.groupId) AS groupIds
+     FROM bundle_groups m
+     JOIN bundle_groups o ON o.groupId = m.groupId AND o.evaluatorId != m.evaluatorId
+     JOIN evaluators e ON e.id = o.evaluatorId AND e.active = 1
+     WHERE m.evaluatorId = ?
+     GROUP BY e.id, e.name
+     ORDER BY e.name`
+  )
+    .bind(who.evaluatorId)
+    .all<{ id: string; name: string; groupIds: string }>();
+  return results.map((r) => ({ id: r.id, name: r.name, groupIds: JSON.parse(r.groupIds) as string[] }));
+}
+
+async function postShares(env: Env, req: Request, who: { evaluatorId: string }) {
+  const body = await readJson<{ shares?: unknown[] }>(req);
+  const list = Array.isArray(body?.shares) ? body!.shares : null;
+  if (!list || list.length === 0 || list.length > MAX_SHARES_PER_CALL) return fail(400, "طلب غير صالح");
+  const me = await env.DB.prepare(`SELECT name FROM evaluators WHERE id = ?`).bind(who.evaluatorId).first<{ name: string }>();
+  const accepted: string[] = [];
+  const rejected: Array<{ id: string; message: string }> = [];
+  const stmts: Stmt[] = [];
+  for (const raw of list) {
+    // The sender is always the session's, whatever the phone sent.
+    const share = { ...(raw as object), fromId: who.evaluatorId, fromName: me?.name ?? "" } as DayShare;
+    const id = String((raw as { id?: unknown })?.id ?? "");
+    const problem = checkShare(share);
+    if (problem) {
+      rejected.push({ id, message: problem });
+      continue;
+    }
+    if (share.toId === who.evaluatorId) {
+      rejected.push({ id, message: "لا يمكن الإرسال لنفسك" });
+      continue;
+    }
+    // Both must have the group in their published bundles.
+    const ok = await env.DB.prepare(
+      `SELECT 1 AS ok FROM bundle_groups a
+       JOIN bundle_groups b ON b.groupId = a.groupId
+       JOIN evaluators e ON e.id = b.evaluatorId AND e.active = 1
+       WHERE a.evaluatorId = ? AND b.evaluatorId = ? AND a.groupId = ?`
+    )
+      .bind(who.evaluatorId, share.toId, share.groupId)
+      .first<{ ok: number }>();
+    if (!ok) {
+      rejected.push({ id, message: "هذا الزميل لا يقيّم هذه المجموعة" });
+      continue;
+    }
+    stmts.push(
+      env.DB.prepare(
+        `INSERT INTO shares (id, fromId, toId, groupId, dateISO, payload, receivedAt) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO NOTHING`
+      ).bind(share.id, share.fromId, share.toId, share.groupId, share.dateISO, JSON.stringify(share), iso(now()))
+    );
+    accepted.push(share.id); // already-received ids are accepted too (idempotent)
+  }
+  if (stmts.length) await env.DB.batch(stmts);
+  return json({ accepted, rejected });
+}
+
+/** My inbox, what I sent (and what became of it), and who I can send to. */
+async function getShares(env: Env, who: { evaluatorId: string }) {
+  const since = iso(new Date(now().getTime() - SHARE_DAYS * 86400_000));
+  const inbox = await env.DB.prepare(
+    `SELECT payload, status, receivedAt FROM shares WHERE toId = ? AND receivedAt > ? ORDER BY receivedAt DESC LIMIT 200`
+  )
+    .bind(who.evaluatorId, since)
+    .all<{ payload: string; status: ShareStatus; receivedAt: string }>();
+  const sent = await env.DB.prepare(
+    `SELECT s.id, s.toId, COALESCE(e.name, '') AS toName, s.groupId, s.dateISO, s.status, s.receivedAt AS sentAt, s.decidedAt
+     FROM shares s LEFT JOIN evaluators e ON e.id = s.toId
+     WHERE s.fromId = ? AND s.receivedAt > ? ORDER BY s.receivedAt DESC LIMIT 200`
+  )
+    .bind(who.evaluatorId, since)
+    .all<SentShare>();
+  return json({
+    inbox: inbox.results.map((r): InboxShare => ({ ...(JSON.parse(r.payload) as DayShare), status: r.status, receivedAt: r.receivedAt })),
+    sent: sent.results,
+    colleagues: await colleagues(env, who),
+  });
+}
+
+/** The receiver merged or dismissed shares; the sender sees it. */
+async function decideShares(env: Env, req: Request, who: { evaluatorId: string }) {
+  const body = await readJson<{ decisions?: Array<{ id?: unknown; status?: unknown }> }>(req, 100_000);
+  const list = Array.isArray(body?.decisions) ? body!.decisions : null;
+  if (!list || list.length === 0 || list.length > 200) return fail(400, "طلب غير صالح");
+  const stamp = iso(now());
+  const stmts: Stmt[] = [];
+  for (const d of list) {
+    if (typeof d?.id !== "string" || (d.status !== "merged" && d.status !== "dismissed")) return fail(400, "طلب غير صالح");
+    stmts.push(env.DB.prepare(`UPDATE shares SET status = ?, decidedAt = ? WHERE id = ? AND toId = ?`).bind(d.status, stamp, d.id, who.evaluatorId));
+  }
+  await env.DB.batch(stmts);
+  return json({ ok: true });
+}
+
 // ---- admin (Eva Desktop) --------------------------------------------------
 
 interface PublishBody {
@@ -211,6 +324,8 @@ async function publish(env: Env, req: Request) {
     }
   }
   const withBundle = new Set<string>();
+  // Who has which group (for shares between colleagues), rebuilt on every publish.
+  stmts.push(env.DB.prepare(`DELETE FROM bundle_groups`));
   for (const b of body.bundles) {
     withBundle.add(b.evaluator.id);
     stmts.push(
@@ -219,6 +334,11 @@ async function publish(env: Env, req: Request) {
          ON CONFLICT(evaluatorId) DO UPDATE SET version = excluded.version, json = excluded.json, updatedAt = excluded.updatedAt`
       ).bind(b.evaluator.id, b.version, JSON.stringify(b), stamp)
     );
+    const groupIds = (b.groups ?? []).map((g) => g.id);
+    if (groupIds.length)
+      stmts.push(
+        env.DB.prepare(`INSERT OR IGNORE INTO bundle_groups (evaluatorId, groupId) SELECT ?, value FROM json_each(?)`).bind(b.evaluator.id, JSON.stringify(groupIds))
+      );
   }
   const existing = await env.DB.prepare(`SELECT evaluatorId FROM bundles`).all<{ evaluatorId: string }>();
   for (const x of existing.results) if (!withBundle.has(x.evaluatorId)) stmts.push(env.DB.prepare(`DELETE FROM bundles WHERE evaluatorId = ?`).bind(x.evaluatorId));
@@ -371,6 +491,9 @@ async function route(req: Request, env: Env): Promise<Response> {
       if (p === "/api/bundle" && req.method === "GET") return await getBundle(env, req, who);
       if (p === "/api/submissions" && req.method === "POST") return await postSubmissions(env, req, who);
       if (p === "/api/results" && req.method === "GET") return await getResults(env, who);
+      if (p === "/api/shares" && req.method === "GET") return await getShares(env, who);
+      if (p === "/api/shares" && req.method === "POST") return await postShares(env, req, who);
+      if (p === "/api/shares/decide" && req.method === "POST") return await decideShares(env, req, who);
       return fail(404, "غير موجود");
     }
     return fail(404, "غير موجود");

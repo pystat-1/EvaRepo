@@ -365,3 +365,65 @@ export async function studentsExcel(bundle: EvaluatorBundle, students: StudentSu
   for (const s of students) boxRow(ws, [s.universityNumber, s.name, s.groupName, s.days.length, s.present, s.late, s.absent, s.notes, fmt(s.average)]);
   await saveWorkbook(wb, `طلابي ${bundle.course.label}`);
 }
+
+// ---- الواجبات ------------------------------------------------------------------------
+
+export interface AssignmentLine {
+  dateISO: string;
+  studentName: string;
+  universityNumber: string;
+  groupName: string;
+  title: string;
+  notes?: string;
+  from?: string;
+}
+
+const assignmentsTitle = (bundle: EvaluatorBundle) => [`قائمة الواجبات — ${bundle.course.label}`, `المقيّم: ${bundle.evaluator.name}`];
+
+export async function assignmentsExcel(bundle: EvaluatorBundle, list: AssignmentLine[]) {
+  const wb = await workbook();
+  const ws = sheet(
+    wb,
+    "الواجبات",
+    assignmentsTitle(bundle),
+    ["#", "اسم الطالب", "الرقم الجامعي", "المجموعة", "الواجب", "التاريخ", "اليوم", "ملاحظات"],
+    [5, 28, 15, 22, 30, 12, 10, 28]
+  );
+  list.forEach((a, i) => boxRow(ws, [i + 1, a.studentName, a.universityNumber, a.groupName, a.title, a.dateISO, weekdayAr(a.dateISO), [a.notes, a.from ? `من ${a.from}` : ""].filter(Boolean).join(" — ")]));
+  await saveWorkbook(wb, `الواجبات ${bundle.course.label}`);
+}
+
+export async function assignmentsWord(bundle: EvaluatorBundle, list: AssignmentLine[]) {
+  const d = await import("docx");
+  const para = (t: string, o: { bold?: boolean; sz?: number } = {}) =>
+    new d.Paragraph({ bidirectional: true, alignment: d.AlignmentType.CENTER, spacing: { before: 0, after: 0 }, children: [new d.TextRun({ text: t, bold: o.bold, size: o.sz ?? 20, rightToLeft: true, font: "Arial" })] });
+  const cell = (t: string, head = false) =>
+    new d.TableCell({
+      children: [para(t, { bold: head })],
+      shading: head ? { type: d.ShadingType.CLEAR, color: "auto", fill: "DCEBEA" } : undefined,
+      verticalAlign: d.VerticalAlign.CENTER,
+      margins: { top: 40, bottom: 40, left: 60, right: 60 },
+    });
+  const header = ["#", "اسم الطالب", "الرقم الجامعي", "المجموعة", "الواجب", "التاريخ", "ملاحظات"];
+  const rows = [
+    new d.TableRow({ tableHeader: true, children: header.map((h) => cell(h, true)) }),
+    ...list.map(
+      (a, i) =>
+        new d.TableRow({
+          children: [String(i + 1), a.studentName, a.universityNumber, a.groupName, a.title, `${weekdayAr(a.dateISO)} ${a.dateISO}`, [a.notes, a.from ? `من ${a.from}` : ""].filter(Boolean).join(" — ")].map((v) => cell(v)),
+        })
+    ),
+  ];
+  const [title, sub] = assignmentsTitle(bundle);
+  const doc = new d.Document({
+    creator: "Eva",
+    title,
+    sections: [
+      {
+        properties: { page: { margin: { top: 700, bottom: 700, left: 700, right: 700 } } },
+        children: [para(title, { bold: true, sz: 28 }), para(sub), new d.Paragraph({ children: [] }), new d.Table({ visuallyRightToLeft: true, width: { size: 100, type: d.WidthType.PERCENTAGE }, rows })],
+      },
+    ],
+  });
+  downloadBlob(await d.Packer.toBlob(doc), `${safe(`الواجبات ${bundle.course.label}`)}.docx`);
+}

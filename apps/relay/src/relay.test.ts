@@ -214,3 +214,66 @@ describe("relay", () => {
     expect((await call("/admin/backups", { token: ADMIN })).status).toBe(503);
   });
 });
+
+describe("relay — shares between colleagues («من الزملاء»)", () => {
+  beforeEach(() => {
+    env = { DB: d1(), ADMIN_TOKEN: ADMIN, GOOGLE_CLIENT_ID: CLIENT, googleKeys: async (kid) => (kid === "k1" ? publicJwk : null) };
+  });
+  const withGroups = (id: string, name: string, groups: string[]): EvaluatorBundle => ({
+    ...bundle(id),
+    evaluator: { id, name },
+    groups: groups.map((g) => ({ id: g, name: g, shift: "MORNING" as const, students: [] })),
+  });
+  async function publishTeam() {
+    await call("/admin/publish", {
+      method: "PUT",
+      token: ADMIN,
+      body: JSON.stringify({
+        evaluators: [
+          { id: "e1", email: "sara@x.iq", name: "د. سارة", active: true },
+          { id: "e2", email: "ali@x.iq", name: "م. علي", active: true },
+          { id: "e3", email: "noor@x.iq", name: "م. نور", active: true },
+        ],
+        bundles: [withGroups("e1", "د. سارة", ["g1", "g2"]), withGroups("e2", "م. علي", ["g1"]), withGroups("e3", "م. نور", ["g3"])],
+      }),
+    });
+  }
+  const login = async (email: string) => ((await body(await googleLogin({ email, name: email }))) as { token: string }).token;
+  const share = (id: string, toId = "e2", groupId = "g1") => ({
+    id, kind: "share", fromId: "spoofed", fromName: "spoofed", toId, groupId, dateISO: "2026-10-04", sentAt: "t", message: "مناقشة الحالة",
+    records: [{ studentId: "s1", attendance: null, dailyNote: null, scores: { cdisc: 3 } }],
+  });
+
+  it("lists colleagues who share a group with me", async () => {
+    await publishTeam();
+    const sara = await login("sara@x.iq");
+    const { colleagues } = (await body(await call("/api/shares", { token: sara }))) as { colleagues: unknown[] };
+    expect(colleagues).toEqual([{ id: "e2", name: "م. علي", groupIds: ["g1"] }]);
+  });
+
+  it("delivers a share to a colleague of that group only, under the sender's real name, idempotently", async () => {
+    await publishTeam();
+    const sara = await login("sara@x.iq");
+    const res = await body(await call("/api/shares", { method: "POST", token: sara, body: JSON.stringify({ shares: [share("a"), share("b", "e3"), share("c", "e2", "g2"), share("d", "e1")] }) }));
+    expect(res.accepted).toEqual(["a"]);
+    expect((res.rejected as Array<{ id: string }>).map((x) => x.id)).toEqual(["b", "c", "d"]);
+    await call("/api/shares", { method: "POST", token: sara, body: JSON.stringify({ shares: [share("a")] }) }); // resend
+    const ali = await login("ali@x.iq");
+    const { inbox } = (await body(await call("/api/shares", { token: ali }))) as { inbox: Array<Record<string, unknown>> };
+    expect(inbox).toHaveLength(1);
+    expect(inbox[0]).toMatchObject({ id: "a", fromId: "e1", fromName: "د. سارة", status: "new", message: "مناقشة الحالة" });
+  });
+
+  it("the receiver's merge shows on the sender's side; others cannot decide it", async () => {
+    await publishTeam();
+    const sara = await login("sara@x.iq");
+    const ali = await login("ali@x.iq");
+    await call("/api/shares", { method: "POST", token: sara, body: JSON.stringify({ shares: [share("a")] }) });
+    await call("/api/shares/decide", { method: "POST", token: sara, body: JSON.stringify({ decisions: [{ id: "a", status: "dismissed" }] }) }); // not hers to decide
+    expect(((await body(await call("/api/shares", { token: sara }))).sent as Array<{ status: string }>)[0].status).toBe("new");
+    expect((await call("/api/shares/decide", { method: "POST", token: ali, body: JSON.stringify({ decisions: [{ id: "a", status: "merged" }] }) })).status).toBe(200);
+    const { sent } = (await body(await call("/api/shares", { token: sara }))) as { sent: Array<Record<string, unknown>> };
+    expect(sent[0]).toMatchObject({ id: "a", toId: "e2", toName: "م. علي", status: "merged" });
+    expect(sent[0].decidedAt).toBeTruthy();
+  });
+});

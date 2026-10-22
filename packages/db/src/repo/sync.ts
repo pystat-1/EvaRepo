@@ -5,6 +5,7 @@
 import { and, eq, inArray, or } from "drizzle-orm";
 import { applyItemScores, normalizeScoresForAttendance, round2, validateScores } from "@eva/core/grading/validation";
 import { pickPlacement } from "@eva/core/grading/placement";
+import { canModify, rubricFor } from "@eva/core/grading/scoring";
 import { withMakeupDays } from "@eva/core/schedule/holidays";
 import {
   BUNDLE_FORMAT,
@@ -431,8 +432,11 @@ export async function applyDaySubmission(r: Repo, pulled: PulledSubmission, forc
   // The student each record grades here (null: a hosted student not registered here).
   const target = (rec: DaySubmission["records"][number]) => (rec.guest ? registeredId.get(rec.studentId)! : rec.studentId);
 
-  // Scores: validated against the desktop's own rubric.
-  const rubric = await rubricWithItems(r);
+  // Scores: validated against the desktop's own rubric (a modified day:
+  // discussion 2.5 + 2.5 + quiz 2, same section maximum).
+  const ownRubric = await rubricWithItems(r);
+  if (sub.scoring === "modified" && !canModify(ownRubric)) return reject("الدرجات المعدّلة غير متاحة: لا يوجد في المعيار بندا المناقشة الجماعية ومناقشة الحالة");
+  const rubric = rubricFor(ownRubric, sub.scoring);
   const sections = rubric.map((s) => ({ id: s.id, labelAr: s.labelAr, maxScore: s.maxScore, items: s.items }));
   const itemIds = new Set(rubric.flatMap((s) => s.items.map((i) => i.id)));
   const prepared: Array<{ rec: DaySubmission["records"][number]; studentId: string | null; scores: Record<string, number>; itemScores: Record<string, number>; total: number }> = [];

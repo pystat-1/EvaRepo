@@ -62,7 +62,7 @@ export async function guests(browser: Browser, out: string) {
   await card.locator(".choice2 button", { hasText: "سلّم" }).first().click();
   const full = card.locator("button:has-text('كامل')");
   while ((await full.count()) > 0) await full.first().click();
-  const nums = card.locator('.numrow input[type="number"]');
+  const nums = card.locator('.numrow input[inputmode="decimal"]');
   for (let i = 0; i < (await nums.count()); i++) await nums.nth(i).fill("2");
   check((await p.locator(".picker .pick.guest").count()) === 1, "the hosted student in the picker");
   // The group's own students: absent today.

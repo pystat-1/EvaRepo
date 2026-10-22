@@ -308,3 +308,25 @@ describe("hosted students (طلاب مستضافون)", () => {
     expect(await r.db.select().from(t.hostedStudents)).toHaveLength(0);
   });
 });
+
+describe("applyDaySubmission — «الدرجات المعدّلة»", () => {
+  const modified = { "ri-dailynote": 5, "ri-gdisc": 2.25, "ri-cdisc": 2.5, quiz: 1.75, "ri-staff": 0.25 };
+
+  it("applies a modified day: discussion 2.5 + 2.5 + quiz 2 in one section of 7", async () => {
+    const r = await seeded(2);
+    const res = await applyDaySubmission(r, pulled(day({ scoring: "modified", records: [{ studentId: "s1", attendance: "present", dailyNote: true, scores: modified }] })));
+    expect(res.outcome).toBe("applied");
+    const s1 = (await listEvaluations(r, { groupId: groupId("MORNING", 1) })).find((x) => x.studentId === "s1")!;
+    expect(s1.sections.rs1).toBe(6.5);
+    expect(s1.items?.quiz).toBe(1.75);
+    expect(s1.total).toBe(11.75);
+  });
+
+  it("rejects discussion above 2.5 on a modified day, and a quiz on a standard day", async () => {
+    const r = await seeded(2);
+    const over = await applyDaySubmission(r, pulled(day({ scoring: "modified", records: [{ studentId: "s1", attendance: "present", dailyNote: true, scores: { ...modified, "ri-gdisc": 3 } }] })));
+    expect(over.outcome).toBe("rejected");
+    const stray = await applyDaySubmission(r, pulled(day({ clientId: "c-2", records: [{ studentId: "s1", attendance: "present", dailyNote: true, scores: { quiz: 2 } }] })));
+    expect(stray.outcome).toBe("rejected");
+  });
+});

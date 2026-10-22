@@ -260,3 +260,30 @@ button:disabled { cursor: default; }
 .evaluated .same-day { background: var(--warn-bg); border-radius: 6px; padding-inline: 6px; }
 .btn.add-guest { border-style: dashed; color: var(--brand-dark); width: 100%; font-weight: 700; }
 .remove-guest { color: var(--err); align-self: flex-start; }
+/* score boxes (ScoreInput: text, decimal keypad) look like the number boxes they replace */
+.grid input[inputmode="decimal"] { width: 62px; min-height: 38px; border: 1px solid var(--border-strong); border-radius: 8px; text-align: center; direction: ltr; }
+.cgrid input[inputmode="decimal"] { width: 38px; min-height: 34px; padding: 0; font-size: 13px; }
+/* day tools: «الدرجات المعدّلة» and «إرسال لزميل» */
+.day-tools { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+.btn.tool { min-height: 42px; font-size: 14px; font-weight: 600; color: var(--brand-dark); }
+.btn.tool.on { background: var(--brand-dark); border-color: var(--brand-dark); color: #fff; }
+.note.mod { background: var(--tint); color: var(--brand-dark); border: 1px solid var(--border); }
+.note:not(.ok):not(.warn):not(.err):not(.mod) { background: var(--paper); }
+textarea.input { resize: vertical; min-height: 64px; font: inherit; }
+/* tab bar: a count on «الزملاء»; seven tabs (supervisors) get smaller labels */
+.tabbar button { position: relative; }
+.badge { position: absolute; top: 2px; inset-inline-end: calc(50% - 22px); min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: var(--err); color: #fff; font-size: 11px; font-weight: 700; line-height: 18px; text-align: center; }
+.tabbar.many button { font-size: 11px; }
+@media (max-width: 380px) { .tabbar button { font-size: 11px; } .tabbar svg { width: 20px; height: 20px; } }
+/* الزملاء */
+.card.share { display: flex; gap: 10px; align-items: center; text-align: start; width: 100%; font: inherit; color: inherit; cursor: pointer; }
+div.card.share { cursor: default; }
+.card.share.dim { opacity: .7; }
+.share-msg { font-size: 13.5px; color: var(--brand-dark); margin-top: 2px; }
+.merge-new, .merge-fills { color: var(--ok); }
+.merge-differs { color: var(--warn); }
+.merge-unknown, .merge-same { color: var(--muted); }
+/* الواجبات */
+.assign-line { display: flex; gap: 8px; align-items: flex-start; padding: 6px 0; border-top: 1px dashed var(--border); }
+.assign-line .tag { margin-inline-start: 6px; }
+.pad-s { padding: 10px 12px; margin: 0; }

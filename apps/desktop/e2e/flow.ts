@@ -82,7 +82,7 @@ export async function flow(browser: Browser, out: string) {
       await card.locator(".choice2 button", { hasText: "سلّم" }).first().click();
       const full = card.locator("button:has-text('كامل')"); // each turns into "مسح" once pressed
       while ((await full.count()) > 0) await full.first().click();
-      const nums = card.locator('.numrow input[type="number"]');
+      const nums = card.locator('.numrow input[inputmode="decimal"]');
       await nums.nth(0).fill("2.5"); // form order: discussion (case, group), then the daily note
       await nums.nth(1).fill("3");
       await nums.nth(2).fill("4");

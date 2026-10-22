@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import type { EvaluatorBundle, GuestInfo, HistoryRecord } from "@eva/core/sync/contract";
+import type { Colleague, EvaluatorBundle, GuestInfo, HistoryRecord } from "@eva/core/sync/contract";
+import { canModify, convertScores, scoringOf, MODIFIED_DISCUSSION_MAX, QUIZ_ITEM_ID, QUIZ_MAX, type ScoringMode } from "@eva/core/grading/scoring";
 import { getDraft, putDraft, queueValidatedDay, type Session } from "../lib/store";
-import { buildSubmission, compactColumns, dayStudents, draftKey, gradeColumns, groupsForDate, maxTotal, missing, rowTotal, type DayStudent, type Draft, type DraftRow } from "../lib/day";
+import { buildSubmission, compactColumns, dayBundle, dayStudents, draftKey, gradeColumns, groupsForDate, maxTotal, missing, rowTotal, type DayStudent, type Draft, type DraftRow } from "../lib/day";
 import { ATTENDANCE_AR, ATTENDANCE_MARK, draftRecord, shortNames, weekdayAr, type DayEntry } from "../lib/views";
 import { DownloadMenu } from "../components/DownloadMenu";
 import { dayExcel, dayWord, type DayMeta } from "../lib/exports";
 import { AddGuest } from "../components/AddGuest";
 import { GuestPanel } from "../components/EvaluatedList";
+import { ScoreInput, STEP } from "../components/ScoreInput";
+import { SendShare } from "../components/SendShare";
 
 const emptyRow = (): DraftRow => ({ attendance: null, dailyNote: null, scores: {}, touched: false });
 const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -48,23 +51,27 @@ export function DayScreen({
   groupId,
   dateISO,
   entries,
+  colleagues,
   onBack,
   onValidated,
+  onShared,
 }: {
   session: Session;
   bundle: EvaluatorBundle;
   groupId: string;
   dateISO: string;
   entries: DayEntry[];
+  /** Who can receive this day's work («إرسال لزميل»). */
+  colleagues: Colleague[];
   onBack: () => void;
   onValidated: () => void;
+  /** Shares were queued: sync now. */
+  onShared: () => void;
 }) {
   const id = session.evaluator.id;
   const key = draftKey(groupId, dateISO);
   const group = bundle.groups.find((g) => g.id === groupId);
   const info = groupsForDate(bundle, dateISO).find((g) => g.id === groupId);
-  const columns = gradeColumns(bundle);
-  const ccols = compactColumns(bundle);
   const wide = useWide();
   const [draft, setDraft] = useState<Draft | null | undefined>(undefined);
   const [confirming, setConfirming] = useState(false);
@@ -72,6 +79,8 @@ export function DayScreen({
   const [view, setView] = useState<View | null>(null);
   const [current, setCurrent] = useState<number | null>(null); // the student whose card is open
   const [adding, setAdding] = useState(false); // إضافة طالب مستضاف is open
+  const [sharing, setSharing] = useState(false); // إرسال لزميل is open
+  const [shared, setShared] = useState<number | null>(null);
   const lastCard = useRef<string | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
@@ -96,14 +105,22 @@ export function DayScreen({
   const working: Draft = draft ?? { key, groupId, dateISO, rows: {}, status: "draft", updatedAt: new Date().toISOString() };
   const locked = working.status === "validated" || !!fromDesktop;
   const tab: View = view ?? (locked ? "review" : "work");
+  // «الدرجات المعدّلة»: the day's own choice, or (a day on the desktop) what its grades show.
+  // Everything below that reads the rubric uses `day`, the rubric this day is graded with.
+  const mode: ScoringMode = fromDesktop
+    ? [...fromDesktop.records.values()].some((x) => scoringOf(x.items) === "modified") ? "modified" : "standard"
+    : (working.scoring ?? "standard");
+  const day = dayBundle(bundle, mode);
+  const columns = gradeColumns(day);
+  const ccols = compactColumns(day);
   const rowOf = (sid: string): DraftRow | undefined => {
     if (fromDesktop) {
       const r = fromDesktop.records.get(sid);
-      return r ? recordRow(bundle, r) : undefined;
+      return r ? recordRow(day, r) : undefined;
     }
     return working.rows[sid];
   };
-  const totalOf = (sid: string, r: DraftRow) => (fromDesktop ? (fromDesktop.records.get(sid)?.total ?? 0) : rowTotal(bundle, r));
+  const totalOf = (sid: string, r: DraftRow) => (fromDesktop ? (fromDesktop.records.get(sid)?.total ?? 0) : rowTotal(day, r));
 
   // Always from the latest draft, so quick successive taps all count.
   function update(studentId: string, change: (r: DraftRow) => DraftRow) {
@@ -135,6 +152,26 @@ export function DayScreen({
   }
   const addGuest = (sid: string, guest: GuestInfo) =>
     changeGuests((d) => ({ ...d, guests: { ...d.guests, [sid]: guest }, rows: { ...d.rows, [sid]: d.rows[sid] ?? emptyRow() } }));
+  // «الدرجات المعدّلة» on or off for the day: marks above the new maximum
+  // are lowered to it, and turning it off drops the quiz marks (asked first).
+  function setScoring(next: ScoringMode) {
+    if (locked) return;
+    const rows = Object.values(working.rows);
+    const loses =
+      next === "modified"
+        ? rows.some((r) => Object.entries(convertScores(bundle.rubric, r.scores, next)).some(([k, v]) => v !== r.scores[k]))
+        : rows.some((r) => r.scores[QUIZ_ITEM_ID] !== undefined);
+    const ask =
+      next === "modified"
+        ? `الدرجات المعدّلة: المناقشة الجماعية ومناقشة الحالة من ${MODIFIED_DISCUSSION_MAX} لكل منهما، فالدرجات الأعلى ستُخفض إلى ${MODIFIED_DISCUSSION_MAX}. متابعة؟`
+        : "الرجوع للدرجات العادية يحذف درجات الاختبار القصير لهذا اليوم. متابعة؟";
+    if (loses && !window.confirm(ask)) return;
+    changeGuests((d) => ({
+      ...d,
+      scoring: next === "modified" ? "modified" : undefined,
+      rows: Object.fromEntries(Object.entries(d.rows).map(([k, r]) => [k, { ...r, scores: convertScores(bundle.rubric, r.scores, next) }])),
+    }));
+  }
   const removeGuest = (sid: string) =>
     changeGuests((d) => {
       const { [sid]: _g, ...guests } = d.guests ?? {};
@@ -154,7 +191,7 @@ export function DayScreen({
   const marked = rows.filter((x) => x.r?.attendance).length;
   const meta: DayMeta = { groupId, dateISO, hospitalName: info?.hospitalName ?? onDesktop?.hospitalName ?? "", evaluatorName: fromDesktop?.evaluatorName ?? bundle.evaluator.name, guests };
   const filled = () =>
-    fromDesktop ? fromDesktop.records : new Map(Object.entries(working.rows).filter(([, r]) => r.attendance).map(([sid, r]) => [sid, draftRecord(bundle, sid, r)]));
+    fromDesktop ? fromDesktop.records : new Map(Object.entries(working.rows).filter(([, r]) => r.attendance).map(([sid, r]) => [sid, draftRecord(day, sid, r)]));
   const stateOf = (r: DraftRow | undefined) => (!r?.attendance ? "todo" : r.attendance === "absent" ? "absent" : r.touched ? "done" : "half");
   const gaps = locked ? null : missing(bundle, groupId, working);
 
@@ -169,7 +206,9 @@ export function DayScreen({
     setCurrent(null);
     setConfirming(false);
     setAdding(false);
+    setSharing(false);
   };
+  const hasWork = Object.values(working.rows).some((r) => r.attendance || Object.keys(r.scores).length > 0 || r.notes?.trim());
 
   async function validate() {
     const m = missing(bundle, groupId, working);
@@ -180,27 +219,13 @@ export function DayScreen({
       return;
     }
     clearTimeout(saveTimer.current);
-    const sub = buildSubmission(bundle, working, crypto.randomUUID(), new Date());
+    const sub = buildSubmission(day, working, crypto.randomUUID(), new Date());
     await queueValidatedDay(id, working, sub);
     onValidated();
   }
 
   const numberInput = (sid: string, name: string, colId: string, label: string, max: number, r: DraftRow | undefined, absent: boolean) => (
-    <input
-      type="number"
-      inputMode="decimal"
-      min={0}
-      max={max}
-      step="0.01"
-      aria-label={`${label} — ${name}`}
-      value={absent || r?.scores[colId] === undefined ? "" : r.scores[colId]}
-      placeholder="0"
-      disabled={locked || absent}
-      onChange={(e) => {
-        const v = e.target.value === "" ? 0 : Math.max(0, Math.min(max, r2(Number(e.target.value))));
-        if (Number.isFinite(v)) setScore(sid, colId, v);
-      }}
-    />
+    <ScoreInput label={`${label} — ${name}`} max={max} value={absent ? undefined : r?.scores[colId]} disabled={locked || absent} onChange={(v) => setScore(sid, colId, v)} />
   );
 
   return (
@@ -219,10 +244,10 @@ export function DayScreen({
         <DownloadMenu
           label=""
           items={[
-            { label: "التقييم اليومي — Excel", run: () => dayExcel(bundle, meta, filled()), disabled: marked === 0 },
-            { label: "التقييم اليومي — Word", run: () => dayWord(bundle, meta, filled()), disabled: marked === 0 },
-            { label: "قالب فارغ للطباعة — Word", run: () => dayWord(bundle, meta, null) },
-            { label: "قالب فارغ للطباعة — Excel", run: () => dayExcel(bundle, meta, null) },
+            { label: "التقييم اليومي — Excel", run: () => dayExcel(day, meta, filled()), disabled: marked === 0 },
+            { label: "التقييم اليومي — Word", run: () => dayWord(day, meta, filled()), disabled: marked === 0 },
+            { label: "قالب فارغ للطباعة — Word", run: () => dayWord(day, meta, null) },
+            { label: "قالب فارغ للطباعة — Excel", run: () => dayExcel(day, meta, null) },
           ]}
         />
       </header>
@@ -258,10 +283,51 @@ export function DayScreen({
       {!fromDesktop && working.status === "validated" && (
         <p className="note ok">{onDesktop?.mine ? "وصل للمدير ✓ — للعرض فقط." : "هذا اليوم معتمد — لا يمكن تعديله. يصل للمدير عند المزامنة."}</p>
       )}
+      {mode === "modified" && (
+        <p className="note mod">
+          الدرجات المعدّلة: مناقشة جماعية {MODIFIED_DISCUSSION_MAX} · مناقشة الحالة {MODIFIED_DISCUSSION_MAX} · اختبار قصير {QUIZ_MAX} — المجموع لا يتغير.
+        </p>
+      )}
+      {shared !== null && <p className="note ok">جاهز للإرسال إلى {shared === 1 ? "زميلك" : `${shared} زملاء`} — يصل عند المزامنة.</p>}
       {/* At the top, so it is in sight without scrolling past the whole group. */}
-      {tab === "work" && current === null && !adding && !locked && <AddGuestButton onClick={() => setAdding(true)} />}
+      {tab === "work" && current === null && !adding && !sharing && !locked && (
+        <>
+          <div className="day-tools">
+            {canModify(bundle.rubric) && (
+              <button className={`btn tool ${mode === "modified" ? "on" : ""}`} aria-pressed={mode === "modified"} onClick={() => setScoring(mode === "modified" ? "standard" : "modified")}>
+                {mode === "modified" ? "✓ " : ""}الدرجات المعدّلة (كويز)
+              </button>
+            )}
+            <button
+              className="btn tool"
+              disabled={!hasWork}
+              title={hasWork ? undefined : "أدخل الحضور أو الدرجات أولًا"}
+              onClick={() => {
+                setShared(null);
+                setSharing(true);
+              }}
+            >
+              ⇄ إرسال لزميل
+            </button>
+          </div>
+          <AddGuestButton onClick={() => setAdding(true)} />
+        </>
+      )}
 
-      {tab === "work" && current !== null ? (
+      {tab === "work" && sharing ? (
+        <SendShare
+          evaluatorId={id}
+          bundle={bundle}
+          draft={working}
+          colleagues={colleagues}
+          onCancel={() => setSharing(false)}
+          onQueued={(n) => {
+            setSharing(false);
+            setShared(n);
+            onShared();
+          }}
+        />
+      ) : tab === "work" && current !== null ? (
         <>
           <div className="row between">
             <button className="btn tiny" onClick={() => setCurrent(null)}>
@@ -285,7 +351,7 @@ export function DayScreen({
             ))}
           </div>
           <StudentCard
-            bundle={bundle}
+            bundle={day}
             index={current}
             count={rows.length}
             name={rows[current].s.name}
@@ -342,7 +408,7 @@ export function DayScreen({
                     </th>
                   ))}
                   <th>
-                    المجموع <span className="muted">/{maxTotal(bundle)}</span>
+                    المجموع <span className="muted">/{maxTotal(day)}</span>
                   </th>
                 </tr>
               </thead>
@@ -409,7 +475,7 @@ export function DayScreen({
               <thead>
                 <tr>
                   <th className="sticky-name">
-                    الطالب <small>/{maxTotal(bundle)}</small>
+                    الطالب <small>/{maxTotal(day)}</small>
                   </th>
                   <th>حضور</th>
                   <th>ديلي نوت</th>
@@ -488,7 +554,7 @@ export function DayScreen({
           )}
         </>
       ) : (
-        <DayReview bundle={bundle} students={students} dateISO={dateISO} records={filled()} gaps={gaps} onOpen={openCard} />
+        <DayReview bundle={day} students={students} dateISO={dateISO} records={filled()} gaps={gaps} onOpen={openCard} />
       )}
 
       {tab === "review" && problem && (
@@ -729,25 +795,11 @@ function StudentCard({
                         <span className="grow">
                           {i.labelAr === s.labelAr ? "الدرجة" : i.labelAr} <small className="muted">/{i.maxScore}</small>
                         </span>
-                        <button className="step" disabled={locked} aria-label={`إنقاص ${i.labelAr}`} onClick={() => onScores({ [i.id]: Math.max(0, r2((val(i.id) ?? 0) - 0.5)) })}>
+                        <button className="step" disabled={locked} aria-label={`إنقاص ${i.labelAr}`} onClick={() => onScores({ [i.id]: Math.max(0, r2((val(i.id) ?? 0) - STEP)) })}>
                           −
                         </button>
-                        <input
-                          type="number"
-                          inputMode="decimal"
-                          min={0}
-                          max={i.maxScore}
-                          step="0.25"
-                          aria-label={i.labelAr}
-                          value={val(i.id) ?? ""}
-                          placeholder="0"
-                          disabled={locked}
-                          onChange={(e) => {
-                            const v = e.target.value === "" ? 0 : Math.max(0, Math.min(i.maxScore, r2(Number(e.target.value))));
-                            if (Number.isFinite(v)) onScores({ [i.id]: v });
-                          }}
-                        />
-                        <button className="step" disabled={locked} aria-label={`زيادة ${i.labelAr}`} onClick={() => onScores({ [i.id]: Math.min(i.maxScore, r2((val(i.id) ?? 0) + 0.5)) })}>
+                        <ScoreInput label={i.labelAr} max={i.maxScore} value={val(i.id)} disabled={locked} onChange={(v) => onScores({ [i.id]: v })} />
+                        <button className="step" disabled={locked} aria-label={`زيادة ${i.labelAr}`} onClick={() => onScores({ [i.id]: Math.min(i.maxScore, r2((val(i.id) ?? 0) + STEP)) })}>
                           +
                         </button>
                       </div>

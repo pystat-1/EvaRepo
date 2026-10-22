@@ -2,8 +2,8 @@
 // Every call has a timeout; a dropped connection is "offline", never an
 // error the evaluator has to deal with. 401 means "log in again" — the
 // drafts and the outbox are kept.
-import type { EvaluatorBundle, SubmissionResult } from "@eva/core/sync/contract";
-import { getBundle, markSent, outbox, putBundle, saveDecisions, setKv, type Session } from "./store";
+import type { Colleague, EvaluatorBundle, InboxShare, SentShare, SubmissionResult } from "@eva/core/sync/contract";
+import { decisionsReported, getBundle, getShareBox, markSent, outbox, putBundle, putFetchedShares, saveDecisions, setKv, sharesSent, type Session } from "./store";
 
 export class AuthError extends Error {}
 export class OfflineError extends Error {}
@@ -55,7 +55,39 @@ export interface SyncReport {
   sent: number;
   decided: number;
   bundleUpdated: boolean;
+  /** Shares from colleagues not yet merged or dismissed. */
+  newShares: number;
   at: string;
+}
+
+/**
+ * «الزملاء»: send queued shares and decisions, then fetch the inbox, what
+ * I sent and who my colleagues are. A relay without shares yet (404) is
+ * skipped quietly; everything stays queued.
+ */
+async function syncShares(s: Session): Promise<number> {
+  const id = s.evaluator.id;
+  const box = await getShareBox(id);
+  for (let i = 0; i < box.outbox.length; i += 20) {
+    const chunk = box.outbox.slice(i, i + 20);
+    const res = await call("/api/shares", { method: "POST", token: s.token, body: JSON.stringify({ shares: chunk }) });
+    if (res.status === 404) return 0;
+    if (!res.ok) throw new Error(await errorOf(res));
+    const { accepted, rejected } = (await res.json()) as { accepted: string[]; rejected: Array<{ id: string; message: string }> };
+    await sharesSent(id, accepted, rejected);
+  }
+  const decided = Object.entries(box.decisions).map(([shareId, status]) => ({ id: shareId, status }));
+  if (decided.length) {
+    const res = await call("/api/shares/decide", { method: "POST", token: s.token, body: JSON.stringify({ decisions: decided.slice(0, 200) }) });
+    if (res.ok) await decisionsReported(id, decided.slice(0, 200).map((d) => d.id));
+  }
+  const res = await call("/api/shares", { token: s.token });
+  if (res.status === 404) return 0;
+  if (!res.ok) throw new Error(await errorOf(res));
+  const fetched = (await res.json()) as { inbox: InboxShare[]; sent: SentShare[]; colleagues: Colleague[] };
+  await putFetchedShares(id, fetched);
+  const pending = (await getShareBox(id)).decisions;
+  return fetched.inbox.filter((x) => x.status === "new" && !pending[x.id]).length;
 }
 
 /** Send validated days, fetch decisions, refresh the bundle. Safe to run any time. */
@@ -86,7 +118,8 @@ export async function syncNow(s: Session): Promise<SyncReport> {
   } else if (br.status !== 304 && br.status !== 404) {
     throw new Error(await errorOf(br));
   }
+  const newShares = await syncShares(s);
   const at = new Date().toISOString();
   await setKv(id, "lastSync", at);
-  return { sent, decided: results.length, bundleUpdated, at };
+  return { sent, decided: results.length, bundleUpdated, newShares, at };
 }

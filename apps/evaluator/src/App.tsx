@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { EvaluatorBundle } from "@eva/core/sync/contract";
-import { allDrafts, allResults, getBundle, getKv, getSession, outbox, setSession, type Session, type StoredResult } from "./lib/store";
+import { allDrafts, allResults, getBundle, getKv, getSession, getShareBox, outbox, setSession, type Session, type ShareBox, type StoredResult } from "./lib/store";
 import { AuthError, OfflineError, logout, syncNow, type SyncReport } from "./lib/sync";
 import type { Draft } from "./lib/day";
 import { dayEntries } from "./lib/views";
@@ -11,14 +11,18 @@ import { Schedule } from "./screens/Schedule";
 import { Records } from "./screens/Records";
 import { Students } from "./screens/Students";
 import { Team } from "./screens/Team";
+import { Assignments } from "./screens/Assignments";
+import { Colleagues } from "./screens/Colleagues";
 
 export type SyncState = { kind: "idle" | "syncing" | "offline" | "error"; message?: string; last?: SyncReport };
-type Tab = "today" | "schedule" | "records" | "students" | "team";
+type Tab = "today" | "schedule" | "records" | "students" | "assignments" | "colleagues" | "team";
 const TABS: Array<{ key: Tab; label: string; icon: string }> = [
   { key: "today", label: "اليوم", icon: "M4 5h16v15H4zM4 9h16M9 3v4M15 3v4" },
   { key: "schedule", label: "جدولي", icon: "M4 4h16v16H4zM4 9h16M4 14h16M9 9v11M15 9v11" },
   { key: "records", label: "السجلات", icon: "M6 3h9l4 4v14H6zM9 12h7M9 16h7M9 8h3" },
   { key: "students", label: "طلابي", icon: "M9 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM3 20c0-3.3 2.7-6 6-6s6 2.7 6 6M16 11a3 3 0 1 0 0-6M18 20c0-2.4-1-4.3-2.5-5.3" },
+  { key: "assignments", label: "الواجبات", icon: "M9 4h6v3H9zM7 5H5v16h14V5h-2M9 12l2 2 4-4M9 17h6" },
+  { key: "colleagues", label: "الزملاء", icon: "M4 8h13l-3-3M20 16H7l3 3" },
 ];
 // Supervisors only: every evaluator of the course.
 const TEAM_TAB = { key: "team" as const, label: "المقيّمون", icon: "M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6zM9 12l2 2 4-4" };
@@ -30,11 +34,12 @@ export function App() {
   const [tab, setTab] = useState<Tab>("today");
   const [sync, setSync] = useState<SyncState>({ kind: "idle" });
   const [tick, setTick] = useState(0); // bumps after sync so screens re-read local data
-  const [local, setLocal] = useState<{ drafts: Draft[]; results: StoredResult[]; unsent: number; lastSync: string | null }>({
+  const [local, setLocal] = useState<{ drafts: Draft[]; results: StoredResult[]; unsent: number; lastSync: string | null; shares: ShareBox }>({
     drafts: [],
     results: [],
     unsent: 0,
     lastSync: null,
+    shares: { inbox: [], sent: [], colleagues: [], outbox: [], decisions: {}, refused: {} },
   });
   const running = useRef(false);
 
@@ -49,8 +54,8 @@ export function App() {
   useEffect(() => {
     if (!session) return;
     const id = session.evaluator.id;
-    Promise.all([allDrafts(id), allResults(id), outbox(id), getKv<string>(id, "lastSync")]).then(([drafts, results, o, lastSync]) =>
-      setLocal({ drafts, results, unsent: o.length, lastSync })
+    Promise.all([allDrafts(id), allResults(id), outbox(id), getKv<string>(id, "lastSync"), getShareBox(id)]).then(([drafts, results, o, lastSync, shares]) =>
+      setLocal({ drafts, results, unsent: o.length + shares.outbox.length, lastSync, shares })
     );
   }, [session, tick, open]);
 
@@ -60,6 +65,7 @@ export function App() {
     return () => window.removeEventListener("popstate", onPop);
   }, []);
 
+  const freshShares = local.shares.inbox.filter((x) => x.status === "new" && !local.shares.decisions[x.id]).length;
   const entries = useMemo(() => (bundle ? dayEntries(bundle, local.drafts, local.results) : []), [bundle, local]);
 
   const runSync = useCallback(async () => {
@@ -138,11 +144,13 @@ export function App() {
           groupId={open.groupId}
           dateISO={open.dateISO}
           entries={entries}
+          colleagues={local.shares.colleagues}
           onBack={closeDay}
           onValidated={() => {
             closeDay();
             void runSync();
           }}
+          onShared={() => void runSync()}
         />
       ) : (
         <>
@@ -171,6 +179,20 @@ export function App() {
         <Schedule bundle={bundle} entries={entries} drafts={local.drafts} lastSync={local.lastSync} onOpen={openDay} />
       ) : tab === "records" ? (
         <Records bundle={bundle} entries={entries} onOpen={openDay} />
+      ) : tab === "assignments" ? (
+        <Assignments evaluatorId={session.evaluator.id} bundle={bundle} tick={tick} />
+      ) : tab === "colleagues" ? (
+        <Colleagues
+          evaluatorId={session.evaluator.id}
+          bundle={bundle}
+          box={local.shares}
+          entries={entries}
+          onOpenDay={openDay}
+          onChanged={() => {
+            setTick((t) => t + 1);
+            void runSync();
+          }}
+        />
       ) : tab === "team" && bundle.team ? (
         <Team bundle={bundle} onOpen={openDay} />
       ) : (
@@ -178,7 +200,7 @@ export function App() {
       )}
         </>
       )}
-      <nav className="tabbar" aria-label="أقسام التطبيق">
+      <nav className={`tabbar ${bundle?.team ? "many" : ""}`} aria-label="أقسام التطبيق">
         {(bundle?.team ? [...TABS, TEAM_TAB] : TABS).map((t) => (
           <button
             key={t.key}
@@ -193,6 +215,7 @@ export function App() {
               <path d={t.icon} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
             {t.label}
+            {t.key === "colleagues" && freshShares > 0 && <span className="badge" aria-label={`${freshShares} جديد`}>{freshShares}</span>}
           </button>
         ))}
       </nav>

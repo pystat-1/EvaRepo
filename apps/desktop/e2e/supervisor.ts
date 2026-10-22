@@ -36,7 +36,7 @@ export async function supervisor(browser: Browser, out: string) {
   const p = phone.page;
   await p.click("#fake-google");
   await p.waitForSelector("text=متزامن", { timeout: 30_000 });
-  check((await p.locator("header .top-sup").count()) === 1, "«مشرف» beside the name");
+  await p.waitForSelector("header .top-sup", { timeout: 30_000 }); // «مشرف» beside the name, once the bundle is in
   await p.click('nav.tabbar button:has-text("طلابي")');
   check((await p.locator(".student").count()) === 12, "every student of the course (6 groups × 2)");
   await p.click('nav.tabbar button:has-text("المقيّمون")');

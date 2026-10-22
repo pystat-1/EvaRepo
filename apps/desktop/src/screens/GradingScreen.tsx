@@ -11,6 +11,7 @@ import { ATTENDANCE_AR, Empty, Notice, PageHeader, fmt2 } from "../components/ui
 import { errorText, r } from "../lib/repo";
 import { loadExcel, saveFile } from "../lib/files";
 import { SubCriteriaHost, showSubCriteria } from "../components/SubCriteria";
+import { rubricFor, scoringOf } from "@eva/core/grading/scoring";
 import { GradeMatrix } from "../components/gradeMatrix/GradeMatrix";
 
 const PAGE = 1500; // grades shown when the screen opens (newest first)
@@ -73,7 +74,8 @@ export function GradingScreen() {
                     student: `${e.studentName} · ${e.dateISO}`,
                     max: s.maxScore,
                     score: value ?? 0,
-                    items: s.items.map((i) => ({ label: i.labelAr, labelEn: i.labelEn, max: i.maxScore, score: e.items ? (e.items[i.id] ?? 0) : null })),
+                    // A day graded with «الدرجات المعدّلة» shows its quiz.
+                    items: rubricFor([s], scoringOf(e.items))[0].items.map((i) => ({ label: i.labelAr, labelEn: i.labelEn ?? null, max: i.maxScore, score: e.items ? (e.items[i.id] ?? 0) : null })),
                   });
                 }}
               >

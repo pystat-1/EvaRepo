@@ -5,6 +5,7 @@ import type { DayRecord, DaySubmission, EvaluatedDay, EvaluatorBundle, GuestInfo
 import { pickPlacement, OFF_SCHEDULE_GRACE_DAYS } from "@eva/core/grading/placement";
 import { addDaysISO } from "@eva/core/date";
 import { withMakeupDays } from "@eva/core/schedule/holidays";
+import { rubricFor, type ScoringMode } from "@eva/core/grading/scoring";
 
 export type Attendance = DayRecord["attendance"];
 
@@ -24,6 +25,8 @@ export interface Draft {
   rows: Record<string, DraftRow>; // studentId -> row
   /** Hosted students added to this day (studentId -> who they are), in the order added. */
   guests?: Record<string, GuestInfo>;
+  /** «الدرجات المعدّلة» for this day: discussion 2.5 + 2.5 + quiz 2. Absent = standard. */
+  scoring?: ScoringMode;
   status: "draft" | "validated";
   clientId?: string;
   updatedAt: string;
@@ -57,6 +60,15 @@ export function groupsForDate(bundle: EvaluatorBundle, dateISO: string): DayGrou
   }
   const rank = (g: DayGroup) => (g.scheduled ? 0 : 2) + (g.shift === "EVENING" ? 1 : 0);
   return out.sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name, "ar", { numeric: true }));
+}
+
+/**
+ * The bundle as one day is graded: its rubric is the course's, or the
+ * modified one (discussion 2.5 + 2.5 + quiz 2). Everything that reads the
+ * rubric for that day (table, card, totals, files, the package) uses it.
+ */
+export function dayBundle(bundle: EvaluatorBundle, mode: ScoringMode | undefined): EvaluatorBundle {
+  return mode === "modified" ? { ...bundle, rubric: rubricFor(bundle.rubric, mode) } : bundle;
 }
 
 /** Columns of the grading table: every rubric item, or the section itself when it has no items. */
@@ -158,6 +170,7 @@ export function buildSubmission(bundle: EvaluatorBundle, draft: Draft, clientId:
     dateISO: draft.dateISO,
     bundleVersion: bundle.version,
     validatedAt: now.toISOString(),
+    ...(draft.scoring === "modified" ? { scoring: "modified" as const } : {}),
     records: dayStudents(bundle, draft.groupId, draft.guests).map((s) => {
       const r = draft.rows[s.id]!;
       const absent = r.attendance === "absent";

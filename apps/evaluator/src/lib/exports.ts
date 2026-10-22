@@ -5,6 +5,8 @@
 import type { EvaluatorBundle, GuestInfo, HistoryRecord } from "@eva/core/sync/contract";
 import { dayStudents, maxTotal, type DayStudent } from "./day";
 import { ATTENDANCE_AR, SHIFT_AR, STATE_AR, weekdayAr, type DayEntry, type ScheduleStint, type StudentSummary } from "./views";
+import type { AssignmentFile, AssignmentSubject } from "./assignments";
+import type { Assignment } from "./store";
 
 type Workbook = import("exceljs").Workbook;
 type Worksheet = import("exceljs").Worksheet;
@@ -367,63 +369,79 @@ export async function studentsExcel(bundle: EvaluatorBundle, students: StudentSu
 }
 
 // ---- الواجبات ------------------------------------------------------------------------
+// One file for one assignment file (or the whole list): file by file, and in
+// each file subject by subject — a heading with the subject, its date and how
+// many students, then its students numbered.
 
-export interface AssignmentLine {
-  dateISO: string;
-  studentName: string;
-  universityNumber: string;
-  groupName: string;
-  title: string;
-  notes?: string;
-  from?: string;
-}
+const groupNameIn = (bundle: EvaluatorBundle, id: string) => bundle.groups.find((g) => g.id === id)?.name ?? "";
+const fileName = (bundle: EvaluatorBundle, files: AssignmentFile[]) => (files.length === 1 ? files[0].title : `الواجبات ${bundle.course.label}`);
+const subjectHead = (s: AssignmentSubject) => `${s.title} — ${weekdayAr(s.dateISO)} ${s.dateISO} — ${s.items.length} ${s.items.length === 1 ? "طالب" : "طلاب"}`;
+const noteText = (a: Assignment) => [a.notes, a.from ? `من ${a.from}` : ""].filter(Boolean).join(" — ");
 
-const assignmentsTitle = (bundle: EvaluatorBundle) => [`قائمة الواجبات — ${bundle.course.label}`, `المقيّم: ${bundle.evaluator.name}`];
-
-export async function assignmentsExcel(bundle: EvaluatorBundle, list: AssignmentLine[]) {
+export async function assignmentsExcel(bundle: EvaluatorBundle, files: AssignmentFile[]) {
   const wb = await workbook();
-  const ws = sheet(
-    wb,
-    "الواجبات",
-    assignmentsTitle(bundle),
-    ["#", "اسم الطالب", "الرقم الجامعي", "المجموعة", "الواجب", "التاريخ", "اليوم", "ملاحظات"],
-    [5, 28, 15, 22, 30, 12, 10, 28]
-  );
-  list.forEach((a, i) => boxRow(ws, [i + 1, a.studentName, a.universityNumber, a.groupName, a.title, a.dateISO, weekdayAr(a.dateISO), [a.notes, a.from ? `من ${a.from}` : ""].filter(Boolean).join(" — ")]));
-  await saveWorkbook(wb, `الواجبات ${bundle.course.label}`);
+  const header = ["#", "اسم الطالب", "الرقم الجامعي", "المجموعة", "ملاحظات"];
+  const ws = sheet(wb, "الواجبات", [fileName(bundle, files), `${bundle.course.label} · المقيّم: ${bundle.evaluator.name}`], header, [6, 30, 16, 24, 30]);
+  for (const f of files) {
+    if (files.length > 1) {
+      const row = ws.addRow([f.title]);
+      ws.mergeCells(row.number, 1, row.number, header.length);
+      row.font = { bold: true, size: 13, color: { argb: BRAND } };
+      row.height = 24;
+    }
+    for (const s of f.subjects) {
+      const head = ws.addRow([subjectHead(s)]);
+      ws.mergeCells(head.number, 1, head.number, header.length);
+      head.getCell(1).font = { bold: true };
+      head.getCell(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFDCEBEA" } };
+      head.getCell(1).alignment = { horizontal: "right", vertical: "middle" };
+      s.items.forEach((a, i) => boxRow(ws, [i + 1, a.studentName, a.universityNumber, groupNameIn(bundle, a.groupId), noteText(a)]));
+    }
+    ws.addRow([]);
+  }
+  await saveWorkbook(wb, fileName(bundle, files));
 }
 
-export async function assignmentsWord(bundle: EvaluatorBundle, list: AssignmentLine[]) {
+export async function assignmentsWord(bundle: EvaluatorBundle, files: AssignmentFile[]) {
   const d = await import("docx");
-  const para = (t: string, o: { bold?: boolean; sz?: number } = {}) =>
-    new d.Paragraph({ bidirectional: true, alignment: d.AlignmentType.CENTER, spacing: { before: 0, after: 0 }, children: [new d.TextRun({ text: t, bold: o.bold, size: o.sz ?? 20, rightToLeft: true, font: "Arial" })] });
-  const cell = (t: string, head = false) =>
+  const para = (t: string, o: { bold?: boolean; sz?: number; start?: boolean; color?: string } = {}) =>
+    new d.Paragraph({
+      bidirectional: true,
+      alignment: o.start ? d.AlignmentType.START : d.AlignmentType.CENTER,
+      spacing: { before: o.start ? 160 : 0, after: o.start ? 60 : 0 },
+      children: [new d.TextRun({ text: t, bold: o.bold, size: o.sz ?? 20, color: o.color, rightToLeft: true, font: "Arial" })],
+    });
+  const cell = (t: string, head = false, start = false) =>
     new d.TableCell({
-      children: [para(t, { bold: head })],
+      children: [new d.Paragraph({ bidirectional: true, alignment: start ? d.AlignmentType.START : d.AlignmentType.CENTER, children: [new d.TextRun({ text: t, bold: head, size: 20, rightToLeft: true, font: "Arial" })] })],
       shading: head ? { type: d.ShadingType.CLEAR, color: "auto", fill: "DCEBEA" } : undefined,
       verticalAlign: d.VerticalAlign.CENTER,
       margins: { top: 40, bottom: 40, left: 60, right: 60 },
     });
-  const header = ["#", "اسم الطالب", "الرقم الجامعي", "المجموعة", "الواجب", "التاريخ", "ملاحظات"];
-  const rows = [
-    new d.TableRow({ tableHeader: true, children: header.map((h) => cell(h, true)) }),
-    ...list.map(
-      (a, i) =>
-        new d.TableRow({
-          children: [String(i + 1), a.studentName, a.universityNumber, a.groupName, a.title, `${weekdayAr(a.dateISO)} ${a.dateISO}`, [a.notes, a.from ? `من ${a.from}` : ""].filter(Boolean).join(" — ")].map((v) => cell(v)),
-        })
-    ),
-  ];
-  const [title, sub] = assignmentsTitle(bundle);
+  const header = ["#", "اسم الطالب", "الرقم الجامعي", "المجموعة", "ملاحظات"];
+  const table = (s: AssignmentSubject) =>
+    new d.Table({
+      visuallyRightToLeft: true,
+      width: { size: 100, type: d.WidthType.PERCENTAGE },
+      rows: [
+        new d.TableRow({ tableHeader: true, children: header.map((h) => cell(h, true)) }),
+        ...s.items.map((a, i) => new d.TableRow({ children: [String(i + 1), a.studentName, a.universityNumber, groupNameIn(bundle, a.groupId), noteText(a)].map((v, n) => cell(v, false, n === 1 || n === 4)) })),
+      ],
+    });
+  const body = files.flatMap((f) => [
+    ...(files.length > 1 ? [para(f.title, { bold: true, sz: 26, start: true, color: "0E5C6B" })] : []),
+    ...f.subjects.flatMap((s) => [para(subjectHead(s), { bold: true, sz: 22, start: true }), table(s)]),
+  ]);
+  const title = fileName(bundle, files);
   const doc = new d.Document({
     creator: "Eva",
     title,
     sections: [
       {
         properties: { page: { margin: { top: 700, bottom: 700, left: 700, right: 700 } } },
-        children: [para(title, { bold: true, sz: 28 }), para(sub), new d.Paragraph({ children: [] }), new d.Table({ visuallyRightToLeft: true, width: { size: 100, type: d.WidthType.PERCENTAGE }, rows })],
+        children: [para(title, { bold: true, sz: 28 }), para(`${bundle.course.label} · المقيّم: ${bundle.evaluator.name}`), ...body],
       },
     ],
   });
-  downloadBlob(await d.Packer.toBlob(doc), `${safe(`الواجبات ${bundle.course.label}`)}.docx`);
+  downloadBlob(await d.Packer.toBlob(doc), `${safe(title)}.docx`);
 }

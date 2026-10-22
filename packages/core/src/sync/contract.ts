@@ -201,6 +201,11 @@ export interface SharedAssignment {
   title: string;
   dateISO: string;
   notes?: string;
+  /** The assignment file (ملف واجبات) it belongs to: several subjects, each with its students. */
+  fileId?: string;
+  fileTitle?: string;
+  /** The subject's place in its file (0 = first), so the file keeps the order it was written in. */
+  position?: number;
 }
 
 /** A group-day's work one evaluator sends a colleague of the same group. */
@@ -313,6 +318,9 @@ export function checkShare(s: unknown): string | null {
     if (!isStr(x.title, 200)) return "اسم الواجب مطلوب";
     if (typeof x.dateISO !== "string" || !ISO_DAY.test(x.dateISO)) return "تاريخ الواجب غير صالح";
     if (x.notes !== undefined && (typeof x.notes !== "string" || x.notes.length > 2000)) return "ملاحظة الواجب طويلة جدًا";
+    if (x.fileId !== undefined && !isStr(x.fileId, 80)) return "ملف الواجب غير صالح";
+    if (x.fileTitle !== undefined && (typeof x.fileTitle !== "string" || x.fileTitle.length > 200)) return "اسم ملف الواجبات طويل جدًا";
+    if (x.position !== undefined && (typeof x.position !== "number" || !Number.isInteger(x.position) || x.position < 0)) return "ترتيب الواجب غير صالح";
   }
   return null;
 }

@@ -287,3 +287,14 @@ div.card.share { cursor: default; }
 .assign-line { display: flex; gap: 8px; align-items: flex-start; padding: 6px 0; border-top: 1px dashed var(--border); }
 .assign-line .tag { margin-inline-start: 6px; }
 .pad-s { padding: 10px 12px; margin: 0; }
+/* ملفات الواجبات */
+.afile { display: flex; flex-direction: column; gap: 8px; }
+.afile.fresh { border-color: var(--ok); }
+.afile-head { all: unset; display: flex; gap: 10px; align-items: flex-start; cursor: pointer; }
+.afile-head:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.afile-subjects { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.afile-subjects .unit-tag { margin: 0; }
+.asubject { border-top: 1px solid var(--border); padding-top: 8px; }
+.asubject .assign-line { align-items: center; }
+.subject-block { border-inline-start: 4px solid var(--brand); }
+.subject-block .guest-list { max-height: 260px; }

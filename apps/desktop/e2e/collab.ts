@@ -7,6 +7,7 @@
 // that she merged it; the assignment arrives with who sent it and the
 // list downloads.
 import path from "node:path";
+import ExcelJS from "exceljs";
 import { todayISO } from "../../../packages/core/src/date";
 import { ADMIN, log, openDesktop, openPhone, seedFile, startRelay, waitFor, type Relay } from "./harness";
 import type { Browser, Page } from "playwright";
@@ -54,13 +55,37 @@ export async function collab(browser: Browser, out: string) {
   const ali = await signIn("ali.e2e@gmail.com", "Ali E2E");
   const a = ali.page;
   await a.click('nav.tabbar button:has-text("الواجبات")');
-  await a.click("button:has-text('تسجيل واجب')");
-  await a.fill("input[list=assignment-titles]", "خطة رعاية تمريضية");
-  await a.locator("label.field:has-text('المجموعة') select").selectOption({ label: "المجموعة الصباحية 1" });
-  await a.locator(".guest-opt").first().click();
-  await a.click("button:has-text('حفظ')");
-  await a.waitForSelector(".assign-line:has-text('خطة رعاية تمريضية')");
-  log("✓ phone (علي): assignment recorded");
+  // One file, two subjects: 1 student on the first, 2 on the second.
+  await a.click("button:has-text('ملف واجبات جديد')");
+  await a.fill("label.field:has-text('اسم الملف') input", "واجبات الأسبوع الثاني");
+  const block = (i: number) => a.locator(".subject-block").nth(i);
+  await block(0).locator("input[list=assignment-titles]").fill("خطة رعاية تمريضية");
+  await block(0).locator("select").selectOption({ label: "المجموعة الصباحية 1" });
+  await block(0).locator(".guest-opt").first().click();
+  await a.click("button:has-text('واجب آخر في هذا الملف')");
+  await block(1).locator("input[list=assignment-titles]").fill("دراسة حالة");
+  check((await block(1).locator("select").inputValue()) === (await block(0).locator("select").inputValue()), "the next subject starts in the same group");
+  await block(1).locator(".guest-opt").nth(0).click();
+  await block(1).locator(".guest-opt").nth(1).click();
+  if (shots) await a.screenshot({ path: path.join(shots, "phone-assignment-form.png"), fullPage: true });
+  await a.click(".validate-bar button:has-text('حفظ')");
+  const afile = a.locator(".afile", { hasText: "واجبات الأسبوع الثاني" });
+  await afile.waitFor();
+  check((await afile.locator(".afile-subjects").innerText()).replace(/\s+/g, " ").includes("خطة رعاية تمريضية 1 دراسة حالة 2"), "the file lists both subjects with their students");
+  if (shots) await a.screenshot({ path: path.join(shots, "phone-assignment-file.png"), fullPage: true });
+  await afile.locator(".dl > button").click();
+  const [xl] = await Promise.all([a.waitForEvent("download"), a.click(".dl-item:has-text('— Excel')")]);
+  const xlFile = path.join(out, xl.suggestedFilename());
+  await xl.saveAs(xlFile);
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.readFile(xlFile);
+  const rows: string[] = [];
+  wb.worksheets[0].eachRow((row) => rows.push((row.values as unknown[]).slice(1).filter((v) => v !== null && v !== undefined).join(" | ")));
+  const at = (text: string) => rows.findIndex((r) => r.includes(text));
+  check(xl.suggestedFilename() === "واجبات الأسبوع الثاني.xlsx", `named after the file (got ${xl.suggestedFilename()})`);
+  check(at("خطة رعاية تمريضية") > 0 && at("خطة رعاية تمريضية") < at("دراسة حالة") && rows[at("دراسة حالة")].includes("2 طلاب"), `one Excel file, subject by subject (got ${JSON.stringify(rows)})`);
+  check(rows.filter((r) => /^\d+ \| طالب/.test(r)).length === 3, "each subject's students listed under it");
+  log("✓ phone (علي): one assignment file with two subjects, downloaded as one organized Excel");
 
   await openGroup(a);
   await a.click("button.tool:has-text('الدرجات المعدّلة')");
@@ -81,7 +106,7 @@ export async function collab(browser: Browser, out: string) {
   await a.click("button:has-text('قائمة الطلاب')");
   await a.click("button.tool:has-text('إرسال لزميل')");
   check(await a.locator("label.check:has-text('د. سارة') input").isChecked(), "the only colleague of the group is picked");
-  check((await a.locator("label.check:has-text('مع واجبات هذا اليوم')").count()) === 1, "the day's assignment can go with it");
+  check((await a.locator("label.check:has-text('مع واجبات هذا اليوم (3)')").count()) === 1, "the day's assignments can go with it");
   await a.fill("textarea", "أكملت المناقشة والكويز");
   await a.click(".card button.primary:has-text('إرسال')");
   await a.waitForSelector("text=/يصل عند المزامنة/");
@@ -125,7 +150,7 @@ export async function collab(browser: Browser, out: string) {
 
   // ---- the assignment came along; علي sees the merge ----
   await s.click('nav.tabbar button:has-text("الواجبات")');
-  await s.waitForSelector(".assign-line:has-text('خطة رعاية تمريضية'):has-text('من م. علي')"); // marked with who sent it
+  await s.waitForSelector(".afile:has-text('واجبات الأسبوع الثاني'):has-text('من م. علي')"); // the whole file, marked with who sent it
   const dl = s.waitForEvent("download");
   await s.click(".dl > button");
   await s.click(".dl-item:has-text('Excel')");

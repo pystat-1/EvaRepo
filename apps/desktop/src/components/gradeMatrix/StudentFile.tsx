@@ -2,7 +2,7 @@ import { useEffect, useRef, type MouseEvent } from "react";
 import { dayMonth, fmtPct, fmtScore, rangeLabel, rotationOrder, studentStats, weekdayAr } from "@eva/core/gradeMatrix/build";
 import { criterionVisual } from "@eva/core/gradeMatrix/visual";
 import type { GradeMatrixData, MatrixDay, MatrixGroup, MatrixHospital, MatrixStudent } from "@eva/core/gradeMatrix/types";
-import { DayCell, Dot, StudentIds, cellId } from "./parts";
+import { DayCell, Dot, QuizNote, StudentIds, cellId } from "./parts";
 import { dayAria, groupTitle } from "./common";
 import styles from "./gradeMatrix.module.css";
 
@@ -52,7 +52,7 @@ export function StudentFile({
 }) {
   const { criteria, maxTotal } = data;
   const closeRef = useRef<HTMLButtonElement>(null);
-  const st = studentStats(student.days, criteria.length, maxTotal);
+  const st = studentStats(student.days, criteria.length, maxTotal, criteria.map((c) => c.max));
   const stints = stintsOf(group, student);
   const span = criteria.length + 5;
 
@@ -168,6 +168,7 @@ export function StudentFile({
                         return (
                           <td key={c.id} className={styles.sheetNum} style={{ color: v.fg }}>
                             {v.text || "—"}
+                            <QuizNote day={day} ci={ci} />
                           </td>
                         );
                       })}

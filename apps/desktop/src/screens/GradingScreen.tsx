@@ -12,6 +12,7 @@ import { errorText, r } from "../lib/repo";
 import { loadExcel, saveFile } from "../lib/files";
 import { SubCriteriaHost, showSubCriteria } from "../components/SubCriteria";
 import { rubricFor, scoringOf } from "@eva/core/grading/scoring";
+import { rubricVersionMap } from "@eva/db/repo/rubric";
 import { GradeMatrix } from "../components/gradeMatrix/GradeMatrix";
 
 const PAGE = 1500; // grades shown when the screen opens (newest first)
@@ -27,6 +28,7 @@ export function GradingScreen() {
   const hospitals = useQuery({ queryKey: ["hospitals"], queryFn: () => listHospitals(r) });
   const evaluators = useQuery({ queryKey: ["evaluators"], queryFn: () => listEvaluators(r) });
   const sections = useQuery({ queryKey: ["rubric"], queryFn: () => rubric(r) });
+  const versions = useQuery({ queryKey: ["rubricVersions"], queryFn: () => rubricVersionMap(r) });
   const matrix = useQuery({ queryKey: ["gradeMatrix", courseId], queryFn: () => gradeMatrix(r, courseId), enabled: view === "matrix" && !!courseId, placeholderData: (prev) => prev });
   // A full course holds tens of thousands of grades: the newest ones open
   // instantly; search, "show all" and the Excel export read everything.
@@ -59,7 +61,9 @@ export function GradingScreen() {
             const e = c.row.original;
             if (e.attendance === "absent") return <span className="tabular">—</span>;
             const value = c.getValue() as number;
-            if (s.items.length < 2) return <span className="tabular">{fmt2(value)}</span>;
+            // The criterion as it was when graded (a version kept by «مركز المعايير»), else as it is now.
+            const was = (e.rubricVersion && versions.data?.[e.rubricVersion]?.find((x) => x.id === s.id)) || s;
+            if (was.items.length < 2) return <span className="tabular">{fmt2(value)}</span>;
             // Criteria with sub-criteria: click for the breakdown.
             return (
               <button
@@ -72,10 +76,10 @@ export function GradingScreen() {
                     y: box.bottom,
                     title: s.labelAr,
                     student: `${e.studentName} · ${e.dateISO}`,
-                    max: s.maxScore,
+                    max: was.maxScore,
                     score: value ?? 0,
                     // A day graded with «الدرجات المعدّلة» shows its quiz.
-                    items: rubricFor([s], scoringOf(e.items))[0].items.map((i) => ({ label: i.labelAr, labelEn: i.labelEn ?? null, max: i.maxScore, score: e.items ? (e.items[i.id] ?? 0) : null })),
+                    items: rubricFor([was], scoringOf(e.items))[0].items.map((i) => ({ label: i.labelAr, labelEn: i.labelEn ?? null, max: i.maxScore, score: e.items ? (e.items[i.id] ?? 0) : null })),
                   });
                 }}
               >
@@ -88,7 +92,7 @@ export function GradingScreen() {
       { accessorKey: "total", header: "المجموع", size: 80, cell: (c) => <b className="tabular">{c.row.original.attendance === "absent" ? "—" : fmt2(c.getValue() as number)}</b> },
       { accessorKey: "evaluatorName", header: "المقيّم", size: 140 },
     ],
-    [sections.data]
+    [sections.data, versions.data]
   );
 
   async function exportExcel() {

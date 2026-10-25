@@ -17,6 +17,7 @@ import {
   derivePeriods,
   fmtScore,
   fullDate,
+  ownMax,
   rangeLabel,
   type FilterId,
   type StudentSort,
@@ -455,7 +456,7 @@ export function GradeMatrix({ data, busy = false }: { data: GradeMatrixData; bus
                     <ul className="mt-2 flex flex-col gap-1 tnum">
                       {unplaced.map(({ s, d }) => (
                         <li key={`${s.id}${d.dateISO}`}>
-                          {s.name} · {fullDate(d.dateISO)} · {d.state === "absent" ? "غائب" : `${fmtScore(d.total)} من ${data.maxTotal}`}
+                          {s.name} · {fullDate(d.dateISO)} · {d.state === "absent" ? "غائب" : `${fmtScore(d.total)} من ${ownMax(d, data.maxTotal)}`}
                           {d.evaluatorName && ` · ${d.evaluatorName}`}
                         </li>
                       ))}

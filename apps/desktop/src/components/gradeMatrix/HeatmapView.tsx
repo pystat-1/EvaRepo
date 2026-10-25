@@ -39,7 +39,7 @@ export function HeatmapView(p: ViewProps) {
 
   const layout = useMemo(() => dateLayout(program, holidays), [program, holidays]);
   // Worked out only for the students actually drawn (a big course draws in steps).
-  const stats = useMemo(() => lazyStats(program, criteria.length, maxTotal), [program, criteria.length, maxTotal]);
+  const stats = useMemo(() => lazyStats(program, criteria.length, maxTotal, criteria.map((c) => c.max)), [program, criteria, maxTotal]);
 
   if (mode === "criteria") return <HeatCards {...p} stats={stats} />;
 

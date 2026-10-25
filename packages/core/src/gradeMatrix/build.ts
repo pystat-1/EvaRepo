@@ -137,16 +137,32 @@ export interface StudentStats {
   critAvg: (number | null)[];
 }
 
-export function studentStats(days: MatrixDay[], criteriaCount: number, maxTotal: number): StudentStats {
+// A day graded with earlier criteria keeps its own maximums (MatrixDay.max /
+// maxes). It is judged against them, and averages put it on the current
+// scale: 6 of 7 counts as 6.86 of 8.
+export const ownMax = (day: MatrixDay, maxTotal: number) => day.max ?? maxTotal;
+export const ownCriterionMax = (day: MatrixDay, ci: number, max: number) => day.maxes?.[ci] ?? max;
+const rescale = (v: number, own: number, to: number) => (own > 0 && own !== to ? (v * to) / own : v);
+/** The day's total on the scale of `maxTotal`. */
+export const onScale = (day: MatrixDay, maxTotal: number) => rescale(day.total as number, ownMax(day, maxTotal), maxTotal);
+
+/** `criteriaMax`: the current maximum of each criterion, to put earlier-criteria days on the same scale. */
+export function studentStats(days: MatrixDay[], criteriaCount: number, maxTotal: number, criteriaMax?: number[]): StudentStats {
   const counted = days.filter(counts);
-  const avg = mean(counted.map((d) => d.total as number));
+  const avg = mean(counted.map((d) => onScale(d, maxTotal)));
   const hospitals = Array.from(new Set(days.map((d) => d.hospitalId)));
   const hospAvg: Record<string, number | null> = {};
-  for (const h of hospitals) hospAvg[h] = mean(counted.filter((d) => d.hospitalId === h).map((d) => d.total as number));
+  for (const h of hospitals) hospAvg[h] = mean(counted.filter((d) => d.hospitalId === h).map((d) => onScale(d, maxTotal)));
   const critAvg: (number | null)[] = [];
   for (let ci = 0; ci < criteriaCount; ci++) {
+    const to = criteriaMax?.[ci];
     critAvg.push(
-      mean(counted.map((d) => d.scores?.[ci]).filter((v): v is number => typeof v === "number"))
+      mean(
+        counted.flatMap((d) => {
+          const v = d.scores?.[ci];
+          return typeof v === "number" ? [to === undefined ? v : rescale(v, ownCriterionMax(d, ci, to), to)] : [];
+        })
+      )
     );
   }
   return {
@@ -162,8 +178,19 @@ export function studentStats(days: MatrixDay[], criteriaCount: number, maxTotal:
   };
 }
 
-export function averageOf(days: MatrixDay[]): number | null {
-  return mean(days.filter(counts).map((d) => d.total as number));
+/** One criterion's average over the counted days, on the scale of its current maximum `max`. */
+export function criterionAverage(days: MatrixDay[], ci: number, max: number): number | null {
+  return mean(
+    days.filter(counts).flatMap((d) => {
+      const v = d.scores?.[ci];
+      return typeof v === "number" ? [rescale(v, ownCriterionMax(d, ci, max), max)] : [];
+    })
+  );
+}
+
+/** With `maxTotal`, days graded with earlier criteria are put on its scale. */
+export function averageOf(days: MatrixDay[], maxTotal?: number): number | null {
+  return mean(days.filter(counts).map((d) => (maxTotal === undefined ? (d.total as number) : onScale(d, maxTotal))));
 }
 
 // ---------------------------------------------------------------------------
@@ -186,7 +213,7 @@ export const FILTERS: { id: FilterId; label: string; tone: "ink" | "brand" | "re
 
 export function isLow(day: MatrixDay, maxTotal: number): boolean {
   return (
-    day.total !== null && (day.state === "ok" || day.state === "late") && maxTotal > 0 && day.total / maxTotal < LOW_SHARE
+    day.total !== null && (day.state === "ok" || day.state === "late") && ownMax(day, maxTotal) > 0 && day.total / ownMax(day, maxTotal) < LOW_SHARE
   );
 }
 
@@ -300,7 +327,7 @@ export function sparkline(days: MatrixDay[], maxTotal: number, width = 120, heig
   days.forEach((d, i) => {
     if (!counts(d)) return;
     const x = n > 1 ? width - pad - i * step : width / 2;
-    const y = yOf(d.total as number);
+    const y = yOf(onScale(d, maxTotal));
     pts.push(`${x.toFixed(1)},${y.toFixed(1)}`);
     last = { x, y };
     lastTotal = d.total;
@@ -649,7 +676,8 @@ export function currentColumn(program: MatrixProgram, layout: Layout, todayISO: 
 export function criterionDay(day: MatrixDay, ci: number): MatrixDay {
   if (day.total === null) return day;
   const v = day.scores?.[ci];
-  return { ...day, total: typeof v === "number" ? v : null };
+  const max = day.maxes?.[ci];
+  return { ...day, total: typeof v === "number" ? v : null, max: max ?? undefined, maxes: undefined };
 }
 
 export type StudentSort = "list" | "weakest" | "absences";

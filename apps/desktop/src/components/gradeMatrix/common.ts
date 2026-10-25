@@ -73,14 +73,14 @@ export function visibleStudents(
 export type StatsLookup = { get(studentId: string): ReturnType<typeof studentStats> | undefined };
 
 /** Per-student statistics, computed the first time a row asks for them. */
-export function lazyStats(program: MatrixProgram, criteriaCount: number, maxTotal: number): StatsLookup {
+export function lazyStats(program: MatrixProgram, criteriaCount: number, maxTotal: number, criteriaMax?: number[]): StatsLookup {
   const byId = new Map(program.groups.flatMap((g) => g.students.map((s) => [s.id, s] as const)));
   const cache = new Map<string, ReturnType<typeof studentStats>>();
   return {
     get(id) {
       let v = cache.get(id);
       const s = v ? undefined : byId.get(id);
-      if (s) cache.set(id, (v = studentStats(s.days, criteriaCount, maxTotal)));
+      if (s) cache.set(id, (v = studentStats(s.days, criteriaCount, maxTotal, criteriaMax)));
       return v;
     },
   };

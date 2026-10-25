@@ -256,6 +256,28 @@ export const rubricItems = sqliteTable(
   (t) => [index("rubric_items_section").on(t.sectionId)]
 );
 
+// Every set of criteria the phones have been sent (from «مركز المعايير»), so
+// a day validated on a phone is checked against the criteria it was graded
+// with, even after they changed. Keyed by a hash of the content; written
+// when a bundle is published (repo/rubric.ts ensureRubricVersion).
+export const rubricVersions = sqliteTable("rubric_versions", {
+  version: integer("version").primaryKey({ autoIncrement: true }),
+  hash: text("hash").notNull().unique(),
+  /** The active criteria with their items, as sent to the phones (EvaluatorBundle.rubric). */
+  rubric: text("rubric", { mode: "json" }).notNull().$type<RubricSnapshot>(),
+  createdAt: createdAt(),
+});
+
+export interface RubricSnapshot {
+  sections: Array<{
+    id: string;
+    labelAr: string;
+    labelEn: string | null;
+    maxScore: number;
+    items: Array<{ id: string; labelAr: string; labelEn: string | null; maxScore: number; kind: "check" | "number" }>;
+  }>;
+}
+
 export const evaluations = sqliteTable(
   "evaluations",
   {
@@ -475,6 +497,7 @@ export const TABLES_IN_DEPENDENCY_ORDER = [
   evaluatorAssignments,
   rubricSections,
   rubricItems,
+  rubricVersions,
   evaluations,
   evaluationScores,
   attendanceRecords,

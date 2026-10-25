@@ -1,7 +1,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import { formatTimeBaghdad, todayISO } from "@eva/core/date";
-import { addDays, dayMonth, dayPosition, fmtScore, fullDate } from "@eva/core/gradeMatrix/build";
+import { addDays, dayMonth, dayPosition, fmtScore, fullDate, ownCriterionMax, ownMax } from "@eva/core/gradeMatrix/build";
 import { STATE_LABEL } from "@eva/core/gradeMatrix/visual";
 import type { GradeMatrixData, MatrixGroup, MatrixHospital, MatrixProgram, MatrixStudent } from "@eva/core/gradeMatrix/types";
 import { Dot, StudentIds } from "./parts";
@@ -117,7 +117,10 @@ export function DayPopover({
   const day = student.days[dayIndex];
   const hospital = hospitalBy.get(day.hospitalId);
   const where = dayPosition(program, group, dayIndex);
-  const { criteria, maxTotal } = data;
+  const { criteria } = data;
+  // A day graded with earlier criteria is shown out of its own maximums.
+  const maxTotal = ownMax(day, data.maxTotal);
+  const earlier = day.max !== undefined || !!day.maxes?.some((m) => m !== null);
   const graded = day.total !== null;
   const titleId = `pop-${student.id}-${day.dateISO}`;
 
@@ -178,6 +181,14 @@ export function DayPopover({
               <dd>{ATTENDANCE[day.attendance]}</dd>
             </>
           )}
+          {day.quiz && graded && (
+            <>
+              <dt style={{ color: "var(--ink-muted)" }}>الدرجات</dt>
+              <dd>
+                <span className="badge badge-gray">الدرجات المعدّلة (كويز)</span>
+              </dd>
+            </>
+          )}
           {day.dailyNote !== null && graded && (
             <>
               <dt style={{ color: "var(--ink-muted)" }}>الملاحظة اليومية</dt>
@@ -211,21 +222,39 @@ export function DayPopover({
           <div className="flex flex-col gap-2">
             {criteria.map((c, ci) => {
               const v = day.scores![ci];
-              const p = v === null || c.max <= 0 ? 0 : Math.max(0, Math.min(100, (v / c.max) * 100));
+              const max = ownCriterionMax(day, ci, c.max);
+              const p = v === null || max <= 0 ? 0 : Math.max(0, Math.min(100, (v / max) * 100));
               return (
                 <div key={c.id}>
                   <div className="flex justify-between gap-2 text-xs">
                     <span>{c.label}</span>
                     <span className="tnum font-bold">
-                      {fmtScore(v)} <span style={{ color: "var(--ink-muted)", fontWeight: 500 }}>من {c.max}</span>
+                      {fmtScore(v)} <span style={{ color: "var(--ink-muted)", fontWeight: 500 }}>من {max}</span>
                     </span>
                   </div>
                   <div className={styles.bar} aria-hidden>
                     <div className={styles.barFill} style={{ width: `${p}%`, background: p < 60 ? "var(--red-700)" : "var(--brand)" }} />
                   </div>
+                  {day.quiz?.criterionIndex === ci && (
+                    <ul className={styles.quizItems}>
+                      {day.quiz.items.map((i) => (
+                        <li key={i.id}>
+                          <span>{i.label}</span>
+                          <span className="tnum">
+                            {fmtScore(i.score)} <span style={{ color: "var(--ink-muted)" }}>من {i.max}</span>
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
               );
             })}
+            {earlier && (
+              <p className="text-xs" style={{ color: "var(--ink-muted)" }}>
+                قُيّم هذا اليوم بمعايير سابقة: الدرجات من حدودها يوم التقييم، وتُحسب في المعدلات على المعايير الحالية (المجموع من {data.maxTotal}).
+              </p>
+            )}
             <div
               className="flex items-baseline justify-between mt-1 pt-2"
               style={{ borderTop: "1px solid var(--border)" }}

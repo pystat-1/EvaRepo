@@ -9,6 +9,7 @@ import { RecoveryScreen } from "./screens/RecoveryScreen";
 import { StudentsScreen } from "./screens/StudentsScreen";
 import { CoursesScreen } from "./screens/CoursesScreen";
 import { GradingScreen } from "./screens/GradingScreen";
+import { RubricScreen } from "./screens/RubricScreen";
 import { StatisticsScreen } from "./screens/StatisticsScreen";
 import { AuditScreen, EvaluatorsScreen } from "./screens/EvaluatorsScreen";
 import { CommandPalette, type PaletteAction } from "./components/CommandPalette";
@@ -23,12 +24,13 @@ import { startCloudBackups } from "./lib/cloud/cloudBackup";
 import { openFolder, useHealth } from "./lib/health";
 import { HealthBanner } from "./components/HealthBanner";
 
-// The admin app's screens. Ctrl+1..7 jumps to them; Ctrl+K opens the
+// The admin app's screens. Ctrl+1..9 jumps to them; Ctrl+K opens the
 // command palette.
 const TABS = [
   { key: "students", label: "الطلاب" },
   { key: "courses", label: "الدورات والجدول" },
   { key: "grading", label: "مركز الدرجات" },
+  { key: "rubric", label: "مركز المعايير" },
   { key: "statistics", label: "الإحصائيات" },
   { key: "evaluators", label: "المقيّمون" },
   { key: "sync", label: "المزامنة" },
@@ -173,6 +175,7 @@ function Ready({
             {tab === "students" && <StudentsScreen openStudentId={openStudent} onOpened={() => setOpenStudent(null)} />}
             {tab === "courses" && <CoursesScreen />}
             {tab === "grading" && <GradingScreen />}
+            {tab === "rubric" && <RubricScreen />}
             {tab === "statistics" && <StatisticsScreen />}
             {tab === "evaluators" && <EvaluatorsScreen />}
             {tab === "sync" && <SyncScreen />}

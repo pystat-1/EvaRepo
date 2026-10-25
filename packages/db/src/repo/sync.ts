@@ -28,6 +28,7 @@ import { currentCourse } from "./students";
 import { autoName, listEvaluators } from "./evaluators";
 import { listHolidays } from "./courses";
 import { unitNamesByStudent } from "./units";
+import { ensureRubricVersion, rubricOfVersion, rubricWithItems } from "./rubric";
 
 // ---- publishing ----------------------------------------------------------
 
@@ -36,21 +37,6 @@ export interface PublishedEvaluator {
   email: string;
   name: string;
   active: boolean;
-}
-
-async function rubricWithItems(r: Repo) {
-  const sections = (await r.db.select().from(t.rubricSections).where(eq(t.rubricSections.active, true))).sort((a, b) => a.sortOrder - b.sortOrder);
-  const items = await r.db.select().from(t.rubricItems).where(eq(t.rubricItems.active, true));
-  return sections.map((s) => ({
-    id: s.id,
-    labelAr: s.labelAr,
-    labelEn: s.labelEn,
-    maxScore: s.maxScore,
-    items: items
-      .filter((i) => i.sectionId === s.id)
-      .sort((a, b) => a.sortOrder - b.sortOrder)
-      .map((i) => ({ id: i.id, labelAr: i.labelAr, labelEn: i.labelEn, maxScore: i.maxScore, kind: i.kind })),
-  }));
 }
 
 /** Everything the relay needs: evaluator logins and one bundle per active evaluator. */
@@ -63,6 +49,8 @@ export async function buildPublication(r: Repo): Promise<{ evaluators: Published
   if (!course) return { evaluators, bundles: [] };
 
   const rubric = await rubricWithItems(r);
+  // Kept on this computer, so a day graded with these criteria is checked against them later.
+  const rubricVersion = await ensureRubricVersion(r, rubric);
   const assignments = await r.db
     .select()
     .from(t.evaluatorAssignments)
@@ -115,6 +103,7 @@ export async function buildPublication(r: Repo): Promise<{ evaluators: Published
         .sort((a, b) => a.startDate.localeCompare(b.startDate) || a.groupId.localeCompare(b.groupId)),
       holidays,
       rubric,
+      rubricVersion,
       // Days graded at this evaluator's hospitals for their groups.
       history: history.filter((d) => myGroups.has(d.groupId) && d.hospitalId !== null && hospitalIds.has(d.hospitalId)),
       ...(acc.supervisor ? { team } : {}),
@@ -432,9 +421,13 @@ export async function applyDaySubmission(r: Repo, pulled: PulledSubmission, forc
   // The student each record grades here (null: a hosted student not registered here).
   const target = (rec: DaySubmission["records"][number]) => (rec.guest ? registeredId.get(rec.studentId)! : rec.studentId);
 
-  // Scores: validated against the desktop's own rubric (a modified day:
-  // discussion 2.5 + 2.5 + quiz 2, same section maximum).
-  const ownRubric = await rubricWithItems(r);
+  // Scores: validated against the criteria the day was graded with (the
+  // version in the phone's bundle, kept since it was published), or the
+  // current ones for phones that do not say. A modified day: discussion
+  // 2.5 + 2.5 + quiz 2, same section maximum.
+  const versioned = sub.rubricVersion ? await rubricOfVersion(r, sub.rubricVersion) : null;
+  const ownRubric = versioned ?? (await rubricWithItems(r));
+  const rubricVersion = versioned ? sub.rubricVersion! : null;
   if (sub.scoring === "modified" && !canModify(ownRubric)) return reject("الدرجات المعدّلة غير متاحة: لا يوجد في المعيار بندا المناقشة الجماعية ومناقشة الحالة");
   const rubric = rubricFor(ownRubric, sub.scoring);
   const sections = rubric.map((s) => ({ id: s.id, labelAr: s.labelAr, maxScore: s.maxScore, items: s.items }));
@@ -527,6 +520,7 @@ export async function applyDaySubmission(r: Repo, pulled: PulledSubmission, forc
       lockedById: evaluator.id,
       courseId: group.courseId,
       lastSubmissionId: sub.clientId,
+      rubricVersion,
       updatedAt: stamp,
     };
     plan.add(

@@ -23,6 +23,8 @@ export interface EvaluationRow {
   sections: Record<string, number>; // rubricSectionId -> score
   /** rubricItemId -> score (null for older grades recorded by section only). */
   items: Record<string, number> | null;
+  /** The criteria it was graded with (rubric_versions), when the phone said. */
+  rubricVersion: number | null;
 }
 
 export interface EvaluationFilter {
@@ -86,6 +88,7 @@ export async function listEvaluations(r: Repo, f: EvaluationFilter = {}, limit?:
       locked: t.evaluations.locked,
       notes: t.evaluations.notes,
       items: t.evaluations.itemScores,
+      rubricVersion: t.evaluations.rubricVersion,
       studentName: t.students.nameAr,
       universityNumber: t.students.universityNumber,
       groupName: t.groups.name,

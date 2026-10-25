@@ -74,6 +74,20 @@ describe("grading", () => {
     ]);
   });
 
+  it("sends the criteria version, and only marks for the bundle's criteria", () => {
+    // A draft begun before «مركز المعايير» changed: item "old" is gone, rs9 kept.
+    const d = draft({
+      s1: { attendance: "present", dailyNote: true, scores: { dn: 4, old: 1, a: 0.25, rs9: 2 }, touched: true },
+      s2: { attendance: "absent", dailyNote: null, scores: {}, touched: false },
+    });
+    const sub = buildSubmission({ ...bundle, rubricVersion: 3 }, d, "cid-v", new Date("2026-10-04T10:00:00Z"));
+    expect(checkDaySubmission(sub)).toBeNull();
+    expect(sub.rubricVersion).toBe(3);
+    expect(sub.records[0].scores).toEqual({ dn: 4, a: 0.25, rs9: 2 });
+    expect(buildSubmission(bundle, d, "cid-w", new Date()).rubricVersion).toBeUndefined();
+    expect(checkDaySubmission({ ...sub, rubricVersion: 0 })).toMatch(/إصدار المعايير/);
+  });
+
   it("finds unvalidated drafts from earlier days", () => {
     const old = { ...draft({}), dateISO: "2026-10-01" };
     const today = { ...draft({}), dateISO: "2026-10-04" };

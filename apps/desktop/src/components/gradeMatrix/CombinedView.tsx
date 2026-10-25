@@ -2,7 +2,7 @@
 import { Fragment, useMemo, type ReactNode } from "react";
 import {
   averageOf,
-  counts,
+  criterionAverage,
   criterionDay,
   dateLayout,
   dayMatches,
@@ -67,7 +67,7 @@ export function CombinedView(
 
   const hospitals = useMemo(() => programHospitals(program, hospitalOrder), [program, hospitalOrder]);
   // Worked out only for the students actually drawn (a big course draws in steps).
-  const stats = useMemo(() => lazyStats(program, criteria.length, maxTotal), [program, criteria.length, maxTotal]);
+  const stats = useMemo(() => lazyStats(program, criteria.length, maxTotal, criteria.map((c) => c.max)), [program, criteria, maxTotal]);
 
   const layout: Layout | null = useMemo(() => {
     if (isSum) return null;
@@ -237,7 +237,7 @@ export function CombinedView(
             {layout.columns.map((col, c) => {
               const i = slots[c];
               if (i === null || i === undefined) return <div key={col.key} className={styles.cellEmpty} aria-hidden />;
-              const a = averageOf(g.students.map((s) => asShown(s.days[i])));
+              const a = averageOf(g.students.map((s) => asShown(s.days[i])), cellMax);
               return (
                 <NumCell
                   key={col.key}
@@ -323,11 +323,7 @@ export function CombinedView(
                 layout &&
                 criteria.map((crit, ci) => {
                   const cr = r + 1 + ci;
-                  const vals = inScope
-                    .filter(counts)
-                    .map((d) => d.scores?.[ci])
-                    .filter((v): v is number => typeof v === "number");
-                  const avg = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+                  const avg = criterionAverage(inScope, ci, crit.max);
                   return (
                     <div key={crit.id} className={styles.critRow} style={{ gridTemplateColumns: cols }}>
                       <div className={`${styles.critLabel} ${styles.stickyStart}`}>
@@ -383,7 +379,7 @@ export function CombinedView(
 }
 
 function PeriodSummary({ days, maxTotal, coursePct }: { days: MatrixDay[]; maxTotal: number; coursePct: number | null }) {
-  const avg = averageOf(days);
+  const avg = averageOf(days, maxTotal);
   const decided = days.filter((d) => d.state === "ok" || d.state === "late" || d.state === "disputed" || d.state === "absent");
   const attended = decided.filter((d) => d.state !== "absent").length;
   return (

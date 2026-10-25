@@ -43,6 +43,8 @@ export interface EvaluatorBundle {
     maxScore: number;
     items: Array<{ id: string; labelAr: string; labelEn?: string | null; maxScore: number; kind: "check" | "number" }>;
   }>;
+  /** The desktop's number for this set of criteria (rubric_versions); sent back with each day. Optional: older bundles have none. */
+  rubricVersion?: number;
   /**
    * Validated days already on the desktop for this evaluator's groups at
    * their hospitals (theirs and a colleague's): previous assessments, the
@@ -166,6 +168,8 @@ export interface DaySubmission {
   validatedAt: string; // phone clock, informational only
   /** «الدرجات المعدّلة»: discussion 2.5 + 2.5 + quiz 2 (grading/scoring.ts). Absent = standard. */
   scoring?: ScoringMode;
+  /** The criteria the day was graded with (EvaluatorBundle.rubricVersion). Absent: the desktop's current ones. */
+  rubricVersion?: number;
   records: DayRecord[];
 }
 
@@ -332,6 +336,7 @@ export function checkDaySubmission(s: unknown): string | null {
   if (d.kind !== "day") return "نوع غير معروف";
   if (!isScoring(d.scoring)) return "نوع الدرجات غير معروف";
   if (!isStr(d.clientId, 80) || !isStr(d.groupId, 80) || !isStr(d.bundleVersion, 80)) return "حقول ناقصة";
+  if (d.rubricVersion !== undefined && (typeof d.rubricVersion !== "number" || !Number.isInteger(d.rubricVersion) || d.rubricVersion < 1)) return "إصدار المعايير غير صالح";
   if (typeof d.dateISO !== "string" || !ISO_DAY.test(d.dateISO)) return "تاريخ غير صالح";
   if (!Array.isArray(d.records) || d.records.length === 0 || d.records.length > 300) return "لا توجد سجلات";
   for (const r of d.records as unknown[]) {

@@ -14,6 +14,18 @@ export function cx(...parts: (string | false | null | undefined)[]): string {
   return parts.filter(Boolean).join(" ");
 }
 
+// Under a day's discussion score in the sheets: the quiz of a «الدرجات المعدّلة» day.
+export function QuizNote({ day, ci }: { day: MatrixDay; ci: number }) {
+  const q = day.quiz;
+  if (!q || q.criterionIndex !== ci) return null;
+  const quiz = q.items.find((i) => i.id === "quiz");
+  return (
+    <span className={styles.quizSub} title={`الدرجات المعدّلة: ${q.items.map((i) => `${i.label} ${fmtScore(i.score)} من ${i.max}`).join("، ")}`}>
+      كويز {fmtScore(quiz?.score ?? null)}
+    </span>
+  );
+}
+
 export function Dot({ color }: { color: string }) {
   return <span aria-hidden className={styles.dot} style={{ background: color }} />;
 }

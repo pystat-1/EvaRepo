@@ -32,7 +32,7 @@ export function RotationView(p: ViewProps) {
     [program, hospitalOrder, maxTotal]
   );
   // Worked out only for the students actually drawn (a big course draws in steps).
-  const stats = useMemo(() => lazyStats(program, C, maxTotal), [program, C, maxTotal]);
+  const stats = useMemo(() => lazyStats(program, C, maxTotal, criteria.map((c) => c.max)), [program, C, maxTotal, criteria]);
 
   const dayW = crit ? C * CRIT_W + DAY_TOTAL_W : 66;
   const widths = [STUDENT_COL, ...layout.columns.map((c) => (c.kind === "day" ? dayW : 70)), 64, 56];

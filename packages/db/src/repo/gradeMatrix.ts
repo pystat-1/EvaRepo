@@ -5,12 +5,15 @@
 // but has not validated shows as "awaiting".
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { todayISO } from "@eva/core/date";
+import { round2 } from "@eva/core/grading/validation";
 import { compareArabic } from "@eva/core/text/arabic";
 import { withMakeupDays } from "@eva/core/schedule/holidays";
 import { HOSPITAL_PALETTE, SUBMIT_WINDOW_DAYS, addDays, asAttendance, groupDates, resolveDayState } from "@eva/core/gradeMatrix/build";
-import type { GradeMatrixData, MatrixDay, MatrixGroup, MatrixHospital, MatrixStint, ProgramId } from "@eva/core/gradeMatrix/types";
+import { discussionSection, rubricFor, scoringOf } from "@eva/core/grading/scoring";
+import type { GradeMatrixData, MatrixDay, MatrixGroup, MatrixHospital, MatrixQuiz, MatrixStint, ProgramId } from "@eva/core/gradeMatrix/types";
 import * as t from "../schema";
 import { type Repo } from "./common";
+import { rubricWithItems } from "./rubric";
 
 const PROGRAM_LABEL: Record<ProgramId, string> = { MORNING: "البرنامج الصباحي", EVENING: "البرنامج المسائي", NONE: "بدون وردية" };
 const DEFAULT_DAYS = "SUN,MON,TUE,WED,THU";
@@ -79,6 +82,8 @@ export async function gradeMatrix(r: Repo, courseId: string, today = todayISO())
         attendance: t.evaluations.attendance, total: t.evaluations.total, dailyNote: t.evaluations.dailyNoteSubmitted, locked: t.evaluations.locked,
         notes: t.evaluations.notes, feedback: t.evaluations.feedback, pending: t.evaluations.pendingValidation, status: t.evaluations.status,
         updatedAt: t.evaluations.updatedAt, evaluatorName: t.accounts.name,
+        // Item scores only for «الدرجات المعدّلة» days (they hold a quiz): parsing every grade's JSON is slow.
+        quizItems: sql<string | null>`CASE WHEN ${t.evaluations.itemScores} LIKE '%"quiz"%' THEN ${t.evaluations.itemScores} END`,
         // One string per evaluation ("sectionId=score,…"): a full course has
         // ~5 scores per grade, and one row per grade is far cheaper to read.
         scores: sql<string | null>`(SELECT group_concat(${t.evaluationScores.rubricSectionId} || '=' || ${t.evaluationScores.score}, ',') FROM ${t.evaluationScores} WHERE ${t.evaluationScores.evaluationId} = ${t.evaluations.id})`,
@@ -95,6 +100,15 @@ export async function gradeMatrix(r: Repo, courseId: string, today = todayISO())
     : [];
   const holidays = await r.db.select({ dateISO: t.courseHolidays.dateISO, label: t.courseHolidays.label, movedTo: t.courseHolidays.movedTo }).from(t.courseHolidays).where(eq(t.courseHolidays.courseId, courseId));
 
+  // «الدرجات المعدّلة» days: the discussion criterion split 2.5 + 2.5 + quiz 2.
+  const modified = rubricFor(await rubricWithItems(r), "modified");
+  const discussion = discussionSection(modified);
+  const discussionIndex = discussion ? criteriaIndex.get(discussion.id) : undefined;
+  const quizOf = (items: Record<string, number> | null): MatrixQuiz | null =>
+    discussion && discussionIndex !== undefined && scoringOf(items) === "modified"
+      ? { criterionIndex: discussionIndex, items: discussion.items.map((i) => ({ id: i.id, label: i.labelAr, max: i.maxScore, score: items?.[i.id] ?? null })) }
+      : null;
+
   const scoresBy = new Map<string, (number | null)[]>();
   for (const e of evaluations) {
     if (!e.scores || e.pending) continue;
@@ -106,6 +120,37 @@ export async function gradeMatrix(r: Repo, courseId: string, today = todayISO())
     }
     scoresBy.set(e.id, row);
   }
+
+  // A grade given with earlier criteria (another maximum, or a criterion
+  // turned off since) keeps them: its own total maximum is the sum of its
+  // scores' maximums when graded. Only those grades are read again, so a
+  // course whose criteria never changed pays one quick query.
+  const maxesBy = new Map<string, { max?: number; maxes?: (number | null)[] }>();
+  const earlierIds = (
+    await r.db.all<[string]>(
+      sql`SELECT DISTINCT es.evaluationId FROM ${t.evaluationScores} es JOIN ${t.rubricSections} rs ON rs.id = es.rubricSectionId
+          WHERE es.maxScoreAtTime IS NOT NULL AND (rs.active = 0 OR abs(es.maxScoreAtTime - rs.maxScore) > 0.001)`
+    )
+  ).map((x) => x[0]);
+  const earlier = await inChunks(earlierIds, (ids) =>
+    r.db
+      .select({ id: t.evaluationScores.evaluationId, sectionId: t.evaluationScores.rubricSectionId, max: t.evaluationScores.maxScoreAtTime })
+      .from(t.evaluationScores)
+      .where(inArray(t.evaluationScores.evaluationId, ids))
+  );
+  const earlierBy = new Map<string, typeof earlier>();
+  for (const x of earlier) earlierBy.set(x.id, [...(earlierBy.get(x.id) ?? []), x]);
+  for (const [id, rows] of earlierBy) {
+    if (rows.some((x) => x.max === null)) continue; // not all known: shown with the current maximums
+    const maxes: (number | null)[] = criteria.map(() => null);
+    for (const x of rows) {
+      const ci = criteriaIndex.get(x.sectionId);
+      if (ci !== undefined && round2(x.max!) !== round2(criteria[ci].max)) maxes[ci] = x.max;
+    }
+    const own = round2(rows.reduce((a, x) => a + x.max!, 0));
+    maxesBy.set(id, { ...(own !== round2(maxTotal) ? { max: own } : {}), ...(maxes.some((m) => m !== null) ? { maxes } : {}) });
+  }
+
   const evalBy = new Map(evaluations.map((e) => [`${e.studentId}|${e.dateISO}`, e]));
   const attendanceBy = new Map(attendance.map((a) => [`${a.studentId}|${a.dateISO}`, a]));
   const validatedDays = new Set(workDays.filter((w) => w.validatedAt).map((w) => `${w.groupId}|${w.dateISO}`));
@@ -160,6 +205,8 @@ export async function gradeMatrix(r: Repo, courseId: string, today = todayISO())
       locked: e?.locked ?? false,
       savedAt: e?.updatedAt ?? null,
       holidayLabel,
+      quiz: visible && e.quizItems ? quizOf(JSON.parse(e.quizItems) as Record<string, number>) : null,
+      ...(visible ? maxesBy.get(e.id) : undefined),
     };
   }
 

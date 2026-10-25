@@ -162,6 +162,11 @@ export function missing(bundle: EvaluatorBundle, groupId: string, draft: Draft |
 
 /** The package sent to the relay when the evaluator validates (اعتماد) the day. */
 export function buildSubmission(bundle: EvaluatorBundle, draft: Draft, clientId: string, now: Date): DaySubmission {
+  // Only marks for the criteria in this bundle: a draft begun before the
+  // criteria changed («مركز المعايير») may still hold an item that is gone.
+  const graded = rubricFor(bundle.rubric, draft.scoring);
+  const known = new Set(graded.flatMap((s) => (s.items.length ? s.items.map((i) => i.id) : [s.id])));
+  const current = (scores: Record<string, number>) => Object.fromEntries(Object.entries(scores).filter(([k]) => known.has(k)));
   return {
     clientId,
     kind: "day",
@@ -171,6 +176,7 @@ export function buildSubmission(bundle: EvaluatorBundle, draft: Draft, clientId:
     bundleVersion: bundle.version,
     validatedAt: now.toISOString(),
     ...(draft.scoring === "modified" ? { scoring: "modified" as const } : {}),
+    ...(bundle.rubricVersion ? { rubricVersion: bundle.rubricVersion } : {}),
     records: dayStudents(bundle, draft.groupId, draft.guests).map((s) => {
       const r = draft.rows[s.id]!;
       const absent = r.attendance === "absent";
@@ -178,7 +184,7 @@ export function buildSubmission(bundle: EvaluatorBundle, draft: Draft, clientId:
         studentId: s.id,
         attendance: r.attendance!,
         dailyNote: absent ? null : r.dailyNote,
-        scores: absent ? {} : r.scores,
+        scores: absent ? {} : current(r.scores),
         ...(r.notes?.trim() ? { notes: r.notes.trim() } : {}),
         ...(s.guest ? { guest: s.guest } : {}),
       };

@@ -374,3 +374,21 @@ describe("cell display", () => {
     expect(sortByStats(rows, stat, "list")).toBe(rows);
   });
 });
+
+describe("days graded with earlier criteria", () => {
+  it("are judged against their own maximum and put on the current scale in averages", async () => {
+    const { averageOf, criterionAverage, isLow, onScale } = await import("./build");
+    const { cellVisual, criterionVisual } = await import("./visual");
+    // 9 of an earlier 15 is 60%: not low, although 9 of today's 17 would be.
+    const old = day({ dateISO: "2026-10-04", hospitalId: "h", state: "ok", total: 9, scores: [3, 6], max: 15, maxes: [5, null] });
+    const now = day({ dateISO: "2026-10-05", hospitalId: "h", state: "ok", total: 17, scores: [6, 11] });
+    expect(isLow(old, 17)).toBe(false);
+    expect(isLow({ ...old, max: undefined }, 17)).toBe(true);
+    expect(cellVisual(old, 17).tag).toBe("");
+    expect(onScale(old, 17)).toBeCloseTo(10.2, 5);
+    expect(averageOf([old, now], 17)).toBeCloseTo((10.2 + 17) / 2, 5);
+    expect(averageOf([old, now])).toBe(13); // raw, as before
+    expect(criterionAverage([old, now], 0, 6)).toBeCloseTo((3.6 + 6) / 2, 5); // 3 of 5 → 3.6 of 6
+    expect(criterionVisual(old, 0, 6).fg).toBe("var(--ink)"); // 3 of 5 = 60%
+  });
+});

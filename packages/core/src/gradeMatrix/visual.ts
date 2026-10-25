@@ -1,7 +1,7 @@
 // How a day looks in the grid: label, short state tag and colors. Every
 // state carries text (a tag or the cell's own label), so color is never
 // the only signal.
-import { fmtScore, heatBg, isLow } from "./build";
+import { fmtScore, heatBg, isLow, ownCriterionMax, ownMax } from "./build";
 import type { DayState, MatrixDay } from "./types";
 
 export interface CellVisual {
@@ -57,7 +57,8 @@ export function cellVisual(day: MatrixDay, maxTotal: number): CellVisual {
       return { ...base, main: "غ", tag: "غائب", bg: "var(--red-100)", fg: RED, tagFg: RED, border: "#e3b9b4" };
   }
   const total = day.total ?? 0;
-  const pct = maxTotal > 0 ? (total / maxTotal) * 100 : null;
+  const own = ownMax(day, maxTotal);
+  const pct = own > 0 ? (total / own) * 100 : null;
   const low = isLow(day, maxTotal);
   const v: CellVisual = { ...base, main: fmtScore(total), bg: heatBg(pct), fg: low ? RED : "var(--ink)" };
   if (low) {
@@ -96,7 +97,8 @@ export function criterionVisual(
   }
   const val = day.scores?.[ci] ?? null;
   if (day.state === "absent" && val === null) return { text: "غ", bg: "var(--red-100)", fg: RED, interactive: true };
-  const pct = val === null || max <= 0 ? null : (val / max) * 100;
+  const own = ownCriterionMax(day, ci, max);
+  const pct = val === null || own <= 0 ? null : (val / own) * 100;
   return {
     text: fmtScore(val),
     bg: day.state === "absent" ? "var(--red-100)" : day.state === "disputed" ? "var(--amber-100)" : heatBg(pct),

@@ -516,7 +516,7 @@ function ImportDialog({ open, courseId, onClose, onDone }: { open: boolean; cour
 
 const ENTITY_AR: Record<string, string> = {
   Student: "طالب", Evaluator: "مقيّم", EvaluatorAssignment: "تكليف مقيّم", Course: "دورة", RotationBlock: "جدول الدوران",
-  Hospital: "مستشفى", Evaluation: "تقييم", Group: "مجموعة",
+  Hospital: "مستشفى", Evaluation: "تقييم", Group: "مجموعة", RubricSection: "معيار", RubricItem: "بند معيار",
 };
 const ACTION_AR: Record<string, string> = { create: "إضافة", update: "تعديل", deactivate: "تعطيل", reactivate: "تفعيل", delete: "حذف", import: "استيراد" };
 

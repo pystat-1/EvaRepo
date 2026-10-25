@@ -44,6 +44,24 @@ export interface MatrixDay {
   locked: boolean;
   savedAt: string | null; // ISO, last write of the evaluation
   holidayLabel: string | null;
+  /** A day graded with «الدرجات المعدّلة»: the discussion criterion's items, quiz included. Desktop only. */
+  quiz?: MatrixQuiz | null;
+  /**
+   * Graded with earlier criteria (another maximum): the day's own total
+   * maximum, and each criterion's (aligned to criteria). Absent: the
+   * current ones. A day shows its own score out of its own maximum;
+   * averages scale it to the current maximum (build.ts onScale). Desktop only.
+   */
+  max?: number;
+  maxes?: (number | null)[];
+}
+
+// The discussion criterion of a «الدرجات المعدّلة» day: group discussion
+// 2.5, case discussion 2.5 and the quiz 2 (grading/scoring.ts); the
+// criterion's score in `scores` is their sum, as on any other day.
+export interface MatrixQuiz {
+  criterionIndex: number; // into GradeMatrixData.criteria
+  items: { id: string; label: string; max: number; score: number | null }[];
 }
 
 // A rotation block: the group is at this hospital from start to end.

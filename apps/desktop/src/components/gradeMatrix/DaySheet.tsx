@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import {
   averageOf,
+  criterionAverage,
   counts,
   dateLayout,
   dayBoard,
@@ -14,7 +15,7 @@ import {
 } from "@eva/core/gradeMatrix/build";
 import { criterionVisual } from "@eva/core/gradeMatrix/visual";
 import type { MatrixDay, MatrixStudent } from "@eva/core/gradeMatrix/types";
-import { DayCell, Dot, EmptyState, StudentIds, cellId } from "./parts";
+import { DayCell, Dot, EmptyState, QuizNote, StudentIds, cellId } from "./parts";
 import { dayAria, groupTitle, visibleStudents, type ViewProps } from "./common";
 import styles from "./gradeMatrix.module.css";
 
@@ -173,10 +174,7 @@ export function DaySheet(p: ViewProps & { column: number; onColumn: (column: num
                 if (rows.length === 0 && (query || filter !== "all")) return null;
                 const decided = days.filter((d) => d.state === "ok" || d.state === "late" || d.state === "absent" || d.state === "disputed").length;
                 const evaluators = Array.from(new Set(days.map((d) => d.evaluatorName).filter((e): e is string => !!e)));
-                const avgCrit = (ci: number) => {
-                  const vals = days.filter(counts).map((d) => d.scores?.[ci]).filter((v): v is number => typeof v === "number");
-                  return vals.length ? vals.reduce((a, v) => a + v, 0) / vals.length : null;
-                };
+                const avgCrit = (ci: number) => criterionAverage(days, ci, criteria[ci].max);
                 return [
                   <tr key={`${b.groupIndex}h`} className={styles.sheetGroup}>
                     <td colSpan={span} style={{ boxShadow: `inset -4px 0 0 ${hosp?.color ?? "transparent"}` }}>
@@ -214,6 +212,7 @@ export function DaySheet(p: ViewProps & { column: number; onColumn: (column: num
                           return (
                             <td key={c.id} className={styles.sheetNum} style={{ color: v.fg }}>
                               {v.text || "—"}
+                              <QuizNote day={day} ci={ci} />
                             </td>
                           );
                         })}
@@ -243,7 +242,7 @@ export function DaySheet(p: ViewProps & { column: number; onColumn: (column: num
                     {criteria.map((c, ci) => (
                       <td key={c.id}>{fmtScore(avgCrit(ci))}</td>
                     ))}
-                    <td>{fmtScore(averageOf(days))}</td>
+                    <td>{fmtScore(averageOf(days, maxTotal))}</td>
                     <td colSpan={3} className={styles.sheetStart}>
                       غياب {days.filter((d) => d.state === "absent").length} · ناقص {days.filter((d) => d.state === "missing").length}
                     </td>

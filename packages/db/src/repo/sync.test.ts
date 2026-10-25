@@ -330,3 +330,61 @@ describe("applyDaySubmission — «الدرجات المعدّلة»", () => {
     expect(stray.outcome).toBe("rejected");
   });
 });
+
+describe("criteria versions («مركز المعايير»)", () => {
+  // The daily note goes from 5 to 6 and a criterion «المهارات» of 1 is added: 15 → 17.
+  async function changeCriteria(r: Awaited<ReturnType<typeof seeded>>) {
+    const { rubricCenter, saveRubric } = await import("./rubric");
+    const { sections } = await rubricCenter(r);
+    sections[0].maxScore = 6;
+    sections[0].items[0].maxScore = 6;
+    sections.push({ labelAr: "المهارات", labelEn: null, maxScore: 1, active: true, items: [] });
+    await saveRubric(r, sections);
+  }
+
+  it("each set of criteria sent to the phones gets a number, kept across publications", async () => {
+    const r = await seeded(1);
+    const v1 = (await buildPublication(r)).bundles[0].rubricVersion!;
+    expect(v1).toBeGreaterThan(0);
+    expect((await buildPublication(r)).bundles[0].rubricVersion).toBe(v1);
+    await changeCriteria(r);
+    const v2 = (await buildPublication(r)).bundles[0].rubricVersion!;
+    expect(v2).not.toBe(v1);
+    expect(await r.db.select().from(t.rubricVersions)).toHaveLength(2);
+  });
+
+  it("a day graded before the change is accepted and kept with the criteria it was graded with", async () => {
+    const r = await seeded(2);
+    const v1 = (await buildPublication(r)).bundles[0].rubricVersion!;
+    await changeCriteria(r);
+    await buildPublication(r);
+
+    const res = await applyDaySubmission(r, pulled(day({ rubricVersion: v1 })));
+    expect(res.outcome).toBe("applied");
+    const [e] = await r.db.select().from(t.evaluations).where(and(eq(t.evaluations.studentId, "s1"), eq(t.evaluations.dateISO, "2026-10-04")));
+    expect(e.rubricVersion).toBe(v1);
+    expect(e.total).toBe(11.75);
+    const note = await r.db.select().from(t.evaluationScores).where(and(eq(t.evaluationScores.evaluationId, e.id), eq(t.evaluationScores.rubricSectionId, "rs0")));
+    expect(note[0].maxScoreAtTime).toBe(5);
+
+    // Without a version (an older phone), or one this computer never published: the current criteria.
+    for (const [clientId, rubricVersion] of [["c-2", undefined], ["c-3", 999]] as const) {
+      const now = await applyDaySubmission(r, pulled(day({ clientId, dateISO: "2026-10-05", rubricVersion })));
+      expect(now.outcome).toBe("rejected");
+      expect(now.message).toContain("المهارات");
+    }
+
+    // The Grading Center shows it out of its own 15 and scales it in averages to 17.
+    const { gradeMatrix } = await import("./gradeMatrix");
+    const { studentStats } = await import("@eva/core/gradeMatrix/build");
+    const m = await gradeMatrix(r, IDS.course, "2026-10-20");
+    expect(m.maxTotal).toBe(17);
+    const s1 = m.programs[0].groups[0].students.find((s) => s.id === "s1")!;
+    const d = s1.days.find((x) => x.dateISO === "2026-10-04")!;
+    expect(d.max).toBe(15);
+    expect(d.maxes![m.criteria.findIndex((c) => c.id === "rs0")]).toBe(5);
+    const st = studentStats(s1.days, m.criteria.length, m.maxTotal, m.criteria.map((c) => c.max));
+    expect(st.avg).toBeCloseTo((11.75 * 17) / 15, 5);
+    expect(st.critAvg[0]).toBeCloseTo((4.5 * 6) / 5, 5); // the daily note: 4.5 of 5 → 5.4 of 6
+  });
+});

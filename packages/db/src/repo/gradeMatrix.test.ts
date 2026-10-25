@@ -44,4 +44,21 @@ describe("gradeMatrix", () => {
     expect(day("s1", "2026-10-15").state).toBe("pending"); // within the 7-day window
     expect(day("s1", "2026-10-28").state).toBe("future");
   });
+
+  it("gives a «الدرجات المعدّلة» day its discussion items and quiz", async () => {
+    const r = await seeded(2);
+    const g = groupId("MORNING", 1);
+    await addEvaluation(r, { id: "v1", studentId: "s1", dateISO: "2026-10-04", scores: [5, 6.25, 1, 1, 1], groupId: g });
+    await addEvaluation(r, { id: "v2", studentId: "s2", dateISO: "2026-10-04", scores: [5, 7, 1, 1, 1], groupId: g });
+    await r.db.update(t.evaluations).set({ itemScores: { "ri-gdisc": 2.25, "ri-cdisc": 2.5, quiz: 1.5 } }).where(eq(t.evaluations.id, "v1"));
+
+    const m = await gradeMatrix(r, IDS.course, "2026-10-20");
+    const ci = m.criteria.findIndex((c) => c.max === 7);
+    const day = (sid: string) => m.programs[0].groups[0].students.find((s) => s.id === sid)!.days[0];
+    expect(day("s1").quiz).toMatchObject({ criterionIndex: ci });
+    expect(day("s1").quiz!.items.map((i) => [i.id, i.max, i.score])).toEqual(
+      expect.arrayContaining([["ri-gdisc", 2.5, 2.25], ["ri-cdisc", 2.5, 2.5], ["quiz", 2, 1.5]])
+    );
+    expect(day("s2").quiz).toBeNull();
+  });
 });
